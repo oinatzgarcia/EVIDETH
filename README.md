@@ -1,7 +1,7 @@
 # EVIDETH
 🔐 EVIDETH - Forensic Video Integrity Verification System using cryptographic hashing (SHA-256) and ECDSA signatures.
 <div align="center">
-  <img src="Docs/Images/Logo.png" alt="EVIDETH Logo" width="180"/>
+  <img src="Docs/Images/Logo.png" alt="EVIDETH Logo" width="360"/>
   
   # EVIDETH
   ### Forensic Video Integrity Verification System
