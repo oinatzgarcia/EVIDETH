@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVIDETH - Forensic Video Integrity System</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="../../LOGO/Buho.png" sizes="59x59">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'evideth': {
+                            'blue': '#4a90e2',
+                            'blue-bright': '#5ba3f5',
+                            'blue-dark': '#2c5f8d',
+                        }
+                    },
+                    fontFamily: {
+                        'sans': ['Rajdhani', 'system-ui', 'sans-serif'],
+                        'mono': ['Space Mono', 'monospace'],
+                    },
+                    animation: {
+                        'pulse-subtle': 'pulseSubtle 3s ease-in-out infinite',
+                        'float': 'float 6s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        pulseSubtle: {
+                            '0%, 100%': { opacity: '0.6' },
+                            '50%': { opacity: '1' }
+                        },
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0px)' },
+                            '50%': { transform: 'translateY(-10px)' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background: #000000;
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+        
+        /* Particle field */
+        .particle-field {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            overflow: hidden;
+            background: #000000;
+        }
+        
+        .particle {
+            position: absolute;
+            background: radial-gradient(circle, rgba(74, 144, 226, 0.8) 0%, rgba(91, 163, 245, 0.4) 50%, transparent 100%);
+            border-radius: 50%;
+            pointer-events: none;
+            transition: all 0.3s ease-out;
+        }
+        
+        /* Subtle grid */
+        .subtle-grid {
+            background-image: 
+                linear-gradient(rgba(74, 144, 226, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(74, 144, 226, 0.05) 1px, transparent 1px);
+            background-size: 60px 60px;
+            background-color: #000000;
+        }
+        
+        /* Card backgrounds */
+        .card-bg {
+            background-color: #0a0a0a;
+        }
+        
+        /* Text glow */
+        .text-glow {
+            text-shadow: 0 0 10px rgba(74, 144, 226, 0.6),
+                         0 0 20px rgba(74, 144, 226, 0.4);
+        }
+        
+        /* Logo glow effect */
+        .logo-glow {
+            filter: drop-shadow(0 0 8px rgba(74, 144, 226, 0.4));
+            transition: all 0.5s ease;
+        }
+        
+        .logo-glow:hover {
+            filter: drop-shadow(0 0 15px rgba(74, 144, 226, 0.7));
+        }
+        
+        /* Border glow */
+        .border-glow {
+            border: 1px solid rgba(74, 144, 226, 0.25);
+            transition: all 0.3s ease;
+        }
+        
+        .border-glow:hover {
+            border-color: rgba(74, 144, 226, 0.6);
+            box-shadow: 0 0 15px rgba(74, 144, 226, 0.2);
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #000000;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #4a90e2;
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #5ba3f5;
+        }
+        
+        /* Scan line */
+        .scan-line {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(74, 144, 226, 0.5), transparent);
+            animation: scan 4s linear infinite;
+            z-index: 1000;
+            pointer-events: none;
+        }
+        
+        @keyframes scan {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(100vh); }
+        }
+        
+        /* Pulse animation */
+        .pulse-dot {
+            animation: pulseSubtle 2s ease-in-out infinite;
+        }
+    </style>
+</head>
+
+<body class="subtle-grid" x-data="{
+    uploading: false,
+    progress: 0,
+    verifying: false,
+    result: null,
+    
+    startUpload() {
+        this.uploading = true;
+        this.progress = 0;
+        
+        const interval = setInterval(() => {
+            this.progress += 5;
+            if (this.progress >= 100) {
+                clearInterval(interval);
+                this.uploading = false;
+                this.startVerification();
+            }
+        }, 100);
+    },
+    
+    startVerification() {
+        this.verifying = true;
+        setTimeout(() => {
+            this.verifying = false;
+            this.result = Math.random() > 0.5 ? 'verified' : 'tampered';
+        }, 3000);
+    },
+    
+    reset() {
+        this.result = null;
+        this.uploading = false;
+        this.verifying = false;
+        this.progress = 0;
+    }
+}">
+
+    <!-- Particle field -->
+    <div class="particle-field" id="particleField"></div>
+    
+    <!-- Scan line -->
+    <div class="scan-line"></div>
+
+    <!-- Header -->
+    <header class="relative border-b" style="border-color: #2c5f8d; background-color: #000000;">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-20">
+                
+                <!-- Logo -->
+                <div class="flex items-center space-x-4 group cursor-pointer">
+                    <div class="relative animate-float">
+                        <!-- LOGO BÚHO -->
+                        <img src="../../LOGO/Buho.png" alt="EVIDETH Logo" class="w-20 h-20 logo-glow object-contain">
+                    </div>
+                    <div>
+                        <h1 class="text-3xl font-bold tracking-[0.3em] text-glow font-mono" style="color: #4a90e2;">EVIDETH</h1>
+                        <p class="text-[10px] tracking-[0.2em] uppercase font-mono" style="color: #6b7280;">Forensic System v2.0</p>
+                    </div>
+                </div>
+                
+                <!-- Navigation -->
+                <nav class="hidden md:flex items-center space-x-8 font-mono text-sm">
+                    <a href="#" class="font-semibold transition-colors duration-300" style="color: #4a90e2;">Dashboard</a>
+                    <a href="#" class="transition-colors duration-300" style="color: #6b7280;">Cameras</a>
+                    <a href="#" class="transition-colors duration-300" style="color: #6b7280;">Logs</a>
+                    <a href="#" class="transition-colors duration-300" style="color: #6b7280;">Settings</a>
+                </nav>
+                
+                <!-- System Status -->
+                <div class="flex items-center space-x-4">
+                    <div class="hidden lg:flex items-center space-x-2 px-4 py-2 border" style="border-color: #2c5f8d; background-color: #000000;">
+                        <div class="relative w-2 h-2">
+                            <div class="absolute w-2 h-2 rounded-full pulse-dot" style="background-color: #4a90e2;"></div>
+                        </div>
+                        <span class="text-xs font-mono" style="color: #4a90e2;">System Online</span>
+                    </div>
+                    <div class="w-10 h-10 border flex items-center justify-center transition-colors duration-300 cursor-pointer" style="border-color: #2c5f8d; background-color: #000000; color: #4a90e2;">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                        </svg>
+                    </div>
+                </div>
+                
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        
+        <!-- Title Section -->
+        <div class="mb-12 text-center">
+            <div class="inline-block mb-4">
+                <div class="flex items-center justify-center space-x-2 font-mono text-sm mb-2" style="color: #5ba3f5;">
+                    <span class="w-12 h-px" style="background: linear-gradient(to right, transparent, #4a90e2);"></span>
+                    <span class="tracking-widest text-xs">Security Level: Maximum</span>
+                    <span class="w-12 h-px" style="background: linear-gradient(to left, transparent, #4a90e2);"></span>
+                </div>
+            </div>
+            <h2 class="text-5xl font-bold mb-4 tracking-wider" style="color: #ffffff;">Video Integrity<br/><span class="text-glow" style="color: #4a90e2;">Verification System</span></h2>
+            <p class="font-mono text-sm tracking-wide" style="color: #9ca3af;">SHA-256 Hashing · ECDSA P-256 Signatures · Forensic Grade</p>
+        </div>
+        
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-12">
+            
+            <!-- Stat 1 -->
+            <div class="card-bg border border-glow p-6 group">
+                <div class="flex items-start justify-between mb-4">
+                    <div class="w-10 h-10 border flex items-center justify-center transition-colors duration-300" style="border-color: #2c5f8d;">
+                        <svg class="w-5 h-5" style="color: #4a90e2;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <span class="text-xs font-mono" style="color: #4a90e2;">↑ 12.5%</span>
+                </div>
+                <h3 class="text-xs font-mono mb-2 tracking-widest uppercase" style="color: #9ca3af;">Verifications</h3>
+                <p class="text-4xl font-bold font-mono" style="color: #4a90e2;">1,247</p>
+                <div class="mt-3 h-px" style="background: linear-gradient(to right, #4a90e2, transparent);"></div>
+            </div>
+            
+            <!-- Stat 2 -->
+            <div class="card-bg border border-glow p-6 group">
+                <div class="flex items-start justify-between mb-4">
+                    <div class="w-10 h-10 border flex items-center justify-center transition-colors duration-300" style="border-color: #2c5f8d;">
+                        <svg class="w-5 h-5" style="color: #4a90e2;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                        </svg>
+                    </div>
+                    <div class="w-2 h-2 rounded-full pulse-dot" style="background-color: #4a90e2;"></div>
+                </div>
+                <h3 class="text-xs font-mono mb-2 tracking-widest uppercase" style="color: #9ca3af;">Cameras Online</h3>
+                <p class="text-4xl font-bold font-mono" style="color: #4a90e2;">08<span class="text-xl" style="color: #6b7280;">/10</span></p>
+                <div class="mt-3 h-px" style="background: linear-gradient(to right, #4a90e2, transparent);"></div>
+            </div>
+            
+            <!-- Stat 3 -->
+            <div class="card-bg border p-6 group" style="border-color: rgba(220, 38, 38, 0.3);">
+                <div class="flex items-start justify-between mb-4">
+                    <div class="w-10 h-10 border flex items-center justify-center transition-colors duration-300" style="border-color: rgba(220, 38, 38, 0.4);">
+                        <svg class="w-5 h-5" style="color: #ef4444;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                    </div>
+                    <span class="text-xs font-mono" style="color: #ef4444;">↓ 5.2%</span>
+                </div>
+                <h3 class="text-xs font-mono mb-2 tracking-widest uppercase" style="color: #9ca3af;">Threats Detected</h3>
+                <p class="text-4xl font-bold font-mono" style="color: #ef4444;">023</p>
+                <div class="mt-3 h-px" style="background: linear-gradient(to right, rgba(220, 38, 38, 0.4), transparent);"></div>
+            </div>
+            
+            <!-- Stat 4 -->
+            <div class="card-bg border border-glow p-6 group">
+                <div class="flex items-start justify-between mb-4">
+                    <div class="w-10 h-10 border flex items-center justify-center transition-colors duration-300" style="border-color: #2c5f8d;">
+                        <svg class="w-5 h-5" style="color: #4a90e2;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/>
+                        </svg>
+                    </div>
+                    <span class="text-xs font-mono" style="color: #6b7280;">78%</span>
+                </div>
+                <h3 class="text-xs font-mono mb-2 tracking-widest uppercase" style="color: #9ca3af;">Storage Used</h3>
+                <p class="text-4xl font-bold font-mono" style="color: #4a90e2;">24.8<span class="text-xl" style="color: #6b7280;">GB</span></p>
+                <div class="mt-3 h-1" style="background-color: #1f2937;">
+                    <div class="h-full transition-all duration-1000" style="width: 78%; background-color: #4a90e2;"></div>
+                </div>
+            </div>
+            
+        </div>
+        
+        <!-- Upload Section -->
+        <div class="card-bg border border-glow p-8 mb-8">
+            <div class="flex items-center justify-between mb-8">
+                <div class="flex items-center space-x-4">
+                    <div class="w-1 h-12" style="background-color: #4a90e2;"></div>
+                    <div>
+                        <h2 class="text-2xl font-bold tracking-wide font-mono" style="color: #4a90e2;">Video Verification Module</h2>
+                        <p class="text-sm font-mono mt-1" style="color: #9ca3af;">Upload video file for cryptographic integrity analysis</p>
+                    </div>
+                </div>
+                <div class="font-mono text-xs" style="color: #6b7280;">
+                    <span style="color: #4a90e2;">●</span> System Ready
+                </div>
+            </div>
+            
+            <!-- Upload Area -->
+            <div x-show="!verifying && !result" 
+                 class="relative border-2 border-dashed p-16 text-center group cursor-pointer transition-all duration-500"
+                 style="border-color: rgba(74, 144, 226, 0.3); background-color: #000000;"
+                 @click="$refs.fileInput.click()">
+                
+                <input type="file" x-ref="fileInput" class="hidden" accept="video/*" @change="startUpload()">
+                
+                <div class="mb-8">
+                    <svg class="w-24 h-24 mx-auto transition-all duration-500" style="color: #4b5563;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                </div>
+                
+                <p class="text-xl font-mono mb-2 transition-colors duration-300" style="color: #d1d5db;">Drop Video File Here</p>
+                <p class="text-sm font-mono mb-8" style="color: #6b7280;">Or click to select · Max 500MB</p>
+                
+                <button class="inline-block px-8 py-3 border-2 font-mono text-sm tracking-widest transition-all duration-300" style="border-color: #4a90e2; color: #4a90e2; background-color: transparent;">
+                    Select File
+                </button>
+                
+                <div class="mt-8 pt-8 border-t" style="border-color: rgba(74, 144, 226, 0.2);">
+                    <p class="text-xs font-mono" style="color: #6b7280;">Supported: MP4 · AVI · MOV · MKV</p>
+                </div>
+            </div>
+            
+            <!-- Upload Progress -->
+            <div x-show="uploading" x-transition class="space-y-6">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style="border-color: #4a90e2;"></div>
+                        <span class="font-mono text-sm" style="color: #d1d5db;">Uploading video file...</span>
+                    </div>
+                    <span class="font-mono text-lg" style="color: #4a90e2;" x-text="progress + '%'"></span>
+                </div>
+                <div class="relative h-2" style="background-color: #1f2937;">
+                    <div class="absolute top-0 left-0 h-full transition-all duration-300" style="background-color: #4a90e2;" :style="'width: ' + progress + '%'"></div>
+                </div>
+                <div class="grid grid-cols-3 gap-4 text-xs font-mono" style="color: #6b7280;">
+                    <div>File: video_sample.mp4</div>
+                    <div>Size: 125.4 MB</div>
+                    <div>Speed: 2.4 MB/s</div>
+                </div>
+            </div>
+            
+            <!-- Verification Process -->
+            <div x-show="verifying" x-transition class="py-12 text-center">
+                <div class="inline-flex items-center justify-center w-20 h-20 border-2 mb-6 relative" style="border-color: #4a90e2;">
+                    <div class="absolute inset-0 border-2 animate-pulse-subtle" style="border-color: rgba(74, 144, 226, 0.5);"></div>
+                    <svg class="w-10 h-10 animate-pulse" style="color: #4a90e2;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                    </svg>
+                </div>
+                <h3 class="text-2xl font-bold font-mono mb-2 text-glow" style="color: #4a90e2;">Analyzing Video Integrity</h3>
+                <p class="font-mono text-sm mb-12" style="color: #9ca3af;">Processing cryptographic verification...</p>
+                
+                <div class="max-w-md mx-auto space-y-3 text-left">
+                    <div class="flex items-center space-x-3 font-mono text-sm">
+                        <span style="color: #4a90e2;">▸</span>
+                        <span style="color: #9ca3af;">Extracting metadata</span>
+                        <span class="ml-auto" style="color: #4a90e2;">OK</span>
+                    </div>
+                    <div class="flex items-center space-x-3 font-mono text-sm">
+                        <span class="pulse-dot" style="color: #4a90e2;">▸</span>
+                        <span style="color: #d1d5db;">Segmenting video frames</span>
+                        <span class="ml-auto" style="color: #6b7280;">...</span>
+                    </div>
+                    <div class="flex items-center space-x-3 font-mono text-sm">
+                        <span style="color: #4b5563;">▸</span>
+                        <span style="color: #4b5563;">Calculating SHA-256 hashes</span>
+                        <span class="ml-auto" style="color: #4b5563;">...</span>
+                    </div>
+                    <div class="flex items-center space-x-3 font-mono text-sm">
+                        <span style="color: #4b5563;">▸</span>
+                        <span style="color: #4b5563;">Verifying ECDSA signatures</span>
+                        <span class="ml-auto" style="color: #4b5563;">...</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Results -->
+            <div x-show="result" x-transition>
+                
+                <!-- Success -->
+                <div x-show="result === 'verified'" class="py-12 text-center">
+                    <div class="inline-flex items-center justify-center w-24 h-24 border-2 mb-8 relative" style="border-color: #4a90e2;">
+                        <div class="absolute inset-0 border-2 animate-pulse-subtle" style="border-color: rgba(74, 144, 226, 0.5);"></div>
+                        <svg class="w-12 h-12 relative" style="color: #4a90e2;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-3xl font-bold font-mono mb-3 text-glow" style="color: #4a90e2;">Verification Successful</h3>
+                    <p class="font-mono text-sm mb-12" style="color: #9ca3af;">All cryptographic signatures validated · Video integrity confirmed</p>
+                    
+                    <div class="border p-8 max-w-2xl mx-auto text-left mb-8" style="border-color: rgba(74, 144, 226, 0.3); background-color: #000000;">
+                        <h4 class="font-mono mb-6 tracking-widest text-sm" style="color: #4a90e2;">Verification Report</h4>
+                        <div class="space-y-4 font-mono text-sm">
+                            <div class="flex justify-between pb-2 border-b" style="border-color: rgba(74, 144, 226, 0.2);">
+                                <span style="color: #9ca3af;">Duration:</span>
+                                <span style="color: #4a90e2;">00:02:30</span>
+                            </div>
+                            <div class="flex justify-between pb-2 border-b" style="border-color: rgba(74, 144, 226, 0.2);">
+                                <span style="color: #9ca3af;">Total Segments:</span>
+                                <span style="color: #4a90e2;">05</span>
+                            </div>
+                            <div class="flex justify-between pb-2 border-b" style="border-color: rgba(74, 144, 226, 0.2);">
+                                <span style="color: #9ca3af;">Verified Segments:</span>
+                                <span style="color: #4a90e2;">05 / 05 ✓</span>
+                            </div>
+                            <div class="flex justify-between pb-2 border-b" style="border-color: rgba(74, 144, 226, 0.2);">
+                                <span style="color: #9ca3af;">Camera ID:</span>
+                                <span style="color: #4a90e2;">CAM-001</span>
+                            </div>
+                            <div class="flex justify-between pb-2 border-b" style="border-color: rgba(74, 144, 226, 0.2);">
+                                <span style="color: #9ca3af;">Timestamp:</span>
+                                <span style="color: #4a90e2;">2026-02-17 18:15:32 UTC</span>
+                            </div>
+                            <div class="flex justify-between pb-2">
+                                <span style="color: #9ca3af;">Hash Algorithm:</span>
+                                <span style="color: #4a90e2;">SHA-256</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button @click="reset()" class="px-8 py-3 border-2 font-mono text-sm tracking-widest transition-all duration-300" style="border-color: #4a90e2; color: #4a90e2; background-color: transparent;">
+                        Verify Another Video
+                    </button>
+                </div>
+                
+                <!-- Failure -->
+                <div x-show="result === 'tampered'" class="py-12 text-center">
+                    <div class="inline-flex items-center justify-center w-24 h-24 border-2 mb-8 relative" style="border-color: #ef4444;">
+                        <div class="absolute inset-0 border-2 animate-pulse" style="border-color: rgba(239, 68, 68, 0.5);"></div>
+                        <svg class="w-12 h-12 relative" style="color: #ef4444;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-3xl font-bold font-mono mb-3" style="color: #ef4444;">Tampering Detected</h3>
+                    <p class="font-mono text-sm mb-12" style="color: #9ca3af;">Video integrity compromised · Signature verification failed</p>
+                    
+                    <div class="border p-8 max-w-2xl mx-auto text-left mb-8" style="border-color: rgba(220, 38, 38, 0.3); background-color: #000000;">
+                        <h4 class="font-mono mb-6 tracking-widest text-sm" style="color: #ef4444;">Compromised Segments</h4>
+                        <div class="space-y-2">
+                            <div class="flex items-center justify-between p-3 border" style="background-color: #000000; border-color: rgba(74, 144, 226, 0.2);">
+                                <span class="font-mono text-sm" style="color: #d1d5db;">Segment 1 (00:00 - 00:30)</span>
+                                <span class="font-mono text-xs" style="color: #4a90e2;">Valid</span>
+                            </div>
+                            <div class="flex items-center justify-between p-3 border" style="background-color: rgba(127, 29, 29, 0.15); border-color: rgba(220, 38, 38, 0.4);">
+                                <span class="font-mono text-sm" style="color: #d1d5db;">Segment 2 (00:30 - 01:00)</span>
+                                <span class="font-mono text-xs" style="color: #ef4444;">Tampered</span>
+                            </div>
+                            <div class="flex items-center justify-between p-3 border" style="background-color: #000000; border-color: rgba(74, 144, 226, 0.2);">
+                                <span class="font-mono text-sm" style="color: #d1d5db;">Segment 3 (01:00 - 01:30)</span>
+                                <span class="font-mono text-xs" style="color: #4a90e2;">Valid</span>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-6 p-4 border" style="background-color: rgba(127, 29, 29, 0.08); border-color: rgba(220, 38, 38, 0.3);">
+                            <p class="text-xs font-mono" style="color: #9ca3af;">
+                                ⚠ Warning: This video cannot be used as forensic evidence due to detected integrity violations.
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <button @click="reset()" class="px-8 py-3 border-2 font-mono text-sm tracking-widest transition-all duration-300" style="border-color: #dc2626; color: #ef4444; background-color: transparent;">
+                        Verify Another Video
+                    </button>
+                </div>
+                
+            </div>
+            
+        </div>
+        
+        <!-- Recent Activity -->
+        <div class="card-bg border border-glow p-8">
+            <div class="flex items-center justify-between mb-8">
+                <div class="flex items-center space-x-4">
+                    <div class="w-1 h-12" style="background-color: #4a90e2;"></div>
+                    <h2 class="text-2xl font-bold tracking-wide font-mono" style="color: #4a90e2;">Recent Activity Log</h2>
+                </div>
+                <a href="#" class="font-mono text-xs transition-colors duration-300" style="color: #4a90e2;">View All →</a>
+            </div>
+            
+            <div class="space-y-2">
+                <!-- Activity 1 -->
+                <div class="flex items-center justify-between p-4 border transition-all duration-300" style="border-color: rgba(74, 144, 226, 0.2); background-color: #000000;">
+                    <div class="flex items-center space-x-4">
+                        <div class="w-8 h-8 border flex items-center justify-center" style="border-color: rgba(74, 144, 226, 0.3);">
+                            <svg class="w-4 h-4" style="color: #4a90e2;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-mono text-sm" style="color: #e5e7eb;">CAM001_2026-02-17_14-30.mp4</p>
+                            <p class="font-mono text-xs" style="color: #6b7280;">Camera 001 · 02:30 duration</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="font-mono text-xs" style="color: #4a90e2;">Verified</span>
+                        <p class="font-mono text-xs mt-1" style="color: #6b7280;">2 minutes ago</p>
+                    </div>
+                </div>
+                
+                <!-- Activity 2 -->
+                <div class="flex items-center justify-between p-4 border transition-all duration-300" style="border-color: rgba(220, 38, 38, 0.2); background-color: #000000;">
+                    <div class="flex items-center space-x-4">
+                        <div class="w-8 h-8 border flex items-center justify-center" style="border-color: rgba(220, 38, 38, 0.3);">
+                            <svg class="w-4 h-4" style="color: #ef4444;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-mono text-sm" style="color: #e5e7eb;">CAM003_2026-02-17_12-15.mp4</p>
+                            <p class="font-mono text-xs" style="color: #6b7280;">Camera 003 · 01:45 duration</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="font-mono text-xs" style="color: #ef4444;">Tampered</span>
+                        <p class="font-mono text-xs mt-1" style="color: #6b7280;">1 hour ago</p>
+                    </div>
+                </div>
+                
+                <!-- Activity 3 -->
+                <div class="flex items-center justify-between p-4 border transition-all duration-300" style="border-color: rgba(74, 144, 226, 0.2); background-color: #000000;">
+                    <div class="flex items-center space-x-4">
+                        <div class="w-8 h-8 border flex items-center justify-center" style="border-color: rgba(74, 144, 226, 0.3);">
+                            <svg class="w-4 h-4" style="color: #4a90e2;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-mono text-sm" style="color: #e5e7eb;">CAM002_2026-02-17_10-00.mp4</p>
+                            <p class="font-mono text-xs" style="color: #6b7280;">Camera 002 · 03:20 duration</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="font-mono text-xs" style="color: #4a90e2;">Verified</span>
+                        <p class="font-mono text-xs mt-1" style="color: #6b7280;">3 hours ago</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t mt-16" style="border-color: rgba(74, 144, 226, 0.2); background-color: #000000;">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center">
+            <p class="font-mono text-xs tracking-widest mb-2" style="color: #6b7280;">EVIDETH © 2026 · Forensic Video Integrity Verification System</p>
+            <p class="font-mono text-xs" style="color: #4b5563;">Powered by SHA-256 Hashing · ECDSA P-256 Digital Signatures · Azure Cloud</p>
+        </div>
+    </footer>
+
+    <!-- Interactive Particles Script -->
+    <script>
+        const particleCount = 150;
+        const particles = [];
+        const particleField = document.getElementById('particleField');
+        let mouseX = window.innerWidth / 2;
+        let mouseY = window.innerHeight / 2;
+        
+        for (let i = 0; i < particleCount; i++) {
+            const particle = document.createElement('div');
+            particle.className = 'particle';
+            
+            const size = Math.random() * 4 + 1;
+            const x = Math.random() * window.innerWidth;
+            const y = Math.random() * window.innerHeight;
+            const opacity = Math.random() * 0.4 + 0.15;
+            const velocityX = (Math.random() - 0.5) * 0.3;
+            const velocityY = (Math.random() - 0.5) * 0.3;
+            
+            particle.style.width = size + 'px';
+            particle.style.height = size + 'px';
+            particle.style.left = x + 'px';
+            particle.style.top = y + 'px';
+            particle.style.opacity = opacity;
+            
+            particleField.appendChild(particle);
+            
+            particles.push({
+                element: particle,
+                x: x,
+                y: y,
+                baseX: x,
+                baseY: y,
+                velocityX: velocityX,
+                velocityY: velocityY,
+                size: size,
+                opacity: opacity
+            });
+        }
+        
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        function animateParticles() {
+            particles.forEach(particle => {
+                const dx = mouseX - particle.x;
+                const dy = mouseY - particle.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const maxDistance = 200;
+                
+                if (distance < maxDistance) {
+                    const force = (maxDistance - distance) / maxDistance;
+                    const angle = Math.atan2(dy, dx);
+                    
+                    particle.x -= Math.cos(angle) * force * 3;
+                    particle.y -= Math.sin(angle) * force * 3;
+                    
+                    particle.element.style.opacity = Math.min(particle.opacity + force * 0.3, 0.8);
+                    
+                    const scale = 1 + force * 0.5;
+                    particle.element.style.transform = `scale(${scale})`;
+                } else {
+                    particle.x += (particle.baseX - particle.x) * 0.01;
+                    particle.y += (particle.baseY - particle.y) * 0.01;
+                    particle.element.style.opacity = particle.opacity;
+                    particle.element.style.transform = 'scale(1)';
+                }
+                
+                particle.x += particle.velocityX;
+                particle.y += particle.velocityY;
+                
+                if (particle.x < -10) particle.x = window.innerWidth + 10;
+                if (particle.x > window.innerWidth + 10) particle.x = -10;
+                if (particle.y < -10) particle.y = window.innerHeight + 10;
+                if (particle.y > window.innerHeight + 10) particle.y = -10;
+                
+                particle.element.style.left = particle.x + 'px';
+                particle.element.style.top = particle.y + 'px';
+            });
+            
+            requestAnimationFrame(animateParticles);
+        }
+        
+        animateParticles();
+        
+        window.addEventListener('resize', () => {
+            particles.forEach(particle => {
+                particle.baseX = Math.random() * window.innerWidth;
+                particle.baseY = Math.random() * window.innerHeight;
+            });
+        });
+    </script>
+
+</body>
+</html>
