@@ -1,0 +1,5 @@
+User (1) ──── (N) Camera
+User (1) ──── (N) Video
+Camera (1) ── (N) Video
+Video (1) ─── (N) Segment
+Segment (1) ─ (N) Verification
