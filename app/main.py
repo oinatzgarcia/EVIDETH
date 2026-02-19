@@ -5,7 +5,7 @@ from app.config import settings
 from app.api.v1 import auth, cameras
 from app.db.session import engine
 from app.db import models
-
+from app.api.v1 import auth, cameras, verification 
 
 # ── Lifespan: reemplaza create_all suelto ─────────────
 @asynccontextmanager
@@ -37,7 +37,7 @@ app.add_middleware(
 # ── Routers ───────────────────────────────────────────
 app.include_router(auth.router,    prefix="/api/v1")
 app.include_router(cameras.router, prefix="/api/v1")
-
+app.include_router(verification.router, prefix="/api/v1") 
 
 # ── Endpoints base ────────────────────────────────────
 @app.get("/")
