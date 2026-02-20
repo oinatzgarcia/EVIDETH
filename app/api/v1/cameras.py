@@ -46,6 +46,28 @@ class CameraResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CameraDetailResponse(BaseModel):
+    """Respuesta completa de cámara para endpoints de lectura/actualización."""
+    id: str
+    camera_id: str
+    name: str
+    location: Optional[str]
+    description: Optional[str]
+    is_active: bool
+    last_seen: Optional[datetime]
+    created_at: Optional[datetime]
+    owner_id: Optional[str]
+
+    model_config = {"from_attributes": True}
+
+
+class CameraUpdate(BaseModel):
+    """Campos opcionales para actualizar una cámara (solo Admin)."""
+    name:        Optional[str] = None
+    location:    Optional[str] = None
+    description: Optional[str] = None
+
+
 class SegmentUpload(BaseModel):
     video_id: str
     segment_index: int
@@ -220,7 +242,7 @@ def camera_status(
 
     is_online = (
         camera.last_seen is not None and
-        (datetime.now(timezone.utc) - camera.last_seen).seconds < 120   # ✅ fix
+        (datetime.now(timezone.utc) - camera.last_seen).seconds < 120
     )
 
     return {
@@ -264,16 +286,16 @@ def start_video(
         resolution=data.resolution,
         codec=data.codec,
         status=VideoStatus.RECORDING,
-        started_at=datetime.now(timezone.utc)       # ✅ fix
+        started_at=datetime.now(timezone.utc)
     )
     db.add(video)
-    camera.last_seen = datetime.now(timezone.utc)   # ✅ fix
+    camera.last_seen = datetime.now(timezone.utc)
     db.commit()
     db.refresh(video)
     return video
 
 
-# ── 5. Envío de segmento (API Key) ────────────────────
+# ── 5. Envío de segmento (API Key) ───────────────────
 
 @router.post(
     "/segments",
@@ -319,16 +341,16 @@ def upload_segment(
         ecdsa_signature=data.ecdsa_signature,
         public_key_id=data.public_key_id,
         status=SegmentStatus.VALID if data.ecdsa_signature else SegmentStatus.PENDING,
-        signed_at=datetime.now(timezone.utc) if data.ecdsa_signature else None   # ✅ fix
+        signed_at=datetime.now(timezone.utc) if data.ecdsa_signature else None
     )
     db.add(segment)
-    camera.last_seen = datetime.now(timezone.utc)   # ✅ fix
+    camera.last_seen = datetime.now(timezone.utc)
     db.commit()
     db.refresh(segment)
     return segment
 
 
-# ── 6. Heartbeat de cámara (API Key) ─────────────────
+# ── 6. Heartbeat de cámara (API Key) ────────────────
 
 @router.post(
     "/heartbeat",
@@ -340,7 +362,7 @@ def heartbeat(
     db: Session = Depends(get_db),
     camera: Camera = Depends(get_current_camera)
 ):
-    camera.last_seen = datetime.now(timezone.utc)   # ✅ fix
+    camera.last_seen = datetime.now(timezone.utc)
     db.commit()
     return {
         "status": "ok",
@@ -349,7 +371,7 @@ def heartbeat(
     }
 
 
-# ── 7. Finalizar grabación de video (API Key) ─────────
+# ── 7. Finalizar grabación de video (API Key) ──────────
 
 @router.patch(
     "/videos/{video_id}/finish",
@@ -372,7 +394,7 @@ def finish_video(
         raise HTTPException(status_code=400, detail="El video no está en estado RECORDING")
 
     video.status = VideoStatus.COMPLETED
-    video.ended_at = datetime.now(timezone.utc)     # ✅ fix
+    video.ended_at = datetime.now(timezone.utc)
     if video.started_at:
         video.duration_secs = int((video.ended_at - video.started_at).total_seconds())
 
@@ -401,3 +423,78 @@ def list_videos(
     return db.query(Video).filter(Video.camera_id == camera.id).order_by(
         Video.started_at.desc()
     ).all()
+
+
+# ── 9. Obtener cámara por ID (Analyst+) ───────────────
+# NOTA: Colocado después de /{camera_id}/status y /{camera_id}/videos
+# para respetar el orden de registro en FastAPI.
+
+@router.get(
+    "/{camera_id}",
+    response_model=CameraDetailResponse,
+    summary="Obtener cámara por ID",
+    description="Devuelve los datos completos de una cámara. Requiere rol Analyst o Admin."
+)
+def get_camera(
+    camera_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_analyst)
+):
+    camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Cámara no encontrada")
+    return camera
+
+
+# ── 10. Actualizar cámara (solo Admin) ───────────────
+
+@router.patch(
+    "/{camera_id}",
+    response_model=CameraDetailResponse,
+    summary="Actualizar cámara",
+    description="Actualiza nombre, ubicación o descripción de una cámara (PATCH). Solo **Admin**."
+)
+def update_camera(
+    camera_id: str,
+    data:      CameraUpdate,
+    db:        Session = Depends(get_db),
+    current_user = Depends(require_admin)
+):
+    camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Cámara no encontrada")
+
+    if data.name        is not None: camera.name        = data.name
+    if data.location    is not None: camera.location    = data.location
+    if data.description is not None: camera.description = data.description
+
+    db.commit()
+    db.refresh(camera)
+    return camera
+
+
+# ── 11. Desactivar cámara (solo Admin) ──────────────
+
+@router.delete(
+    "/{camera_id}",
+    status_code=200,
+    summary="Desactivar cámara",
+    description="""
+Desactiva una cámara (soft delete — no se eliminan videos ni segmentos).
+Solo **Admin**.
+    """
+)
+def deactivate_camera(
+    camera_id: str,
+    db:        Session = Depends(get_db),
+    current_user = Depends(require_admin)
+):
+    camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Cámara no encontrada")
+    if not camera.is_active:
+        raise HTTPException(status_code=400, detail="La cámara ya está inactiva")
+
+    camera.is_active = False
+    db.commit()
+    return {"detail": f"Cámara {camera.camera_id} desactivada correctamente"}
