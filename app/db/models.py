@@ -1,6 +1,7 @@
 from sqlalchemy import (
     Column, String, Boolean, DateTime, Enum,
-    ForeignKey, Text, Integer, Float, LargeBinary
+    ForeignKey, Text, Integer, Float, LargeBinary,
+    UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -130,7 +131,8 @@ class Segment(Base):
     file_size_bytes = Column(Integer)
 
     # Criptografía — núcleo de EVIDETH
-    sha256_hash     = Column(String(64), nullable=False)   # Hash SHA-256 del segmento
+    sha256_hash     = Column(String(64), nullable=False)   # Hash SHA-256 del segmento completo
+    merkle_root     = Column(String(64))                   # Merkle root de sub-segmentos de 1s
     ecdsa_signature = Column(Text)                         # Firma ECDSA P-256 en base64
     public_key_id   = Column(String(255))                  # ID de clave en Azure Key Vault
 
@@ -146,9 +148,40 @@ class Segment(Base):
     video         = relationship("Video", back_populates="segments")
     verifications = relationship("Verification", back_populates="segment",
                                  cascade="all, delete-orphan")
+    merkle_leaves = relationship("MerkleLeaf", back_populates="segment",
+                                 cascade="all, delete-orphan",
+                                 order_by="MerkleLeaf.leaf_index")
 
     def __repr__(self):
         return f"<Segment #{self.segment_index} [{self.status}] video={self.video_id}>"
+
+
+# ── MerkleLeaf ────────────────────────────────────────
+
+class MerkleLeaf(Base):
+    """
+    Almacena los hashes de cada sub-segmento de 1s dentro de un segmento de 30s.
+    Las 30 hojas (leaf_index 0..29) permiten verificar cualquier segundo concreto
+    usando un Merkle proof sin necesidad del video completo.
+    """
+    __tablename__ = "merkle_leaves"
+
+    id              = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    leaf_index      = Column(Integer, nullable=False)      # Posición en el árbol (0..N-1)
+    subsegment_hash = Column(String(64), nullable=False)   # SHA-256 del sub-segmento de 1s
+
+    # FK
+    segment_id = Column(String(36), ForeignKey("segments.id"), nullable=False)
+
+    # Relación
+    segment = relationship("Segment", back_populates="merkle_leaves")
+
+    __table_args__ = (
+        UniqueConstraint("segment_id", "leaf_index", name="uq_merkle_leaf_segment_index"),
+    )
+
+    def __repr__(self):
+        return f"<MerkleLeaf #{self.leaf_index} segment={self.segment_id}>"
 
 
 # ── Verification ──────────────────────────────────────
