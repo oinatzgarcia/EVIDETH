@@ -3,7 +3,7 @@
 Merkle Tree implementation for EVIDETH.
 Provides 1-second sub-segment granularity within each 30s segment.
 
-Each 30s segment is divided into 30 sub-segments of 1s.
+Each 30s segment is divided into N sub-segments of 1s.
 The SHA-256 of each sub-segment forms the leaves of the Merkle Tree.
 The root is signed with ECDSA P-256, allowing forensic verification
 of any specific second without needing the full video.
@@ -21,7 +21,7 @@ def build_merkle_tree(leaf_hashes: List[str]) -> List[List[str]]:
     """
     Construye el árbol de Merkle completo desde las hojas hasta el root.
     Cada nivel combina pares de hashes: SHA256(left + right).
-    Si el número de hojas es impar, duplica la última hoja.
+    Si el número de nodos en un nivel es impar, duplica el último.
 
     Returns:
         Lista de niveles, donde tree[0] son las hojas y tree[-1] es [root].
@@ -68,15 +68,24 @@ def get_merkle_proof(tree: List[List[str]], leaf_index: int) -> List[Dict]:
 
     Returns:
         Lista de {hash, position} donde position es 'left' o 'right'.
+
+    Note:
+        Si un nivel tiene número impar de nodos, el último se duplica
+        (mismo comportamiento que build_merkle_tree). Esto garantiza que
+        el proof del último nodo en un nivel impar sea correcto.
     """
     proof = []
     index = leaf_index
 
     for level in tree[:-1]:  # Todos los niveles excepto el root
+        # Si el nivel tiene número impar de nodos, aplicar el mismo padding
+        # que usa build_merkle_tree (duplicar el último)
+        level_padded = level if len(level) % 2 == 0 else level + [level[-1]]
+
         sibling_index = index + 1 if index % 2 == 0 else index - 1
-        if sibling_index < len(level):
+        if sibling_index < len(level_padded):
             proof.append({
-                "hash":     level[sibling_index],
+                "hash":     level_padded[sibling_index],
                 "position": "right" if index % 2 == 0 else "left"
             })
         index //= 2
