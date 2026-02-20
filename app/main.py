@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from app.config import settings
 from app.db.session import engine
 from app.db import models
-from app.api.v1 import auth, cameras, verification, users, stats, logs
+from app.api.v1 import auth, cameras, verification, users, stats, logs, export
 
 
 # ── Lifespan ─────────────────────────────────────────
@@ -41,6 +41,7 @@ app.include_router(cameras.router,      prefix="/api/v1")
 app.include_router(verification.router, prefix="/api/v1")
 app.include_router(stats.router,        prefix="/api/v1")
 app.include_router(logs.router,         prefix="/api/v1")
+app.include_router(export.router,       prefix="/api/v1")
 
 
 # ── Endpoints base ────────────────────────────────
