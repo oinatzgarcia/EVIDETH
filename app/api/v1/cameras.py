@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, timezone
@@ -23,9 +23,9 @@ router = APIRouter(
 # ── Schemas ───────────────────────────────────────────
 
 class CameraCreate(BaseModel):
-    camera_id: str
-    name: str
-    location: Optional[str] = None
+    camera_id:   str
+    name:        str
+    location:    Optional[str] = None
     description: Optional[str] = None
 
     @field_validator('camera_id')
@@ -38,44 +38,42 @@ class CameraCreate(BaseModel):
 
 class CameraResponse(BaseModel):
     camera_id: str
-    name: str
-    location: Optional[str]
+    name:      str
+    location:  Optional[str]
     is_active: bool
-    api_key: Optional[str] = None      # Solo se devuelve al crear
+    api_key:   Optional[str] = None      # Solo se devuelve al crear
 
     model_config = {"from_attributes": True}
 
 
 class CameraDetailResponse(BaseModel):
-    """Respuesta completa de cámara para endpoints de lectura/actualización."""
-    id: str
-    camera_id: str
-    name: str
-    location: Optional[str]
+    id:          str
+    camera_id:   str
+    name:        str
+    location:    Optional[str]
     description: Optional[str]
-    is_active: bool
-    last_seen: Optional[datetime]
-    created_at: Optional[datetime]
-    owner_id: Optional[str]
+    is_active:   bool
+    last_seen:   Optional[datetime]
+    created_at:  Optional[datetime]
+    owner_id:    Optional[str]
 
     model_config = {"from_attributes": True}
 
 
 class CameraUpdate(BaseModel):
-    """Campos opcionales para actualizar una cámara (solo Admin)."""
     name:        Optional[str] = None
     location:    Optional[str] = None
     description: Optional[str] = None
 
 
 class SegmentUpload(BaseModel):
-    video_id: str
-    segment_index: int
+    video_id:        str
+    segment_index:   int
     start_time_secs: int
-    end_time_secs: int
-    sha256_hash: str
+    end_time_secs:   int
+    sha256_hash:     str
     ecdsa_signature: Optional[str] = None
-    public_key_id: Optional[str] = None
+    public_key_id:   Optional[str] = None
     file_size_bytes: Optional[int] = None
 
     @field_validator('sha256_hash')
@@ -114,30 +112,30 @@ class SegmentUpload(BaseModel):
 
 
 class SegmentResponse(BaseModel):
-    id: str
+    id:            str
     segment_index: int
-    sha256_hash: str
-    status: str
-    signed_at: Optional[datetime]
-    created_at: Optional[datetime]
+    sha256_hash:   str
+    status:        str
+    signed_at:     Optional[datetime]
+    created_at:    Optional[datetime]
 
     model_config = {"from_attributes": True}
 
 
 class VideoCreate(BaseModel):
-    filename: str
-    fps: Optional[float] = None
-    resolution: Optional[str] = None
-    codec: Optional[str] = None
+    filename:   str
+    fps:        Optional[float] = None
+    resolution: Optional[str]   = None
+    codec:      Optional[str]   = None
 
 
 class VideoResponse(BaseModel):
-    id: str
-    filename: str
-    status: str
-    fps: Optional[float]
+    id:         str
+    filename:   str
+    status:     str
+    fps:        Optional[float]
     resolution: Optional[str]
-    codec: Optional[str]
+    codec:      Optional[str]
     started_at: Optional[datetime]
     created_at: Optional[datetime]
 
@@ -151,24 +149,18 @@ class VideoResponse(BaseModel):
     response_model=CameraResponse,
     status_code=201,
     summary="Registrar nueva cámara",
-    description="""
-Registra una nueva cámara en el sistema. **Solo Admin**.
-
-La API Key generada se devuelve **una única vez** — guárdala en un lugar seguro.
-La cámara usará esta API Key en el header `X-API-Key` para todas sus peticiones.
-    """
+    description="Registra una nueva cámara. La API Key se devuelve **una única vez**. Solo **Admin**."
 )
 def register_camera(
     data: CameraCreate,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_admin)
+    db:   Session = Depends(get_db),
+    current_user  = Depends(require_admin)
 ):
     if db.query(Camera).filter(Camera.camera_id == data.camera_id).first():
         raise HTTPException(status_code=400, detail="camera_id ya registrado")
 
     raw_key = generate_api_key()
-
-    camera = Camera(
+    camera  = Camera(
         camera_id=data.camera_id,
         name=data.name,
         location=data.location,
@@ -179,7 +171,6 @@ def register_camera(
     db.add(camera)
     db.commit()
     db.refresh(camera)
-
     return CameraResponse(
         camera_id=camera.camera_id,
         name=camera.name,
@@ -189,38 +180,61 @@ def register_camera(
     )
 
 
-# ── 2. Listar cámaras (Admin + Analyst) ──────────────
+# ── 2. Listar cámaras con filtros + paginación (Analyst+) ──
 
 @router.get(
     "/",
-    response_model=list[CameraResponse],
-    summary="Listar cámaras activas",
-    description="Devuelve todas las cámaras activas del sistema. Requiere rol Analyst o Admin."
+    summary="Listar cámaras",
+    description="""
+Devuelve las cámaras del sistema con filtros y paginación.
+
+**Filtros:**
+- `location`: busca coincidencia parcial en el campo ubicación (case-insensitive)
+- `is_active`: `true` (por defecto) solo activas, `false` solo inactivas
+- `page` / `per_page`: paginación
+
+Requiere rol **Analyst** o **Admin**.
+    """
 )
 def list_cameras(
-    db: Session = Depends(get_db),
-    current_user = Depends(require_analyst)
+    location:  Optional[str]  = Query(None,  description="Filtro parcial por ubicación"),
+    is_active: Optional[bool] = Query(True,  description="true = activas | false = inactivas | omitir = todas"),
+    page:      int            = Query(1,     ge=1),
+    per_page:  int            = Query(20,    ge=1, le=100),
+    db:        Session        = Depends(get_db),
+    current_user              = Depends(require_analyst)
 ):
-    return db.query(Camera).filter(Camera.is_active == True).all()
+    query = db.query(Camera)
+
+    if is_active is not None:
+        query = query.filter(Camera.is_active == is_active)
+    if location:
+        query = query.filter(Camera.location.ilike(f"%{location}%"))
+
+    total   = query.count()
+    cameras = query.order_by(Camera.created_at.desc()) \
+        .offset((page - 1) * per_page).limit(per_page).all()
+
+    return {
+        "total":    total,
+        "page":     page,
+        "per_page": per_page,
+        "pages":    (total + per_page - 1) // per_page,
+        "items":    cameras,
+    }
 
 
-# ── 3. Estado de cámara (Admin + Analyst) ────────────
+# ── 3. Estado de cámara (Analyst+) ───────────────────
 
 @router.get(
     "/{camera_id}/status",
     summary="Estado de una cámara",
-    description="""
-Devuelve el estado actual de la cámara:
-- Última conexión (`last_seen`)
-- Si está **online** (heartbeat < 2 minutos)
-- Video activo en grabación
-- Estadísticas de segmentos e integridad
-    """
+    description="Devuelve estado actual: online, video activo y estadísticas de integridad."
 )
 def camera_status(
     camera_id: str,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_analyst)
+    db:        Session = Depends(get_db),
+    current_user       = Depends(require_analyst)
 ):
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
@@ -228,16 +242,13 @@ def camera_status(
 
     active_video = db.query(Video).filter(
         Video.camera_id == camera.id,
-        Video.status == VideoStatus.RECORDING
+        Video.status    == VideoStatus.RECORDING
     ).first()
 
-    total_segments = db.query(Segment).join(Video).filter(
-        Video.camera_id == camera.id
-    ).count()
-
+    total_segments   = db.query(Segment).join(Video).filter(Video.camera_id == camera.id).count()
     invalid_segments = db.query(Segment).join(Video).filter(
         Video.camera_id == camera.id,
-        Segment.status == SegmentStatus.INVALID
+        Segment.status  == SegmentStatus.INVALID
     ).count()
 
     is_online = (
@@ -246,21 +257,21 @@ def camera_status(
     )
 
     return {
-        "camera_id": camera.camera_id,
-        "name": camera.name,
-        "location": camera.location,
-        "is_active": camera.is_active,
-        "last_seen": camera.last_seen,
-        "online": is_online,
+        "camera_id":    camera.camera_id,
+        "name":         camera.name,
+        "location":     camera.location,
+        "is_active":    camera.is_active,
+        "last_seen":    camera.last_seen,
+        "online":       is_online,
         "active_video": {
-            "id": active_video.id,
-            "filename": active_video.filename,
+            "id":         active_video.id,
+            "filename":   active_video.filename,
             "started_at": active_video.started_at
         } if active_video else None,
         "stats": {
-            "total_segments": total_segments,
+            "total_segments":   total_segments,
             "invalid_segments": invalid_segments,
-            "integrity_ok": invalid_segments == 0
+            "integrity_ok":     invalid_segments == 0
         }
     }
 
@@ -275,9 +286,9 @@ def camera_status(
     description="La cámara llama a este endpoint al comenzar una grabación. Requiere `X-API-Key`."
 )
 def start_video(
-    data: VideoCreate,
-    db: Session = Depends(get_db),
-    camera: Camera = Depends(get_current_camera)
+    data:   VideoCreate,
+    db:     Session = Depends(get_db),
+    camera: Camera  = Depends(get_current_camera)
 ):
     video = Video(
         filename=data.filename,
@@ -302,32 +313,25 @@ def start_video(
     response_model=SegmentResponse,
     status_code=201,
     summary="Enviar segmento de video",
-    description="""
-La cámara envía el hash SHA-256 y firma ECDSA de cada segmento de 30 segundos.
-
-- El hash debe tener exactamente **64 caracteres hexadecimales**
-- El segmento no puede durar más de **60 segundos**
-- Requiere `X-API-Key` en el header
-    """
+    description="La cámara envía el hash SHA-256 y firma ECDSA de cada segmento de 30s. Requiere `X-API-Key`."
 )
 def upload_segment(
-    data: SegmentUpload,
+    data:    SegmentUpload,
     request: Request,
-    db: Session = Depends(get_db),
-    camera: Camera = Depends(get_current_camera)
+    db:      Session = Depends(get_db),
+    camera:  Camera  = Depends(get_current_camera)
 ):
     video = db.query(Video).filter(
-        Video.id == data.video_id,
+        Video.id        == data.video_id,
         Video.camera_id == camera.id
     ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video no encontrado o no pertenece a esta cámara")
 
-    existing = db.query(Segment).filter(
-        Segment.video_id == data.video_id,
+    if db.query(Segment).filter(
+        Segment.video_id      == data.video_id,
         Segment.segment_index == data.segment_index
-    ).first()
-    if existing:
+    ).first():
         raise HTTPException(status_code=409, detail=f"Segmento #{data.segment_index} ya registrado")
 
     segment = Segment(
@@ -350,84 +354,105 @@ def upload_segment(
     return segment
 
 
-# ── 6. Heartbeat de cámara (API Key) ────────────────
+# ── 6. Heartbeat (API Key) ──────────────────────────
 
 @router.post(
     "/heartbeat",
     status_code=200,
     summary="Heartbeat de cámara",
-    description="La cámara envía este ping periódicamente para indicar que está online. Actualiza `last_seen`."
+    description="La cámara envía este ping periódicamente. Actualiza `last_seen`."
 )
 def heartbeat(
-    db: Session = Depends(get_db),
-    camera: Camera = Depends(get_current_camera)
+    db:     Session = Depends(get_db),
+    camera: Camera  = Depends(get_current_camera)
 ):
     camera.last_seen = datetime.now(timezone.utc)
     db.commit()
-    return {
-        "status": "ok",
-        "camera_id": camera.camera_id,
-        "timestamp": camera.last_seen
-    }
+    return {"status": "ok", "camera_id": camera.camera_id, "timestamp": camera.last_seen}
 
 
-# ── 7. Finalizar grabación de video (API Key) ──────────
+# ── 7. Finalizar grabación (API Key) ─────────────────
 
 @router.patch(
     "/videos/{video_id}/finish",
     response_model=VideoResponse,
     summary="Finalizar grabación de video",
-    description="La cámara llama a este endpoint al terminar la grabación. Calcula la duración total automáticamente."
+    description="La cámara llama a este endpoint al terminar la grabación."
 )
 def finish_video(
     video_id: str,
-    db: Session = Depends(get_db),
-    camera: Camera = Depends(get_current_camera)
+    db:       Session = Depends(get_db),
+    camera:   Camera  = Depends(get_current_camera)
 ):
-    video = db.query(Video).filter(
-        Video.id == video_id,
-        Video.camera_id == camera.id
-    ).first()
+    video = db.query(Video).filter(Video.id == video_id, Video.camera_id == camera.id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video no encontrado")
     if video.status != VideoStatus.RECORDING:
         raise HTTPException(status_code=400, detail="El video no está en estado RECORDING")
 
-    video.status = VideoStatus.COMPLETED
+    video.status   = VideoStatus.COMPLETED
     video.ended_at = datetime.now(timezone.utc)
     if video.started_at:
         video.duration_secs = int((video.ended_at - video.started_at).total_seconds())
-
     db.commit()
     db.refresh(video)
     return video
 
 
-# ── 8. Listar videos de una cámara (JWT — Analyst+) ───
+# ── 8. Listar videos de una cámara con filtros + paginación ──
 
 @router.get(
     "/{camera_id}/videos",
-    response_model=list[VideoResponse],
     summary="Listar videos de una cámara",
-    description="Devuelve todos los videos registrados para una cámara, ordenados por fecha descendente."
+    description="""
+Devuelve los videos de una cámara con filtros y paginación.
+
+**Filtros:**
+- `status`: estado del video (`recording`, `completed`, `corrupted`, `archived`)
+- `date_from` / `date_to`: rango de fechas de inicio de grabación (ISO 8601)
+- `page` / `per_page`: paginación
+    """
 )
 def list_videos(
     camera_id: str,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_analyst)
+    status:    Optional[str]      = Query(None, description="recording | completed | corrupted | archived"),
+    date_from: Optional[datetime] = Query(None, description="Desde (ISO 8601)"),
+    date_to:   Optional[datetime] = Query(None, description="Hasta (ISO 8601)"),
+    page:      int                = Query(1,    ge=1),
+    per_page:  int                = Query(20,   ge=1, le=100),
+    db:        Session            = Depends(get_db),
+    current_user                  = Depends(require_analyst)
 ):
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
         raise HTTPException(status_code=404, detail="Cámara no encontrada")
 
-    return db.query(Video).filter(Video.camera_id == camera.id).order_by(
-        Video.started_at.desc()
-    ).all()
+    query = db.query(Video).filter(Video.camera_id == camera.id)
+
+    if status:
+        try:
+            status_enum = VideoStatus(status)
+            query = query.filter(Video.status == status_enum)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="status debe ser: recording, completed, corrupted, archived")
+
+    if date_from: query = query.filter(Video.started_at >= date_from)
+    if date_to:   query = query.filter(Video.started_at <= date_to)
+
+    total  = query.count()
+    videos = query.order_by(Video.started_at.desc()) \
+        .offset((page - 1) * per_page).limit(per_page).all()
+
+    return {
+        "total":    total,
+        "page":     page,
+        "per_page": per_page,
+        "pages":    (total + per_page - 1) // per_page,
+        "items":    videos,
+    }
 
 
 # ── 9. Obtener cámara por ID (Analyst+) ───────────────
-# NOTA: Colocado después de /{camera_id}/status y /{camera_id}/videos
-# para respetar el orden de registro en FastAPI.
 
 @router.get(
     "/{camera_id}",
@@ -437,8 +462,8 @@ def list_videos(
 )
 def get_camera(
     camera_id: str,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_analyst)
+    db:        Session = Depends(get_db),
+    current_user       = Depends(require_analyst)
 ):
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
@@ -446,19 +471,19 @@ def get_camera(
     return camera
 
 
-# ── 10. Actualizar cámara (solo Admin) ───────────────
+# ── 10. Actualizar cámara (Admin) ─────────────────────
 
 @router.patch(
     "/{camera_id}",
     response_model=CameraDetailResponse,
     summary="Actualizar cámara",
-    description="Actualiza nombre, ubicación o descripción de una cámara (PATCH). Solo **Admin**."
+    description="Actualiza nombre, ubicación o descripción. Solo **Admin**."
 )
 def update_camera(
     camera_id: str,
     data:      CameraUpdate,
     db:        Session = Depends(get_db),
-    current_user = Depends(require_admin)
+    current_user       = Depends(require_admin)
 ):
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
@@ -473,21 +498,18 @@ def update_camera(
     return camera
 
 
-# ── 11. Desactivar cámara (solo Admin) ──────────────
+# ── 11. Desactivar cámara (Admin) ───────────────────
 
 @router.delete(
     "/{camera_id}",
     status_code=200,
     summary="Desactivar cámara",
-    description="""
-Desactiva una cámara (soft delete — no se eliminan videos ni segmentos).
-Solo **Admin**.
-    """
+    description="Soft delete — no elimina videos ni segmentos. Solo **Admin**."
 )
 def deactivate_camera(
     camera_id: str,
     db:        Session = Depends(get_db),
-    current_user = Depends(require_admin)
+    current_user       = Depends(require_admin)
 ):
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:

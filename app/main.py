@@ -4,15 +4,15 @@ from contextlib import asynccontextmanager
 from app.config import settings
 from app.db.session import engine
 from app.db import models
-from app.api.v1 import auth, cameras, verification, users
+from app.api.v1 import auth, cameras, verification, users, stats, logs
 
 
 # ── Lifespan ─────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    models.Base.metadata.create_all(bind=engine)  # Crea tablas al arrancar
+    models.Base.metadata.create_all(bind=engine)
     yield
-    engine.dispose()                               # Cierra conexiones al parar
+    engine.dispose()
 
 
 # ── App ────────────────────────────────────────────
@@ -39,6 +39,8 @@ app.include_router(auth.router,         prefix="/api/v1")
 app.include_router(users.router,        prefix="/api/v1")
 app.include_router(cameras.router,      prefix="/api/v1")
 app.include_router(verification.router, prefix="/api/v1")
+app.include_router(stats.router,        prefix="/api/v1")
+app.include_router(logs.router,         prefix="/api/v1")
 
 
 # ── Endpoints base ────────────────────────────────
