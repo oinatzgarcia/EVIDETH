@@ -7,8 +7,9 @@ from cryptography.exceptions import InvalidSignature
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
-from app.db.models import Segment, Verification, Video, SegmentStatus, VerificationResult
+from app.db.models import Segment, Verification, Video, SegmentStatus, VerificationResult, MerkleLeaf
 from app.services.video_processor import segment_video, cleanup_segments
+from app.core.merkle import get_merkle_root, build_merkle_tree, verify_merkle_proof
 import tempfile
 import os
 
@@ -49,16 +50,16 @@ def verify_video(
     user_agent: Optional[str] = None,
 ) -> Dict:
     """
-    Proceso completo de verificación de integridad:
+    Proceso completo de verificación de integridad con granularidad de 1 segundo:
     1. Segmenta el video en chunks de 30s
-    2. Calcula SHA-256 de cada chunk
-    3. Compara con hashes almacenados en BD
-    4. Verifica firmas ECDSA si existen
-    5. Guarda resultados en tabla verifications
-    6. Devuelve informe completo
+    2. Por cada segmento calcula Merkle root (sub-segmentos de 1s)
+    3. Compara Merkle root con el almacenado en BD
+    4. Si no coincide, compara hoja a hoja para identificar el segundo exacto manipulado
+    5. Verifica firmas ECDSA si existen
+    6. Guarda resultados en tabla verifications
+    7. Devuelve informe con precisión de 1 segundo
     """
 
-    # Obtiene los segmentos almacenados en BD para este video
     stored_segments = db.query(Segment).filter(
         Segment.video_id == video_db_id
     ).order_by(Segment.segment_index).all()
@@ -66,146 +67,217 @@ def verify_video(
     if not stored_segments:
         raise ValueError(f"No hay segmentos almacenados para el video {video_db_id}")
 
-    # Segmenta el video subido en directorio temporal
     temp_dir = tempfile.mkdtemp(prefix="evideth_verify_")
 
     try:
         computed_segments = segment_video(video_path, temp_dir)
 
         results = []
-        total = 0
-        passed = 0
-        failed = 0
+        total   = 0
+        passed  = 0
+        failed  = 0
         missing = 0
 
         for computed in computed_segments:
-            idx = computed["segment_index"]
+            idx    = computed["segment_index"]
             total += 1
 
-            # Busca el segmento almacenado correspondiente
             stored = next(
                 (s for s in stored_segments if s.segment_index == idx),
                 None
             )
 
-            # ── Segmento no encontrado en BD ──────────────
+            # ── Segmento no encontrado en BD ─────────────
             if not stored:
                 missing += 1
+                failed  += 1
                 result_entry = {
-                    "segment_index":  idx,
-                    "start_time_secs": computed["start_time_secs"],
-                    "end_time_secs":   computed["end_time_secs"],
-                    "duration_secs":   computed["duration_secs"],
-                    "complete":        computed["complete"],
-                    "computed_hash":   computed["sha256_hash"],
-                    "stored_hash":     None,
-                    "hash_match":      False,
-                    "signature_valid": None,
-                    "result":          "fail",
-                    "detail":          "Segmento no encontrado en base de datos"
+                    "segment_index":        idx,
+                    "start_time_secs":      computed["start_time_secs"],
+                    "end_time_secs":        computed["end_time_secs"],
+                    "duration_secs":        computed["duration_secs"],
+                    "complete":             computed["complete"],
+                    "computed_hash":        computed["sha256_hash"],
+                    "computed_merkle_root": computed["merkle_root"],
+                    "stored_hash":          None,
+                    "stored_merkle_root":   None,
+                    "hash_match":           False,
+                    "merkle_match":         False,
+                    "tampered_seconds":     [],
+                    "signature_valid":      None,
+                    "result":               "fail",
+                    "detail":               "Segmento no encontrado en base de datos"
                 }
-                # Guarda en BD
-                _save_verification(
-                    db, stored, result_entry,
-                    verified_by_id, ip_address, user_agent
-                )
+                _save_verification(db, None, result_entry, verified_by_id, ip_address, user_agent)
                 results.append(result_entry)
-                failed += 1
                 continue
 
-            # ── Compara hashes SHA-256 ─────────────────────
+            # ── Verificación principal: Merkle root ────────
+            merkle_match    = False
+            tampered_seconds = []
+
+            if stored.merkle_root:
+                merkle_match = computed["merkle_root"] == stored.merkle_root
+
+                if not merkle_match:
+                    # Comparación hoja a hoja: identifica el segundo exacto manipulado
+                    tampered_seconds = _find_tampered_seconds(
+                        computed["leaf_hashes"], stored, db
+                    )
+            else:
+                # Fallback: sin Merkle root en BD, compara SHA-256 completo
+                merkle_match = computed["sha256_hash"] == stored.sha256_hash
+
+            # ── Compara SHA-256 completo (compatibilidad) ──
             hash_match = computed["sha256_hash"] == stored.sha256_hash
 
-            # ── Verifica firma ECDSA si existe ─────────────
+            # ── Verifica firma ECDSA si existe ──────────
             signature_valid = None
             if stored.ecdsa_signature and stored.public_key_id:
                 # TODO: obtener clave pública desde Azure Key Vault
-                # Por ahora se marca como no verificada
                 signature_valid = None
-                detail = "Hash verificado. Firma ECDSA pendiente de Azure Key Vault."
-            elif stored.ecdsa_signature:
-                signature_valid = None
-                detail = "Hash verificado. Firma ECDSA presente pero sin clave pública."
+                detail = "Verificado con Merkle root. Firma ECDSA pendiente de Azure Key Vault."
             else:
-                detail = "Hash verificado. Sin firma ECDSA (segmento PENDING)."
+                detail = "Verificado con Merkle root. Sin firma ECDSA (segmento PENDING)."
 
-            # ── Determina resultado final ──────────────────
-            if hash_match:
+            # ── Resultado final ────────────────────────
+            # La verificación primaria es por Merkle root si existe, sino por SHA-256
+            integrity_ok = merkle_match if stored.merkle_root else hash_match
+
+            if integrity_ok:
                 passed += 1
-                result = "pass"
-                # Actualiza estado del segmento en BD
+                result  = "pass"
                 stored.status = SegmentStatus.VALID
+                detail = (
+                    f"Segmento íntegro. "
+                    f"Merkle root verificado ({len(computed['leaf_hashes'])} sub-segmentos de 1s)."
+                )
             else:
                 failed += 1
-                result = "fail"
-                detail = f"MANIPULACIÓN DETECTADA. Hash esperado: {stored.sha256_hash[:16]}... | Calculado: {computed['sha256_hash'][:16]}..."
-                # Marca segmento como inválido
+                result  = "fail"
                 stored.status = SegmentStatus.INVALID
 
+                if tampered_seconds:
+                    detail = (
+                        f"MANIPULACIÓN DETECTADA en segundo(s) absoluto(s): {tampered_seconds}. "
+                        f"Merkle root esperado: {stored.merkle_root[:16]}... | "
+                        f"Calculado: {computed['merkle_root'][:16]}..."
+                    )
+                else:
+                    detail = (
+                        f"MANIPULACIÓN DETECTADA. "
+                        f"Hash esperado: {stored.sha256_hash[:16]}... | "
+                        f"Calculado: {computed['sha256_hash'][:16]}..."
+                    )
+
             result_entry = {
-                "segment_index":   idx,
-                "start_time_secs": computed["start_time_secs"],
-                "end_time_secs":   computed["end_time_secs"],
-                "duration_secs":   computed["duration_secs"],
-                "complete":        computed["complete"],
-                "computed_hash":   computed["sha256_hash"],
-                "stored_hash":     stored.sha256_hash,
-                "hash_match":      hash_match,
-                "signature_valid": signature_valid,
-                "result":          result,
-                "detail":          detail
+                "segment_index":        idx,
+                "start_time_secs":      computed["start_time_secs"],
+                "end_time_secs":        computed["end_time_secs"],
+                "duration_secs":        computed["duration_secs"],
+                "complete":             computed["complete"],
+                "computed_hash":        computed["sha256_hash"],
+                "computed_merkle_root": computed["merkle_root"],
+                "stored_hash":          stored.sha256_hash,
+                "stored_merkle_root":   stored.merkle_root,
+                "hash_match":           hash_match,
+                "merkle_match":         merkle_match,
+                "tampered_seconds":     tampered_seconds,
+                "signature_valid":      signature_valid,
+                "result":               result,
+                "detail":               detail
             }
 
-            # Guarda verificación en BD
-            _save_verification(
-                db, stored, result_entry,
-                verified_by_id, ip_address, user_agent
-            )
+            _save_verification(db, stored, result_entry, verified_by_id, ip_address, user_agent)
             results.append(result_entry)
 
         db.commit()
 
-        # ── Segmentos en BD que no están en el video ───────
+        # ── Segmentos en BD que no están en el video ───
         computed_indices = {s["segment_index"] for s in computed_segments}
         for stored in stored_segments:
             if stored.segment_index not in computed_indices:
                 missing += 1
-                total += 1
+                total   += 1
                 results.append({
-                    "segment_index":   stored.segment_index,
-                    "computed_hash":   None,
-                    "stored_hash":     stored.sha256_hash,
-                    "hash_match":      False,
-                    "signature_valid": None,
-                    "result":          "fail",
-                    "detail":          "Segmento presente en BD pero falta en el video subido"
+                    "segment_index":        stored.segment_index,
+                    "computed_hash":        None,
+                    "computed_merkle_root": None,
+                    "stored_hash":          stored.sha256_hash,
+                    "stored_merkle_root":   stored.merkle_root,
+                    "hash_match":           False,
+                    "merkle_match":         False,
+                    "tampered_seconds":     [],
+                    "signature_valid":      None,
+                    "result":               "fail",
+                    "detail":               "Segmento presente en BD pero falta en el video subido"
                 })
 
-        # ── Informe final ──────────────────────────────────
-        integrity_ok = failed == 0 and missing == 0
+        # ── Informe final ──────────────────────────
+        all_ok = failed == 0 and missing == 0
 
         return {
             "video_id":     video_db_id,
             "camera_id":    camera_id,
-            "integrity_ok": integrity_ok,
-            "verdict":      "ÍNTEGRO" if integrity_ok else "MANIPULADO O INCOMPLETO",
+            "integrity_ok": all_ok,
+            "verdict":      "ÍNTEGRO" if all_ok else "MANIPULADO O INCOMPLETO",
             "summary": {
-                "total_segments":   total,
-                "passed":           passed,
-                "failed":           failed,
-                "missing":          missing,
+                "total_segments": total,
+                "passed":         passed,
+                "failed":         failed,
+                "missing":        missing,
+                "granularity":    "1s (Merkle Tree)"
             },
-            "segments": results,
+            "segments":    results,
             "verified_at": datetime.now(timezone.utc).isoformat()
         }
 
     finally:
-        # Limpia archivos temporales siempre
         cleanup_segments(temp_dir)
         try:
             os.rmdir(temp_dir)
         except Exception:
             pass
+
+
+def _find_tampered_seconds(
+    computed_leaves: List[Dict],
+    stored_segment: Segment,
+    db: Session
+) -> List[int]:
+    """
+    Compara hoja a hoja para identificar qué segundos exactos fueron manipulados.
+    Requiere que las MerkleLeaf del segmento estén guardadas en BD.
+
+    Args:
+        computed_leaves: Lista de {leaf_index, hash} calculados del video subido.
+        stored_segment:  Objeto Segment de la BD.
+        db:              Sesión de base de datos.
+
+    Returns:
+        Lista de segundos absolutos manipulados (ej: [47, 63] para los segundos
+        47 y 63 del video original).
+        Lista vacía si no hay hojas almacenadas en BD.
+    """
+    stored_leaves = db.query(MerkleLeaf).filter(
+        MerkleLeaf.segment_id == stored_segment.id
+    ).order_by(MerkleLeaf.leaf_index).all()
+
+    if not stored_leaves:
+        return []  # No hay hojas en BD → no se puede localizar el segundo exacto
+
+    stored_map = {leaf.leaf_index: leaf.subsegment_hash for leaf in stored_leaves}
+    tampered   = []
+
+    for leaf in computed_leaves:
+        idx         = leaf["leaf_index"]
+        stored_hash = stored_map.get(idx)
+        if stored_hash and leaf["hash"] != stored_hash:
+            # Convierte índice relativo al segmento → segundo absoluto del video
+            absolute_second = stored_segment.start_time_secs + idx
+            tampered.append(absolute_second)
+
+    return tampered
 
 
 def _save_verification(
