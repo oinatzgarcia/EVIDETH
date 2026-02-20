@@ -220,7 +220,8 @@ def list_cameras(
         "page":     page,
         "per_page": per_page,
         "pages":    (total + per_page - 1) // per_page,
-        "items":    cameras,
+        # FIX: serializar ORM objects → Pydantic para que FastAPI pueda encodificarlos a JSON
+        "items":    [CameraResponse.model_validate(c) for c in cameras],
     }
 
 
@@ -448,7 +449,8 @@ def list_videos(
         "page":     page,
         "per_page": per_page,
         "pages":    (total + per_page - 1) // per_page,
-        "items":    videos,
+        # FIX: serializar ORM objects → Pydantic para que FastAPI pueda encodificarlos a JSON
+        "items":    [VideoResponse.model_validate(v) for v in videos],
     }
 
 
