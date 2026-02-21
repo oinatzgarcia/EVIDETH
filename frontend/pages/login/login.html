@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVIDETH — Secure Access</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="../../LOGO/Buho.png" sizes="59x59">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'evideth': {
+                            'blue':       '#4a90e2',
+                            'blue-bright':'#5ba3f5',
+                            'blue-dark':  '#2c5f8d',
+                        }
+                    },
+                    fontFamily: {
+                        'sans': ['Rajdhani', 'system-ui', 'sans-serif'],
+                        'mono': ['Space Mono', 'monospace'],
+                    },
+                    animation: {
+                        'pulse-subtle': 'pulseSubtle 3s ease-in-out infinite',
+                        'float':        'float 6s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        pulseSubtle: {
+                            '0%, 100%': { opacity: '0.6' },
+                            '50%':      { opacity: '1'   }
+                        },
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0px)'   },
+                            '50%':      { transform: 'translateY(-10px)' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* === BASE === */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background: #000000;
+            color: #ffffff;
+            overflow-x: hidden;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* === PARTICLE FIELD === */
+        .particle-field {
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: -1; overflow: hidden;
+            background: #000000;
+        }
+        .particle {
+            position: absolute;
+            background: radial-gradient(circle, rgba(74,144,226,.8) 0%, rgba(91,163,245,.4) 50%, transparent 100%);
+            border-radius: 50%;
+            pointer-events: none;
+            transition: all 0.3s ease-out;
+        }
+
+        /* === GRID === */
+        .subtle-grid {
+            background-image:
+                linear-gradient(rgba(74,144,226,.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(74,144,226,.05) 1px, transparent 1px);
+            background-size: 60px 60px;
+            background-color: #000000;
+        }
+
+        /* === CARD === */
+        .card-bg { background-color: #0a0a0a; }
+
+        /* === TEXT GLOW === */
+        .text-glow {
+            text-shadow: 0 0 10px rgba(74,144,226,.6),
+                         0 0 20px rgba(74,144,226,.4);
+        }
+
+        /* === LOGO === */
+        .logo-glow {
+            filter: drop-shadow(0 0 8px rgba(74,144,226,.4));
+            transition: all 0.5s ease;
+        }
+        .logo-glow:hover { filter: drop-shadow(0 0 15px rgba(74,144,226,.7)); }
+
+        /* === BORDER GLOW === */
+        .border-glow {
+            border: 1px solid rgba(74,144,226,.25);
+            transition: all 0.3s ease;
+        }
+        .border-glow:hover {
+            border-color: rgba(74,144,226,.6);
+            box-shadow: 0 0 15px rgba(74,144,226,.2);
+        }
+
+        /* === SCAN LINE === */
+        .scan-line {
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(74,144,226,.5), transparent);
+            animation: scan 4s linear infinite;
+            z-index: 1000;
+            pointer-events: none;
+        }
+        @keyframes scan {
+            0%   { transform: translateY(0);     }
+            100% { transform: translateY(100vh); }
+        }
+
+        /* === INPUT === */
+        .input-field {
+            width: 100%;
+            background: #000000;
+            border: 1px solid rgba(74,144,226,.25);
+            color: #ffffff;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.875rem;
+            padding: 0.875rem 1rem;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+        .input-field::placeholder { color: #374151; }
+        .input-field:focus {
+            border-color: #4a90e2;
+            box-shadow: 0 0 12px rgba(74,144,226,.2);
+        }
+        .input-field:disabled { opacity: 0.5; cursor: not-allowed; }
+        .input-field.has-error  { border-color: rgba(220,38,38,.6); }
+        .input-field.has-error:focus {
+            border-color: #ef4444;
+            box-shadow: 0 0 12px rgba(220,38,38,.2);
+        }
+
+        /* === BUTTON === */
+        .btn-primary {
+            width: 100%;
+            padding: 0.875rem;
+            border: 2px solid #4a90e2;
+            color: #000000;
+            background: #4a90e2;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.875rem;
+            letter-spacing: 0.15em;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover:not(:disabled) {
+            background: #5ba3f5;
+            border-color: #5ba3f5;
+            box-shadow: 0 0 20px rgba(74,144,226,.4);
+        }
+        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        /* === PULSE DOT === */
+        .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
+        @keyframes pulseSubtle {
+            0%, 100% { opacity: 0.6; }
+            50%       { opacity: 1;   }
+        }
+
+        /* === FLOAT === */
+        @keyframes float {
+            0%, 100% { transform: translateY(0px);   }
+            50%       { transform: translateY(-10px); }
+        }
+        .animate-float { animation: float 6s ease-in-out infinite; }
+
+        /* === SCROLLBAR === */
+        ::-webkit-scrollbar       { width: 8px; }
+        ::-webkit-scrollbar-track { background: #000000; }
+        ::-webkit-scrollbar-thumb { background: #4a90e2; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #5ba3f5; }
+    </style>
+</head>
+
+<body class="subtle-grid" x-data="loginApp()">
+
+    <!-- Particle field -->
+    <div class="particle-field" id="particleField"></div>
+
+    <!-- Scan line -->
+    <div class="scan-line"></div>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <div class="flex-1 flex items-center justify-center px-4 py-12">
+        <div class="w-full max-w-md">
+
+            <!-- Logo + title -->
+            <div class="text-center mb-10">
+                <div class="flex justify-center mb-4">
+                    <div class="relative animate-float">
+                        <img src="../../LOGO/Buho.png" alt="EVIDETH Logo"
+                             class="w-20 h-20 logo-glow object-contain">
+                    </div>
+                </div>
+                <h1 class="text-4xl font-bold tracking-[0.3em] text-glow font-mono mb-1"
+                    style="color:#4a90e2;">EVIDETH</h1>
+                <p class="text-[10px] tracking-[0.25em] uppercase font-mono"
+                   style="color:#6b7280;">Forensic System v2.0</p>
+                <div class="flex items-center justify-center space-x-2 mt-4 font-mono text-xs"
+                     style="color:#5ba3f5;">
+                    <span class="w-16 h-px"
+                          style="background:linear-gradient(to right, transparent, #4a90e2);"></span>
+                    <span class="tracking-widest">Secure Access</span>
+                    <span class="w-16 h-px"
+                          style="background:linear-gradient(to left, transparent, #4a90e2);"></span>
+                </div>
+            </div>
+
+            <!-- Login card -->
+            <div class="card-bg border-glow p-8">
+
+                <!-- Card header -->
+                <div class="flex items-center justify-between mb-8">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-1 h-8" style="background-color:#4a90e2;"></div>
+                        <span class="font-mono text-sm tracking-widest uppercase"
+                              style="color:#9ca3af;">Authentication</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <div class="w-2 h-2 rounded-full pulse-dot"
+                             style="background-color:#4a90e2;"></div>
+                        <span class="font-mono text-xs" style="color:#4a90e2;">System Online</span>
+                    </div>
+                </div>
+
+                <!-- Form -->
+                <form @submit.prevent="submitLogin()" novalidate class="space-y-6">
+
+                    <!-- Email -->
+                    <div>
+                        <label class="block font-mono text-xs tracking-widest uppercase mb-2"
+                               style="color:#9ca3af;">Email Address</label>
+                        <input
+                            type="email"
+                            x-model="email"
+                            @input="clearError('email')"
+                            :class="fe.email ? 'input-field has-error' : 'input-field'"
+                            placeholder="analyst@evideth.io"
+                            autocomplete="email"
+                            :disabled="loading || success"
+                        >
+                        <p x-show="fe.email" x-text="fe.email" x-transition
+                           class="mt-2 font-mono text-xs" style="color:#ef4444;"></p>
+                    </div>
+
+                    <!-- Password -->
+                    <div>
+                        <label class="block font-mono text-xs tracking-widest uppercase mb-2"
+                               style="color:#9ca3af;">Password</label>
+                        <div class="relative">
+                            <input
+                                :type="showPwd ? 'text' : 'password'"
+                                x-model="password"
+                                @input="clearError('password')"
+                                :class="fe.password ? 'input-field has-error' : 'input-field'"
+                                placeholder="&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;"
+                                autocomplete="current-password"
+                                :disabled="loading || success"
+                                style="padding-right:3rem;"
+                            >
+                            <!-- Toggle visibility -->
+                            <button type="button"
+                                    @click="showPwd = !showPwd"
+                                    class="absolute right-3 top-1/2 -translate-y-1/2 transition-colors duration-200"
+                                    :style="showPwd ? 'color:#4a90e2;' : 'color:#4b5563;'"
+                                    tabindex="-1" aria-label="Toggle password visibility">
+                                <!-- Eye open -->
+                                <svg x-show="!showPwd" class="w-4 h-4"
+                                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                </svg>
+                                <!-- Eye closed -->
+                                <svg x-show="showPwd" class="w-4 h-4"
+                                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <p x-show="fe.password" x-text="fe.password" x-transition
+                           class="mt-2 font-mono text-xs" style="color:#ef4444;"></p>
+                    </div>
+
+                    <!-- Global error -->
+                    <div x-show="globalError" x-transition
+                         class="border p-4 flex items-start space-x-3"
+                         style="border-color:rgba(220,38,38,.4); background-color:rgba(127,29,29,.1);">
+                        <svg class="w-4 h-4 mt-0.5 flex-shrink-0" style="color:#ef4444;"
+                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                        <p x-text="globalError" class="font-mono text-xs" style="color:#ef4444;"></p>
+                    </div>
+
+                    <!-- Success message -->
+                    <div x-show="success" x-transition
+                         class="border p-4 flex items-center space-x-3"
+                         style="border-color:rgba(74,144,226,.4); background-color:rgba(74,144,226,.08);">
+                        <svg class="w-4 h-4 flex-shrink-0" style="color:#4a90e2;"
+                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <p class="font-mono text-xs" style="color:#4a90e2;">
+                            Identity verified · Redirecting to dashboard...
+                        </p>
+                    </div>
+
+                    <!-- Submit button -->
+                    <button type="submit" class="btn-primary" :disabled="loading || success">
+
+                        <!-- Default state -->
+                        <span x-show="!loading && !success"
+                              class="flex items-center justify-center space-x-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                            </svg>
+                            <span>AUTHENTICATE</span>
+                        </span>
+
+                        <!-- Loading state -->
+                        <span x-show="loading"
+                              class="flex items-center justify-center space-x-2">
+                            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10"
+                                        stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor"
+                                      d="M4 12a8 8 0 018-8V0C5.373 0 12 0 12 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>Authenticating...</span>
+                        </span>
+
+                        <!-- Success state -->
+                        <span x-show="success"
+                              class="flex items-center justify-center space-x-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <span>Access Granted</span>
+                        </span>
+
+                    </button>
+
+                </form>
+
+                <!-- Bottom security badge -->
+                <div class="mt-8 pt-6 border-t"
+                     style="border-color:rgba(74,144,226,.1);">
+                    <div class="flex items-center justify-center space-x-2 font-mono text-xs"
+                         style="color:#374151;">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                        </svg>
+                        <span>Encrypted connection · JWT Authentication</span>
+                    </div>
+                </div>
+
+            </div>
+            <!-- /Login card -->
+
+            <!-- Bottom metadata badges -->
+            <div class="mt-6 flex items-center justify-center space-x-4 font-mono text-xs"
+                 style="color:#1f2937;">
+                <span>SHA-256</span>
+                <span>·</span>
+                <span>ECDSA P-256</span>
+                <span>·</span>
+                <span>Azure Cloud</span>
+            </div>
+
+        </div>
+    </div>
+    <!-- /Main content -->
+
+    <!-- Footer -->
+    <footer class="border-t" style="border-color:rgba(74,144,226,.15); background-color:#000000;">
+        <div class="max-w-7xl mx-auto px-4 py-6 text-center">
+            <p class="font-mono text-xs tracking-widest" style="color:#1f2937;">
+                EVIDETH © 2026 · Forensic Video Integrity Verification System
+            </p>
+        </div>
+    </footer>
+
+    <!-- ===== ALPINE APP ===== -->
+    <script>
+        function loginApp() {
+            return {
+                email:       '',
+                password:    '',
+                showPwd:     false,
+                loading:     false,
+                success:     false,
+                globalError: null,
+                fe:          {},          // field errors
+
+                // ── Init: redirect if already authenticated ──────────────
+                init() {
+                    if (localStorage.getItem('evideth_token')) {
+                        window.location.href = '../dashboard/dashboard.html';
+                    }
+                },
+
+                // ── Client-side validation ───────────────────────────────
+                validate() {
+                    this.fe = {};
+                    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+                    if (!this.email.trim()) {
+                        this.fe.email = 'Email required';
+                    } else if (!EMAIL_RE.test(this.email.trim())) {
+                        this.fe.email = 'Invalid email format';
+                    }
+
+                    if (!this.password) {
+                        this.fe.password = 'Password required';
+                    } else if (this.password.length < 8) {
+                        this.fe.password = 'Minimum 8 characters';
+                    }
+
+                    return Object.keys(this.fe).length === 0;
+                },
+
+                // ── Clear error on field change ──────────────────────────
+                clearError(field) {
+                    delete this.fe[field];
+                    this.fe          = { ...this.fe };
+                    this.globalError = null;
+                },
+
+                // ── Submit ───────────────────────────────────────────────
+                async submitLogin() {
+                    this.globalError = null;
+                    if (!this.validate()) return;
+
+                    this.loading = true;
+                    try {
+                        const response = await fetch('/api/v1/auth/login', {
+                            method:  'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body:    new URLSearchParams({
+                                username: this.email.trim(),
+                                password: this.password,
+                            }),
+                        });
+
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            // SECURITY: on 401 don't reveal which field is wrong
+                            if (response.status === 401) {
+                                this.globalError = 'Invalid credentials. Access denied.';
+                            } else if (response.status === 422) {
+                                this.globalError = 'Invalid input. Please check your data.';
+                            } else {
+                                this.globalError = data.detail || 'Authentication failed. Try again.';
+                            }
+                            this.password = '';   // clear password on any error
+                            return;
+                        }
+
+                        // ── Store JWT ──
+                        localStorage.setItem('evideth_token',      data.access_token);
+                        localStorage.setItem('evideth_token_type', data.token_type || 'bearer');
+                        if (data.user) {
+                            localStorage.setItem('evideth_user', JSON.stringify(data.user));
+                        }
+
+                        // ── Show success, then redirect ──
+                        this.success = true;
+                        await new Promise(r => setTimeout(r, 900));
+                        window.location.href = '../dashboard/dashboard.html';
+
+                    } catch (_err) {
+                        this.globalError = 'Connection error. Please try again.';
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+            };
+        }
+    </script>
+
+    <!-- ===== PARTICLE FIELD SCRIPT (identical to dashboard) ===== -->
+    <script>
+        (function () {
+            const COUNT  = 150;
+            const field  = document.getElementById('particleField');
+            const items  = [];
+            let   mouseX = window.innerWidth  / 2;
+            let   mouseY = window.innerHeight / 2;
+
+            for (let i = 0; i < COUNT; i++) {
+                const el = document.createElement('div');
+                el.className = 'particle';
+
+                const size     = Math.random() * 4 + 1;
+                const x        = Math.random() * window.innerWidth;
+                const y        = Math.random() * window.innerHeight;
+                const opacity  = Math.random() * 0.4 + 0.15;
+                const vx       = (Math.random() - 0.5) * 0.3;
+                const vy       = (Math.random() - 0.5) * 0.3;
+
+                el.style.cssText = `width:${size}px;height:${size}px;left:${x}px;top:${y}px;opacity:${opacity};`;
+                field.appendChild(el);
+                items.push({ el, x, y, baseX: x, baseY: y, vx, vy, opacity });
+            }
+
+            document.addEventListener('mousemove', e => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+            });
+
+            (function animate() {
+                items.forEach(p => {
+                    const dx   = mouseX - p.x;
+                    const dy   = mouseY - p.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    const MAX  = 200;
+
+                    if (dist < MAX) {
+                        const force = (MAX - dist) / MAX;
+                        const angle = Math.atan2(dy, dx);
+                        p.x -= Math.cos(angle) * force * 3;
+                        p.y -= Math.sin(angle) * force * 3;
+                        p.el.style.opacity   = Math.min(p.opacity + force * 0.3, 0.8);
+                        p.el.style.transform = `scale(${1 + force * 0.5})`;
+                    } else {
+                        p.x += (p.baseX - p.x) * 0.01;
+                        p.y += (p.baseY - p.y) * 0.01;
+                        p.el.style.opacity   = p.opacity;
+                        p.el.style.transform = 'scale(1)';
+                    }
+
+                    p.x += p.vx;
+                    p.y += p.vy;
+
+                    if (p.x < -10)                   p.x = window.innerWidth  + 10;
+                    if (p.x > window.innerWidth  + 10) p.x = -10;
+                    if (p.y < -10)                   p.y = window.innerHeight + 10;
+                    if (p.y > window.innerHeight + 10) p.y = -10;
+
+                    p.el.style.left = p.x + 'px';
+                    p.el.style.top  = p.y + 'px';
+                });
+                requestAnimationFrame(animate);
+            })();
+
+            window.addEventListener('resize', () => {
+                items.forEach(p => {
+                    p.baseX = Math.random() * window.innerWidth;
+                    p.baseY = Math.random() * window.innerHeight;
+                });
+            });
+        })();
+    </script>
+
+</body>
+</html>
