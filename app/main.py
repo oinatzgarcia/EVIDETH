@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from app.config import settings
 from app.db.session import engine
@@ -51,3 +52,7 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
+
+# ── Static files — debe ir AL FINAL para no enmascarar rutas API ──
+app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
