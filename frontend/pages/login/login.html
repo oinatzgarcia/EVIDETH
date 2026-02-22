@@ -8,6 +8,9 @@
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="../../LOGO/Buho.png" sizes="59x59">
 
+    <!-- auth.js — debe cargar ANTES de Alpine.js -->
+    <script src="../../assets/js/auth.js"></script>
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 
@@ -289,7 +292,7 @@
                            class="mt-2 font-mono text-xs" style="color:#ef4444;"></p>
                     </div>
 
-                    <!-- Global error -->
+                    <!-- Global error / session message -->
                     <div x-show="globalError" x-transition
                          class="border p-4 flex items-start space-x-3"
                          style="border-color:rgba(220,38,38,.4); background-color:rgba(127,29,29,.1);">
@@ -311,7 +314,7 @@
                                   d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                         </svg>
                         <p class="font-mono text-xs" style="color:#4a90e2;">
-                            Identity verified · Redirecting to dashboard...
+                            Identity verified · Redirecting...
                         </p>
                     </div>
 
@@ -378,6 +381,7 @@
         </div>
     </footer>
 
+    <!-- ===== Alpine App ===== -->
     <script>
         function loginApp() {
             return {
@@ -389,12 +393,19 @@
                 globalError: null,
                 fe:          {},
 
+                // ── Init ───────────────────────────────────────────────
                 init() {
-                    if (localStorage.getItem('evideth_token')) {
-                        window.location.href = '../dashboard/dashboard.html';
+                    // Mostrar mensaje de sesión expirada si viene de Auth.logout()
+                    const msg = Auth.consumeAuthMessage();
+                    if (msg) this.globalError = msg;
+
+                    // Si ya tiene token válido, saltar directamente al dashboard
+                    if (Auth.isLoggedIn()) {
+                        window.location.href = '/frontend/pages/dashboard/dashboard.html';
                     }
                 },
 
+                // ── Validación client-side ─────────────────────────────
                 validate() {
                     this.fe = {};
                     const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -405,20 +416,20 @@
                     return Object.keys(this.fe).length === 0;
                 },
 
+                // ── Limpiar error al escribir ───────────────────────────
                 clearError(field) {
                     delete this.fe[field];
                     this.fe          = { ...this.fe };
                     this.globalError = null;
                 },
 
+                // ── Submit ─────────────────────────────────────────────
                 async submitLogin() {
                     this.globalError = null;
                     if (!this.validate()) return;
 
                     this.loading = true;
                     try {
-                        // ── FIX 1: Content-Type JSON (no form-urlencoded)
-                        // ── FIX 2: campo 'email', no 'username'
                         const response = await fetch('/api/v1/auth/login', {
                             method:  'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -442,14 +453,19 @@
                             return;
                         }
 
-                        // ── FIX 3: guardar también refresh_token
-                        localStorage.setItem('evideth_token',         data.access_token);
-                        localStorage.setItem('evideth_refresh_token', data.refresh_token);
-                        localStorage.setItem('evideth_token_type',    data.token_type || 'bearer');
+                        // Guardar tokens mediante el módulo Auth
+                        Auth.setTokens(data);
 
+                        // Mostrar estado de éxito y redirigir
                         this.success = true;
                         await new Promise(r => setTimeout(r, 900));
-                        window.location.href = '../dashboard/dashboard.html';
+
+                        // Respetar ?return= si viene de una página protegida
+                        const params   = new URLSearchParams(window.location.search);
+                        const returnTo = params.get('return');
+                        window.location.href = returnTo
+                            ? decodeURIComponent(returnTo)
+                            : '/frontend/pages/dashboard/dashboard.html';
 
                     } catch (_err) {
                         this.globalError = 'Connection error. Please try again.';
@@ -461,6 +477,7 @@
         }
     </script>
 
+    <!-- ===== Particle Field ===== -->
     <script>
         (function () {
             const COUNT  = 150;
