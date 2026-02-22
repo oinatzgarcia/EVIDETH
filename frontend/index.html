@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVIDETH — Redirigiendo...</title>
+
+    <!--
+        Redirect de raíz del frontend estático.
+
+        Cubre el escenario en que el frontend se sirve con:
+          python -m http.server 8080
+        y el usuario accede a http://localhost:8080/frontend/
+
+        El servidor FastAPI (puerto 8000) gestiona su propia
+        redirección desde GET / en app/main.py.
+
+        Doble mecanismo para máxima compatibilidad:
+          1. <meta http-equiv="refresh">  → navegadores sin JS
+          2. window.location.replace()    → navegadores con JS (inmediato)
+    -->
+    <meta http-equiv="refresh" content="0; url=./pages/login/login.html">
+    <script>
+        window.location.replace('./pages/login/login.html');
+    </script>
+
+    <style>
+        body {
+            margin: 0;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: 'Space Mono', monospace;
+            color: #4a90e2;
+            font-size: 0.85rem;
+            letter-spacing: 0.15em;
+        }
+    </style>
+</head>
+<body>
+    <p>Redirigiendo al login&hellip;</p>
+</body>
+</html>
