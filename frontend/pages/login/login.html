@@ -170,6 +170,36 @@
         }
         .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 
+        /* === REMEMBER ME CHECKBOX === */
+        .remember-checkbox {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border: 1px solid rgba(74,144,226,.4);
+            background: #000;
+            cursor: pointer;
+            position: relative;
+            flex-shrink: 0;
+            transition: all 0.2s ease;
+        }
+        .remember-checkbox:checked {
+            background: #4a90e2;
+            border-color: #4a90e2;
+        }
+        .remember-checkbox:checked::after {
+            content: '';
+            position: absolute;
+            left: 3px; top: 1px;
+            width: 5px; height: 8px;
+            border: 2px solid #000;
+            border-top: none;
+            border-left: none;
+            transform: rotate(45deg);
+        }
+        .remember-checkbox:focus { box-shadow: 0 0 8px rgba(74,144,226,.4); }
+        .remember-checkbox:disabled { opacity: 0.4; cursor: not-allowed; }
+
         .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
         @keyframes pulseSubtle {
             0%, 100% { opacity: 0.6; }
@@ -292,6 +322,31 @@
                            class="mt-2 font-mono text-xs" style="color:#ef4444;"></p>
                     </div>
 
+                    <!-- Remember me -->
+                    <div class="flex items-center justify-between">
+                        <label class="flex items-center space-x-3 cursor-pointer"
+                               :class="{ 'opacity-40 cursor-not-allowed': loading || success }">
+                            <input
+                                type="checkbox"
+                                id="rememberMe"
+                                x-model="rememberMe"
+                                class="remember-checkbox"
+                                :disabled="loading || success"
+                            >
+                            <span class="font-mono text-xs tracking-widest uppercase"
+                                  style="color:#6b7280;">Keep session active</span>
+                        </label>
+                        <!-- Indicador visual del modo de sesión -->
+                        <span class="font-mono text-xs" x-show="rememberMe"
+                              style="color:#4a90e2;" x-transition>
+                            Persistent
+                        </span>
+                        <span class="font-mono text-xs" x-show="!rememberMe"
+                              style="color:#374151;" x-transition>
+                            Tab only
+                        </span>
+                    </div>
+
                     <!-- Global error / session message -->
                     <div x-show="globalError" x-transition
                          class="border p-4 flex items-start space-x-3"
@@ -387,19 +442,18 @@
             return {
                 email:       '',
                 password:    '',
+                rememberMe:  false,       // ← checkbox "Keep session active"
                 showPwd:     false,
                 loading:     false,
                 success:     false,
                 globalError: null,
                 fe:          {},
 
-                // ── Init ───────────────────────────────────────────────
+                // ── Init ─────────────────────────────────────────────
                 init() {
-                    // Mostrar mensaje de sesión expirada si viene de Auth.logout()
                     const msg = Auth.consumeAuthMessage();
                     if (msg) this.globalError = msg;
 
-                    // Si ya tiene token válido, saltar directamente al dashboard
                     if (Auth.isLoggedIn()) {
                         window.location.href = '/frontend/pages/dashboard/dashboard.html';
                     }
@@ -416,7 +470,6 @@
                     return Object.keys(this.fe).length === 0;
                 },
 
-                // ── Limpiar error al escribir ───────────────────────────
                 clearError(field) {
                     delete this.fe[field];
                     this.fe          = { ...this.fe };
@@ -453,14 +506,12 @@
                             return;
                         }
 
-                        // Guardar tokens mediante el módulo Auth
-                        Auth.setTokens(data);
+                        // Pasar rememberMe al módulo Auth
+                        Auth.setTokens(data, this.rememberMe);
 
-                        // Mostrar estado de éxito y redirigir
                         this.success = true;
                         await new Promise(r => setTimeout(r, 900));
 
-                        // Respetar ?return= si viene de una página protegida
                         const params   = new URLSearchParams(window.location.search);
                         const returnTo = params.get('return');
                         window.location.href = returnTo
