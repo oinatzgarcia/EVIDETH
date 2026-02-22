@@ -8,6 +8,15 @@
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="../../assets/images/Buho.png" sizes="59x59">
 
+    <!--
+        auth.js — DEBE cargarse ANTES que Alpine.js.
+        Login lo necesita para:
+          1. Auth.isLoggedIn() en init()      → redirige si ya hay sesión
+          2. Auth.setTokens()  en submitLogin → guarda tokens con el mismo
+             mecanismo que usa auth.requireAuth() en el dashboard
+    -->
+    <script src="../../assets/js/auth.js"></script>
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 
@@ -55,7 +64,6 @@
     </script>
 
     <style>
-        /* === BASE === */
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
@@ -68,7 +76,6 @@
             flex-direction: column;
         }
 
-        /* === PARTICLE FIELD === */
         .particle-field {
             position: fixed; top: 0; left: 0;
             width: 100%; height: 100%;
@@ -83,7 +90,6 @@
             transition: all 0.3s ease-out;
         }
 
-        /* === GRID === */
         .subtle-grid {
             background-image:
                 linear-gradient(rgba(74,144,226,.05) 1px, transparent 1px),
@@ -92,23 +98,19 @@
             background-color: #000000;
         }
 
-        /* === CARD === */
         .card-bg { background-color: #0a0a0a; }
 
-        /* === TEXT GLOW === */
         .text-glow {
             text-shadow: 0 0 10px rgba(74,144,226,.6),
                          0 0 20px rgba(74,144,226,.4);
         }
 
-        /* === LOGO === */
         .logo-glow {
             filter: drop-shadow(0 0 8px rgba(74,144,226,.4));
             transition: all 0.5s ease;
         }
         .logo-glow:hover { filter: drop-shadow(0 0 15px rgba(74,144,226,.7)); }
 
-        /* === BORDER GLOW === */
         .border-glow {
             border: 1px solid rgba(74,144,226,.25);
             transition: all 0.3s ease;
@@ -118,8 +120,6 @@
             box-shadow: 0 0 15px rgba(74,144,226,.2);
         }
 
-
-        /* === INPUT === */
         .input-field {
             width: 100%;
             background: #000000;
@@ -143,7 +143,6 @@
             box-shadow: 0 0 12px rgba(220,38,38,.2);
         }
 
-        /* === BUTTON === */
         .btn-primary {
             width: 100%;
             padding: 0.875rem;
@@ -164,21 +163,18 @@
         }
         .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        /* === PULSE DOT === */
         .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
         @keyframes pulseSubtle {
             0%, 100% { opacity: 0.6; }
             50%       { opacity: 1;   }
         }
 
-        /* === FLOAT === */
         @keyframes float {
             0%, 100% { transform: translateY(0px);   }
             50%       { transform: translateY(-10px); }
         }
         .animate-float { animation: float 6s ease-in-out infinite; }
 
-        /* === SCROLLBAR === */
         ::-webkit-scrollbar       { width: 8px; }
         ::-webkit-scrollbar-track { background: #000000; }
         ::-webkit-scrollbar-thumb { background: #4a90e2; border-radius: 4px; }
@@ -188,11 +184,8 @@
 
 <body class="subtle-grid" x-data="loginApp()">
 
-    <!-- Particle field -->
     <div class="particle-field" id="particleField"></div>
 
-
-    <!-- ===== MAIN CONTENT ===== -->
     <div class="flex-1 flex items-center justify-center px-4 py-12">
         <div class="w-full max-w-md">
 
@@ -221,7 +214,6 @@
             <!-- Login card -->
             <div class="card-bg border-glow p-8">
 
-                <!-- Card header -->
                 <div class="flex items-center justify-between mb-8">
                     <div class="flex items-center space-x-3">
                         <div class="w-1 h-8" style="background-color:#4a90e2;"></div>
@@ -235,7 +227,6 @@
                     </div>
                 </div>
 
-                <!-- Form -->
                 <form @submit.prevent="submitLogin()" novalidate class="space-y-6">
 
                     <!-- Email -->
@@ -270,13 +261,11 @@
                                 :disabled="loading || success"
                                 style="padding-right:3rem;"
                             >
-                            <!-- Toggle visibility -->
                             <button type="button"
                                     @click="showPwd = !showPwd"
                                     class="absolute right-3 top-1/2 -translate-y-1/2 transition-colors duration-200"
                                     :style="showPwd ? 'color:#4a90e2;' : 'color:#4b5563;'"
                                     tabindex="-1" aria-label="Toggle password visibility">
-                                <!-- Eye open -->
                                 <svg x-show="!showPwd" class="w-4 h-4"
                                      fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -284,7 +273,6 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                           d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                                 </svg>
-                                <!-- Eye closed -->
                                 <svg x-show="showPwd" class="w-4 h-4"
                                      fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -324,8 +312,6 @@
 
                     <!-- Submit button -->
                     <button type="submit" class="btn-primary" :disabled="loading || success">
-
-                        <!-- Default state -->
                         <span x-show="!loading && !success"
                               class="flex items-center justify-center space-x-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -334,8 +320,6 @@
                             </svg>
                             <span>AUTHENTICATE</span>
                         </span>
-
-                        <!-- Loading state -->
                         <span x-show="loading"
                               class="flex items-center justify-center space-x-2">
                             <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -346,8 +330,6 @@
                             </svg>
                             <span>Authenticating...</span>
                         </span>
-
-                        <!-- Success state -->
                         <span x-show="success"
                               class="flex items-center justify-center space-x-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -356,12 +338,10 @@
                             </svg>
                             <span>Access Granted</span>
                         </span>
-
                     </button>
 
                 </form>
 
-                <!-- Bottom security badge -->
                 <div class="mt-8 pt-6 border-t"
                      style="border-color:rgba(74,144,226,.1);">
                     <div class="flex items-center justify-center space-x-2 font-mono text-xs"
@@ -375,9 +355,7 @@
                 </div>
 
             </div>
-            <!-- /Login card -->
 
-            <!-- Bottom metadata badges -->
             <div class="mt-6 flex items-center justify-center space-x-4 font-mono text-xs"
                  style="color:#1f2937;">
                 <span>SHA-256</span>
@@ -389,9 +367,7 @@
 
         </div>
     </div>
-    <!-- /Main content -->
 
-    <!-- Footer -->
     <footer class="border-t" style="border-color:rgba(74,144,226,.15); background-color:#000000;">
         <div class="max-w-7xl mx-auto px-4 py-6 text-center">
             <p class="font-mono text-xs tracking-widest" style="color:#1f2937;">
@@ -400,7 +376,6 @@
         </div>
     </footer>
 
-    <!-- ===== ALPINE APP ===== -->
     <script>
         function loginApp() {
             return {
@@ -410,36 +385,38 @@
                 loading:     false,
                 success:     false,
                 globalError: null,
-                fe:          {},          // field errors
+                fe:          {},
 
-                // ── Init: redirect if already authenticated ──────────────
+                // ── Init ──────────────────────────────────────────────────
                 init() {
-                    if (localStorage.getItem('evideth_token')) {
+                    // FIX: usar Auth.isLoggedIn() para que la comprobación
+                    // use el mismo storage que usa auth.requireAuth()
+                    if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) {
                         window.location.href = '../dashboard/dashboard.html';
+                        return;
+                    }
+                    // Mostrar mensaje de sesión expirada si viene del logout
+                    if (typeof Auth !== 'undefined') {
+                        const msg = Auth.consumeAuthMessage();
+                        if (msg) this.globalError = msg;
                     }
                 },
 
-                // ── Client-side validation ───────────────────────────────
+                // ── Validación client-side ──────────────────────────────
                 validate() {
                     this.fe = {};
                     const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-                    if (!this.email.trim()) {
+                    if (!this.email.trim())
                         this.fe.email = 'Email required';
-                    } else if (!EMAIL_RE.test(this.email.trim())) {
+                    else if (!EMAIL_RE.test(this.email.trim()))
                         this.fe.email = 'Invalid email format';
-                    }
-
-                    if (!this.password) {
+                    if (!this.password)
                         this.fe.password = 'Password required';
-                    } else if (this.password.length < 8) {
+                    else if (this.password.length < 8)
                         this.fe.password = 'Minimum 8 characters';
-                    }
-
                     return Object.keys(this.fe).length === 0;
                 },
 
-                // ── Clear error on field change ──────────────────────────
                 clearError(field) {
                     delete this.fe[field];
                     this.fe          = { ...this.fe };
@@ -453,12 +430,6 @@
 
                     this.loading = true;
                     try {
-                        /*
-                         * FIX: LoginRequest espera JSON con campo 'email'.
-                         * - Content-Type: application/json  (antes: x-www-form-urlencoded)
-                         * - Campo 'email'                   (antes: 'username')
-                         * - Body: JSON.stringify(...)        (antes: URLSearchParams)
-                         */
                         const response = await fetch('/api/v1/auth/login', {
                             method:  'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -471,7 +442,6 @@
                         const data = await response.json();
 
                         if (!response.ok) {
-                            // SECURITY: on 401 don't reveal which field is wrong
                             if (response.status === 401) {
                                 this.globalError = 'Invalid credentials. Access denied.';
                             } else if (response.status === 422) {
@@ -479,18 +449,21 @@
                             } else {
                                 this.globalError = data.detail || 'Authentication failed. Try again.';
                             }
-                            this.password = '';   // clear password on any error
+                            this.password = '';
                             return;
                         }
 
-                        // ── Store JWT ──
-                        localStorage.setItem('evideth_token',      data.access_token);
-                        localStorage.setItem('evideth_token_type', data.token_type || 'bearer');
-                        if (data.user) {
-                            localStorage.setItem('evideth_user', JSON.stringify(data.user));
-                        }
+                        /*
+                         * FIX: usar Auth.setTokens() en lugar de localStorage.setItem() directo.
+                         * Esto asegura que auth.js._store() encuentre los tokens
+                         * en el storage correcto cuando el dashboard llame Auth.requireAuth().
+                         *
+                         * rememberMe = false → sessionStorage (se borra al cerrar la pestaña)
+                         * Si en el futuro se añade un checkbox "Recordar sesión",
+                         * pasar el valor del checkbox aquí.
+                         */
+                        Auth.setTokens(data, false);
 
-                        // ── Show success, then redirect ──
                         this.success = true;
                         await new Promise(r => setTimeout(r, 900));
                         window.location.href = '../dashboard/dashboard.html';
@@ -505,7 +478,6 @@
         }
     </script>
 
-    <!-- ===== PARTICLE FIELD SCRIPT ===== -->
     <script>
         (function () {
             const COUNT  = 150;
@@ -517,53 +489,40 @@
             for (let i = 0; i < COUNT; i++) {
                 const el = document.createElement('div');
                 el.className = 'particle';
-
-                const size     = Math.random() * 4 + 1;
-                const x        = Math.random() * window.innerWidth;
-                const y        = Math.random() * window.innerHeight;
-                const opacity  = Math.random() * 0.4 + 0.15;
-                const vx       = (Math.random() - 0.5) * 0.3;
-                const vy       = (Math.random() - 0.5) * 0.3;
-
+                const size    = Math.random() * 4 + 1;
+                const x       = Math.random() * window.innerWidth;
+                const y       = Math.random() * window.innerHeight;
+                const opacity = Math.random() * 0.4 + 0.15;
+                const vx      = (Math.random() - 0.5) * 0.3;
+                const vy      = (Math.random() - 0.5) * 0.3;
                 el.style.cssText = 'width:' + size + 'px;height:' + size + 'px;left:' + x + 'px;top:' + y + 'px;opacity:' + opacity + ';';
                 field.appendChild(el);
                 items.push({ el, x, y, baseX: x, baseY: y, vx, vy, opacity });
             }
 
-            document.addEventListener('mousemove', function(e) {
-                mouseX = e.clientX;
-                mouseY = e.clientY;
-            });
+            document.addEventListener('mousemove', function(e) { mouseX = e.clientX; mouseY = e.clientY; });
 
             (function animate() {
                 items.forEach(function(p) {
-                    const dx   = mouseX - p.x;
-                    const dy   = mouseY - p.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    const MAX  = 200;
-
+                    var dx = mouseX - p.x, dy = mouseY - p.y;
+                    var dist = Math.sqrt(dx*dx + dy*dy), MAX = 200;
                     if (dist < MAX) {
-                        const force = (MAX - dist) / MAX;
-                        const angle = Math.atan2(dy, dx);
+                        var force = (MAX - dist) / MAX, angle = Math.atan2(dy, dx);
                         p.x -= Math.cos(angle) * force * 3;
                         p.y -= Math.sin(angle) * force * 3;
-                        p.el.style.opacity   = Math.min(p.opacity + force * 0.3, 0.8);
+                        p.el.style.opacity   = String(Math.min(p.opacity + force * 0.3, 0.8));
                         p.el.style.transform = 'scale(' + (1 + force * 0.5) + ')';
                     } else {
                         p.x += (p.baseX - p.x) * 0.01;
                         p.y += (p.baseY - p.y) * 0.01;
-                        p.el.style.opacity   = p.opacity;
+                        p.el.style.opacity   = String(p.opacity);
                         p.el.style.transform = 'scale(1)';
                     }
-
-                    p.x += p.vx;
-                    p.y += p.vy;
-
+                    p.x += p.vx; p.y += p.vy;
                     if (p.x < -10)                     p.x = window.innerWidth  + 10;
                     if (p.x > window.innerWidth  + 10) p.x = -10;
                     if (p.y < -10)                     p.y = window.innerHeight + 10;
                     if (p.y > window.innerHeight + 10) p.y = -10;
-
                     p.el.style.left = p.x + 'px';
                     p.el.style.top  = p.y + 'px';
                 });
