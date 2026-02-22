@@ -453,11 +453,17 @@
 
                     this.loading = true;
                     try {
+                        /*
+                         * FIX: LoginRequest espera JSON con campo 'email'.
+                         * - Content-Type: application/json  (antes: x-www-form-urlencoded)
+                         * - Campo 'email'                   (antes: 'username')
+                         * - Body: JSON.stringify(...)        (antes: URLSearchParams)
+                         */
                         const response = await fetch('/api/v1/auth/login', {
                             method:  'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                            body:    new URLSearchParams({
-                                username: this.email.trim(),
+                            headers: { 'Content-Type': 'application/json' },
+                            body:    JSON.stringify({
+                                email:    this.email.trim(),
                                 password: this.password,
                             }),
                         });
@@ -499,7 +505,7 @@
         }
     </script>
 
-    <!-- ===== PARTICLE FIELD SCRIPT (identical to dashboard) ===== -->
+    <!-- ===== PARTICLE FIELD SCRIPT ===== -->
     <script>
         (function () {
             const COUNT  = 150;
@@ -519,18 +525,18 @@
                 const vx       = (Math.random() - 0.5) * 0.3;
                 const vy       = (Math.random() - 0.5) * 0.3;
 
-                el.style.cssText = `width:${size}px;height:${size}px;left:${x}px;top:${y}px;opacity:${opacity};`;
+                el.style.cssText = 'width:' + size + 'px;height:' + size + 'px;left:' + x + 'px;top:' + y + 'px;opacity:' + opacity + ';';
                 field.appendChild(el);
                 items.push({ el, x, y, baseX: x, baseY: y, vx, vy, opacity });
             }
 
-            document.addEventListener('mousemove', e => {
+            document.addEventListener('mousemove', function(e) {
                 mouseX = e.clientX;
                 mouseY = e.clientY;
             });
 
             (function animate() {
-                items.forEach(p => {
+                items.forEach(function(p) {
                     const dx   = mouseX - p.x;
                     const dy   = mouseY - p.y;
                     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -542,7 +548,7 @@
                         p.x -= Math.cos(angle) * force * 3;
                         p.y -= Math.sin(angle) * force * 3;
                         p.el.style.opacity   = Math.min(p.opacity + force * 0.3, 0.8);
-                        p.el.style.transform = `scale(${1 + force * 0.5})`;
+                        p.el.style.transform = 'scale(' + (1 + force * 0.5) + ')';
                     } else {
                         p.x += (p.baseX - p.x) * 0.01;
                         p.y += (p.baseY - p.y) * 0.01;
@@ -553,9 +559,9 @@
                     p.x += p.vx;
                     p.y += p.vy;
 
-                    if (p.x < -10)                   p.x = window.innerWidth  + 10;
+                    if (p.x < -10)                     p.x = window.innerWidth  + 10;
                     if (p.x > window.innerWidth  + 10) p.x = -10;
-                    if (p.y < -10)                   p.y = window.innerHeight + 10;
+                    if (p.y < -10)                     p.y = window.innerHeight + 10;
                     if (p.y > window.innerHeight + 10) p.y = -10;
 
                     p.el.style.left = p.x + 'px';
@@ -564,8 +570,8 @@
                 requestAnimationFrame(animate);
             })();
 
-            window.addEventListener('resize', () => {
-                items.forEach(p => {
+            window.addEventListener('resize', function() {
+                items.forEach(function(p) {
                     p.baseX = Math.random() * window.innerWidth;
                     p.baseY = Math.random() * window.innerHeight;
                 });
