@@ -114,19 +114,6 @@
             box-shadow: 0 0 15px rgba(74,144,226,.2);
         }
 
-        .scan-line {
-            position: fixed; top: 0; left: 0;
-            width: 100%; height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(74,144,226,.5), transparent);
-            animation: scan 4s linear infinite;
-            z-index: 1000;
-            pointer-events: none;
-        }
-        @keyframes scan {
-            0%   { transform: translateY(0);     }
-            100% { transform: translateY(100vh); }
-        }
-
         .input-field {
             width: 100%;
             background: #000000;
@@ -222,7 +209,6 @@
 <body class="subtle-grid" x-data="loginApp()">
 
     <div class="particle-field" id="particleField"></div>
-    <div class="scan-line"></div>
 
     <div class="flex-1 flex items-center justify-center px-4 py-12">
         <div class="w-full max-w-md">
@@ -336,7 +322,6 @@
                             <span class="font-mono text-xs tracking-widest uppercase"
                                   style="color:#6b7280;">Keep session active</span>
                         </label>
-                        <!-- Indicador visual del modo de sesión -->
                         <span class="font-mono text-xs" x-show="rememberMe"
                               style="color:#4a90e2;" x-transition>
                             Persistent
@@ -442,24 +427,21 @@
             return {
                 email:       '',
                 password:    '',
-                rememberMe:  false,       // ← checkbox "Keep session active"
+                rememberMe:  false,
                 showPwd:     false,
                 loading:     false,
                 success:     false,
                 globalError: null,
                 fe:          {},
 
-                // ── Init ─────────────────────────────────────────────
                 init() {
                     const msg = Auth.consumeAuthMessage();
                     if (msg) this.globalError = msg;
-
                     if (Auth.isLoggedIn()) {
                         window.location.href = '/frontend/pages/dashboard/dashboard.html';
                     }
                 },
 
-                // ── Validación client-side ─────────────────────────────
                 validate() {
                     this.fe = {};
                     const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -476,7 +458,6 @@
                     this.globalError = null;
                 },
 
-                // ── Submit ─────────────────────────────────────────────
                 async submitLogin() {
                     this.globalError = null;
                     if (!this.validate()) return;
@@ -506,7 +487,6 @@
                             return;
                         }
 
-                        // Pasar rememberMe al módulo Auth
                         Auth.setTokens(data, this.rememberMe);
 
                         this.success = true;
@@ -571,10 +551,10 @@
                         p.el.style.transform = 'scale(1)';
                     }
                     p.x += p.vx; p.y += p.vy;
-                    if (p.x < -10)                    p.x = window.innerWidth  + 10;
-                    if (p.x > window.innerWidth  + 10) p.x = -10;
-                    if (p.y < -10)                    p.y = window.innerHeight + 10;
-                    if (p.y > window.innerHeight + 10) p.y = -10;
+                    if (p.x < -10)                     p.x = window.innerWidth  + 10;
+                    if (p.x > window.innerWidth  + 10)  p.x = -10;
+                    if (p.y < -10)                     p.y = window.innerHeight + 10;
+                    if (p.y > window.innerHeight + 10)  p.y = -10;
                     p.el.style.left = p.x + 'px';
                     p.el.style.top  = p.y + 'px';
                 });
