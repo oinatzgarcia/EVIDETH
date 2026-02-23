@@ -52,6 +52,36 @@ def generate_test_video(output_path: str, duration: int) -> None:
         raise RuntimeError(f"ffmpeg error: {result.stderr}")
 
 
+def generate_corrupted_video(src: str) -> str:
+    """
+    Genera una versión manipulada del vídeo reemplazando los frames
+    del segundo 3 al 4 con un rectángulo negro.
+
+    POR QUÉ no basta con cambiar 1 byte del fichero .mp4:
+        ffmpeg usa -c copy para re-muxear el contenedor MP4 al segmentar.
+        Si el byte corrupto cae en metadatos del contenedor (moov atom),
+        ffmpeg lo normaliza y el stream H.264 resultante es idéntico.
+        El SHA-256 del segmento coincide y el verificador dice PASS.
+
+    POR QUÉ funciona re-codificar frames:
+        Al modificar el contenido real de los frames (datos H.264),
+        el SHA-256 del segmento extraído con ffmpeg es diferente.
+        El verificador compara SHA-256 de segmento → FAIL garantizado.
+    """
+    dst = src.replace(".mp4", "_corrupted.mp4")
+    cmd = [
+        "ffmpeg", "-y", "-i", src,
+        # Pinta un rectángulo negro sobre TODOS los frames del segundo 3-4
+        "-vf", "drawbox=enable='between(t,3,4)':x=0:y=0:w=iw:h=ih:color=black:t=fill",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        dst
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg error al generar vídeo corrompido: {result.stderr}")
+    return dst
+
+
 def get_or_create_camera(db, api_key_plain: str = "test-api-key-12345") -> models.Camera:
     cam = db.query(models.Camera).filter(
         models.Camera.camera_id == TEST_CAMERA_ID
@@ -125,15 +155,21 @@ def main():
 
     models.Base.metadata.create_all(bind=engine)
 
-    # 1. Generar vídeo
+    # 1. Generar vídeo original
     video_path = os.path.join(OUTPUT_DIR, "test_video.mp4")
-    print(f"[1/3] Generando vídeo de {TEST_VIDEO_SECS} s con ffmpeg...")
+    print(f"[1/4] Generando vídeo de {TEST_VIDEO_SECS} s con ffmpeg...")
     generate_test_video(video_path, TEST_VIDEO_SECS)
     size_mb = os.path.getsize(video_path) / 1_048_576
     print(f"      ✔ {video_path}  ({size_mb:.1f} MB)")
 
-    # 2. Registrar en BD
-    print(f"\n[2/3] Registrando en la base de datos...")
+    # 2. Generar vídeo manipulado (para test FAIL)
+    print(f"\n[2/4] Generando vídeo manipulado (frames 3–4 s en negro)...")
+    corrupted_path = generate_corrupted_video(video_path)
+    size_corr = os.path.getsize(corrupted_path) / 1_048_576
+    print(f"      ✔ {corrupted_path}  ({size_corr:.1f} MB)")
+
+    # 3. Registrar en BD
+    print(f"\n[3/4] Registrando en la base de datos...")
     db = SessionLocal()
     try:
         camera = get_or_create_camera(db)
@@ -142,15 +178,14 @@ def main():
             models.Segment.video_id == video.id
         ).order_by(models.Segment.segment_index).all()
 
-        # ⚠ IMPORTANTE: extraer valores a Python puro ANTES de cerrar la sesión.
-        # Acceder a atributos ORM fuera de la sesión causa DetachedInstanceError.
-        out_camera_id  = camera.camera_id
-        out_video_id   = video.id
-        out_seg_data   = [
+        # Extraer valores a Python puro ANTES de cerrar la sesión
+        out_camera_id = camera.camera_id
+        out_video_id  = video.id
+        out_seg_data  = [
             {
-                "index": s.segment_index,
-                "start": s.start_time_secs,
-                "end":   s.end_time_secs,
+                "index":  s.segment_index,
+                "start":  s.start_time_secs,
+                "end":    s.end_time_secs,
                 "sha256": s.sha256_hash,
                 "merkle": s.merkle_root,
             }
@@ -159,16 +194,24 @@ def main():
     finally:
         db.close()
 
-    # 3. Imprimir resumen
-    print(f"\n[3/3] ✔✔ Listo. Usa estos datos en el frontend o en el API:\n")
+    # 4. Imprimir resumen
+    print(f"\n[4/4] ✔✔ Listo. Usa estos datos en el frontend o en el API:\n")
     print(f"  camera_id   = {out_camera_id}")
     print(f"  video_db_id = {out_video_id}")
-    print(f"  fichero     = {video_path}")
     print(f"  segmentos   = {len(out_seg_data)}")
     for s in out_seg_data:
         merkle_str = f"  Merkle: {s['merkle'][:16]}..." if s['merkle'] else "  (sin Merkle)"
         print(f"    [{s['index']}] {s['start']:3d}–{s['end']:3d} s  "
               f"SHA256: {s['sha256'][:16]}...{merkle_str}")
+
+    print(f"\n  ── Test PASS (vídeo íntegro) ──────────────────────")
+    print(f"  Sube este fichero  →  debe dar VERDE (ÍNTEGRO):")
+    print(f"    {video_path}")
+
+    print(f"\n  ── Test FAIL (vídeo manipulado) ──────────────────")
+    print(f"  Sube este fichero  →  debe dar ROJO (MANIPULADO):")
+    print(f"    {corrupted_path}")
+    print(f"  (frames del segundo 3–4 reemplazados por negro)")
 
     print(f"\n  ── Ejemplo curl ────────────────────────────")
     print(f"  curl -X POST http://localhost:8000/api/v1/verification/upload \\")
