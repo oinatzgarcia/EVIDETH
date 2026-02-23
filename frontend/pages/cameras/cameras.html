@@ -68,16 +68,26 @@
         .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
         @keyframes pulseSubtle { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
 
-        /* Camera card hover glow */
         .camera-card { transition: all 0.3s ease; }
         .camera-card:hover { transform: translateY(-2px); }
         .camera-card.online:hover  { box-shadow: 0 0 20px rgba(74,144,226,.15); }
         .camera-card.offline:hover { box-shadow: 0 0 20px rgba(107,114,128,.1); }
         .camera-card.alert:hover   { box-shadow: 0 0 20px rgba(239,68,68,.15); }
 
-        /* Skeleton loader */
         .skeleton { background: linear-gradient(90deg, #111 25%, #1a1a1a 50%, #111 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
         @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+        /* Admin badge */
+        .owner-badge {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 1px 6px;
+            border: 1px solid rgba(91,163,245,.3);
+            background: rgba(74,144,226,.06);
+            font-family: 'Space Mono', monospace;
+            font-size: 10px;
+            color: #5ba3f5;
+            letter-spacing: .05em;
+        }
     </style>
 </head>
 
@@ -111,12 +121,23 @@
                 </nav>
 
                 <div class="flex items-center space-x-4">
+                    <!-- Role badge -->
+                    <div class="hidden lg:flex items-center space-x-2 px-3 py-1 border"
+                         style="border-color:#2c5f8d; background:#000;"
+                         x-show="isAdmin">
+                        <svg class="w-3 h-3" style="color:#f59e0b;" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                        </svg>
+                        <span class="text-xs font-mono" style="color:#f59e0b;">Admin</span>
+                    </div>
+
                     <div class="hidden lg:flex items-center space-x-2 px-4 py-2 border" style="border-color:#2c5f8d; background-color:#000000;">
                         <div class="relative w-2 h-2">
                             <div class="absolute w-2 h-2 rounded-full pulse-dot" style="background-color:#4a90e2;"></div>
                         </div>
                         <span class="text-xs font-mono" style="color:#4a90e2;">System Online</span>
                     </div>
+
                     <div class="w-10 h-10 border flex items-center justify-center transition-colors duration-300 cursor-pointer"
                          style="border-color:#2c5f8d; background-color:#000000; color:#4a90e2;"
                          title="Logout"
@@ -140,7 +161,7 @@
         <div class="mb-10 text-center">
             <div class="flex items-center justify-center space-x-2 font-mono text-sm mb-2" style="color:#5ba3f5;">
                 <span class="w-12 h-px" style="background:linear-gradient(to right, transparent, #4a90e2);"></span>
-                <span class="tracking-widest text-xs">Camera Network</span>
+                <span class="tracking-widest text-xs" x-text="isAdmin ? 'Global Camera Network' : 'Camera Network'"></span>
                 <span class="w-12 h-px" style="background:linear-gradient(to left, transparent, #4a90e2);"></span>
             </div>
             <h2 class="text-5xl font-bold mb-4 tracking-wider" style="color:#ffffff;">
@@ -156,7 +177,8 @@
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
 
             <div class="card-bg border border-glow p-5">
-                <p class="text-xs font-mono tracking-widest uppercase mb-2" style="color:#9ca3af;">Total Cameras</p>
+                <p class="text-xs font-mono tracking-widest uppercase mb-2" style="color:#9ca3af;"
+                   x-text="isAdmin ? 'All Cameras' : 'Your Cameras'"></p>
                 <p class="text-3xl font-bold font-mono" style="color:#4a90e2;"
                    x-text="loading ? '—' : cameras.length"></p>
             </div>
@@ -190,9 +212,9 @@
             <div class="flex items-center space-x-3">
                 <input type="text"
                        x-model="search"
-                       placeholder="Filter cameras..."
+                       :placeholder="isAdmin ? 'Filter by ID, name, location, owner...' : 'Filter cameras...'"
                        class="bg-black border px-4 py-2 font-mono text-sm focus:outline-none transition-colors"
-                       style="border-color:#2c5f8d; color:#e5e7eb; width:260px;"
+                       style="border-color:#2c5f8d; color:#e5e7eb; width:280px;"
                        onfocus="this.style.borderColor='#4a90e2'"
                        onblur="this.style.borderColor='#2c5f8d'" />
 
@@ -237,7 +259,8 @@
                         <div class="skeleton h-3 w-12 rounded"></div>
                     </div>
                     <div class="skeleton h-6 w-36 rounded mb-2"></div>
-                    <div class="skeleton h-3 w-48 rounded mb-6"></div>
+                    <div class="skeleton h-3 w-48 rounded mb-2"></div>
+                    <div class="skeleton h-3 w-24 rounded mb-6"></div>
                     <div class="grid grid-cols-2 gap-3 mb-4">
                         <div class="skeleton h-12 rounded"></div>
                         <div class="skeleton h-12 rounded"></div>
@@ -268,13 +291,11 @@
                      :class="cardClass(cam)"
                      :style="cardBorder(cam)">
 
-                    <!-- Scan line on hover (always present, subtle) -->
                     <div class="absolute top-0 left-0 w-full h-px"
                          :style="'background: linear-gradient(90deg, transparent, ' + accentColor(cam) + '55, transparent);'"></div>
 
-                    <!-- Row 1: status badge + recording badge -->
+                    <!-- Row 1: status badge + recording / alert badge -->
                     <div class="flex items-center justify-between mb-4">
-                        <!-- Online / Offline / No data -->
                         <div class="flex items-center space-x-2">
                             <template x-if="cam.status">
                                 <div class="flex items-center space-x-1.5">
@@ -291,7 +312,6 @@
                             </template>
                         </div>
 
-                        <!-- Recording badge -->
                         <template x-if="cam.status && cam.status.active_video">
                             <div class="flex items-center space-x-1 px-2 py-0.5 border"
                                  style="border-color:rgba(239,68,68,.4); background:rgba(127,29,29,.15);">
@@ -300,7 +320,6 @@
                             </div>
                         </template>
 
-                        <!-- Integrity alert badge -->
                         <template x-if="cam.status && !cam.status.active_video && cam.status.stats.invalid_segments > 0">
                             <div class="flex items-center space-x-1 px-2 py-0.5 border"
                                  style="border-color:rgba(239,68,68,.4); background:rgba(127,29,29,.15);">
@@ -310,12 +329,28 @@
                     </div>
 
                     <!-- Row 2: Camera ID + name -->
-                    <div class="mb-4">
+                    <div class="mb-1">
                         <p class="font-mono text-xl font-bold mb-0.5"
                            :style="'color:' + accentColor(cam) + ';'"
                            x-text="cam.camera_id"></p>
                         <p class="font-mono text-sm" style="color:#d1d5db;" x-text="cam.name"></p>
                     </div>
+
+                    <!-- Row 2.5: Owner badge (Admin only) -->
+                    <template x-if="isAdmin">
+                        <div class="flex items-center space-x-1.5 mb-4 mt-2">
+                            <svg class="w-3 h-3 flex-shrink-0" style="color:#5ba3f5;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                            </svg>
+                            <span class="owner-badge"
+                                  x-text="cam.owner_name || cam.owner_id || 'Unknown'"></span>
+                        </div>
+                    </template>
+                    <!-- Spacer para Analyst (mantiene el mismo layout) -->
+                    <template x-if="!isAdmin">
+                        <div class="mb-4"></div>
+                    </template>
 
                     <!-- Row 3: Location + last seen -->
                     <div class="flex items-center justify-between mb-5">
@@ -336,13 +371,11 @@
                     <!-- Row 4: Stats grid -->
                     <template x-if="cam.status">
                         <div class="grid grid-cols-2 gap-3 mb-5">
-
                             <div class="border p-3 text-center" style="border-color:rgba(74,144,226,.15); background:#000;">
                                 <p class="font-mono text-xs tracking-widest uppercase mb-1" style="color:#6b7280;">Segments</p>
                                 <p class="font-mono text-2xl font-bold" style="color:#4a90e2;"
                                    x-text="cam.status.stats.total_segments"></p>
                             </div>
-
                             <div class="border p-3 text-center"
                                  :style="cam.status.stats.invalid_segments > 0
                                     ? 'border-color:rgba(220,38,38,.3); background:#000;'
@@ -352,11 +385,9 @@
                                    :style="'color:' + (cam.status.stats.invalid_segments > 0 ? '#ef4444' : '#4a90e2') + ';'"
                                    x-text="cam.status.stats.invalid_segments"></p>
                             </div>
-
                         </div>
                     </template>
 
-                    <!-- No status data placeholder -->
                     <template x-if="!cam.status">
                         <div class="border p-4 mb-5 text-center" style="border-color:rgba(74,144,226,.1); background:#000;">
                             <p class="font-mono text-xs" style="color:#4b5563;">Status unavailable</p>
@@ -379,7 +410,7 @@
                         </div>
                     </template>
 
-                    <!-- Row 6: Active video info -->
+                    <!-- Row 6: Active video -->
                     <template x-if="cam.status && cam.status.active_video">
                         <div class="border px-3 py-2 mb-5 font-mono text-xs"
                              style="border-color:rgba(239,68,68,.3); background:rgba(127,29,29,.08);">
@@ -388,7 +419,7 @@
                         </div>
                     </template>
 
-                    <!-- Row 7: Active indicator / is_active -->
+                    <!-- Row 7: Footer de tarjeta -->
                     <div class="flex items-center justify-between pt-3 border-t"
                          style="border-color:rgba(74,144,226,.1);">
                         <span class="font-mono text-xs" style="color:#4b5563;" x-text="'ID: ' + cam.camera_id"></span>
@@ -435,11 +466,16 @@
             error:        null,
             search:       '',
             filterStatus: 'all',
+            isAdmin:      false,   // se establece en init() con Auth.getUser()
 
             init() {
                 if (typeof Auth !== 'undefined') Auth.requireAuth();
+
+                // Detectar rol desde el JWT almacenado por auth.js
+                const user   = Auth.getUser();
+                this.isAdmin = (user && user.role === 'admin');
+
                 this.loadCameras();
-                // Auto-refresh every 30 seconds
                 setInterval(() => this.loadCameras(), 30_000);
             },
 
@@ -447,18 +483,17 @@
                 this.loading = true;
                 this.error   = null;
                 try {
-                    // 1. Fetch camera list
                     const res = await fetch('/api/v1/cameras/?per_page=100', {
                         headers: Auth.authHeader()
                     });
                     if (res.status === 401) { Auth.logout(); return; }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
 
-                    const data      = await res.json();
-                    this.total      = data.total || 0;
-                    const camList   = data.items || [];
+                    const data    = await res.json();
+                    this.total    = data.total || 0;
+                    const camList = data.items || [];
 
-                    // 2. Enrich each camera with /status in parallel
+                    // Enriquecer con /status en paralelo
                     const enriched = await Promise.all(
                         camList.map(async cam => {
                             try {
@@ -483,15 +518,16 @@
 
             get filteredCameras() {
                 return this.cameras.filter(cam => {
-                    // Text search
                     if (this.search) {
                         const q = this.search.toLowerCase();
-                        const match = (cam.camera_id  || '').toLowerCase().includes(q) ||
-                                      (cam.name       || '').toLowerCase().includes(q) ||
-                                      (cam.location   || '').toLowerCase().includes(q);
+                        const match =
+                            (cam.camera_id  || '').toLowerCase().includes(q) ||
+                            (cam.name       || '').toLowerCase().includes(q) ||
+                            (cam.location   || '').toLowerCase().includes(q) ||
+                            // Admin puede buscar por nombre de propietario
+                            (this.isAdmin && (cam.owner_name || '').toLowerCase().includes(q));
                         if (!match) return false;
                     }
-                    // Status filter
                     if (this.filterStatus === 'online')  return cam.status && cam.status.online;
                     if (this.filterStatus === 'offline') return !cam.status || !cam.status.online;
                     if (this.filterStatus === 'alert')
@@ -500,7 +536,7 @@
                 });
             },
 
-            // ── Helpers ────────────────────────────────────────
+            // ── Helpers ───────────────────────────────────────
 
             accentColor(cam) {
                 if (!cam.status) return '#6b7280';
