@@ -144,11 +144,20 @@
     </style>
 </head>
 
+<!--
+    Alpine x-data: estado del módulo de verificación.
+    - form.camera_id / form.video_db_id: campos del formulario
+    - selectedFile: fichero seleccionado
+    - verifying: true mientras el API procesa
+    - report: VerificationReport completo del API (null hasta recibir)
+    - apiError: mensaje de error si el API falla
+-->
 <body class="subtle-grid" x-data="{
-    uploading:  false,
-    progress:   0,
-    verifying:  false,
-    result:     null,
+    form: { camera_id: '', video_db_id: '' },
+    selectedFile:  null,
+    verifying:     false,
+    report:        null,
+    apiError:      null,
 
     init() {
         if (typeof Auth !== 'undefined') Auth.requireAuth();
@@ -156,32 +165,78 @@
         loadActivityLog();
     },
 
-    startUpload() {
-        this.uploading = true;
-        this.progress  = 0;
-        const interval = setInterval(() => {
-            this.progress += 5;
-            if (this.progress >= 100) {
-                clearInterval(interval);
-                this.uploading = false;
-                this.startVerification();
-            }
-        }, 100);
+    onFileSelected(event) {
+        this.selectedFile = event.target.files[0] || null;
+        this.report    = null;
+        this.apiError  = null;
     },
 
-    startVerification() {
+    canSubmit() {
+        return this.selectedFile &&
+               this.form.camera_id.trim() !== '' &&
+               this.form.video_db_id.trim() !== '' &&
+               !this.verifying;
+    },
+
+    async uploadAndVerify() {
+        if (!this.canSubmit()) return;
         this.verifying = true;
-        setTimeout(() => {
+        this.report    = null;
+        this.apiError  = null;
+
+        try {
+            const fd = new FormData();
+            fd.append('video',       this.selectedFile);
+            fd.append('camera_id',   this.form.camera_id.trim());
+            fd.append('video_db_id', this.form.video_db_id.trim());
+
+            const res = await fetch('/api/v1/verification/upload', {
+                method:  'POST',
+                headers: Auth.authHeader(),   // solo JWT, sin Content-Type (FormData lo pone solo)
+                body:    fd
+            });
+
+            if (res.status === 401) { Auth.logout(); return; }
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                // 400 / 404 / 500 — el API devuelve { detail: '...' }
+                this.apiError = data.detail || ('HTTP ' + res.status);
+                return;
+            }
+
+            this.report = data;   // VerificationReport
+
+        } catch (err) {
+            this.apiError = 'Error de red: ' + err.message;
+        } finally {
             this.verifying = false;
-            this.result = Math.random() > 0.5 ? 'verified' : 'tampered';
-        }, 3000);
+        }
     },
 
     reset() {
-        this.result    = null;
-        this.uploading = false;
-        this.verifying = false;
-        this.progress  = 0;
+        this.report       = null;
+        this.apiError     = null;
+        this.verifying    = false;
+        this.selectedFile = null;
+        this.form         = { camera_id: '', video_db_id: '' };
+        // Limpiar el input file
+        const fi = document.getElementById('fileInput');
+        if (fi) fi.value = '';
+    },
+
+    // Helpers para la plantilla
+    integrityOk()   { return this.report && this.report.integrity_ok; },
+    fmtSize(bytes)  {
+        if (!bytes) return '—';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / 1048576).toFixed(1) + ' MB';
+    },
+    fmtTime(secs) {
+        if (secs == null) return '—';
+        const m = Math.floor(secs / 60), s = secs % 60;
+        return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
     }
 }">
 
@@ -271,12 +326,9 @@
 
         <!-- ═══════════════════════════════════════════════════════
              Stats Grid  →  GET /api/v1/stats/
-             IDs: stat-verifs-total | stat-cameras-online | stat-cameras-total
-                  stat-threats | stat-integrity-rate | stat-integrity-badge | stat-integrity-bar
              ═══════════════════════════════════════════════════════ -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-12">
 
-            <!-- Card 1: Verifications total -->
             <div class="card-bg border border-glow p-6 group">
                 <div class="flex items-start justify-between mb-4">
                     <div class="w-10 h-10 border flex items-center justify-center"
@@ -298,7 +350,6 @@
                      style="background:linear-gradient(to right, #4a90e2, transparent);"></div>
             </div>
 
-            <!-- Card 2: Cameras Online / Total -->
             <div class="card-bg border border-glow p-6 group">
                 <div class="flex items-start justify-between mb-4">
                     <div class="w-10 h-10 border flex items-center justify-center"
@@ -322,7 +373,6 @@
                      style="background:linear-gradient(to right, #4a90e2, transparent);"></div>
             </div>
 
-            <!-- Card 3: Threats Detected (verifications.fail) -->
             <div class="card-bg border p-6 group"
                  style="border-color:rgba(220,38,38,.3);">
                 <div class="flex items-start justify-between mb-4">
@@ -345,7 +395,6 @@
                      style="background:linear-gradient(to right, rgba(220,38,38,.4), transparent);"></div>
             </div>
 
-            <!-- Card 4: Integrity Rate (segments.integrity_rate_pct) -->
             <div class="card-bg border border-glow p-6 group">
                 <div class="flex items-start justify-between mb-4">
                     <div class="w-10 h-10 border flex items-center justify-center"
@@ -374,7 +423,11 @@
         </div>
 
 
-        <!-- Video Verification Module -->
+        <!-- ═══════════════════════════════════════════════════════
+             Video Verification Module
+             POST /api/v1/verification/upload
+             Params (FormData): video, camera_id, video_db_id
+             ═══════════════════════════════════════════════════════ -->
         <div class="card-bg border border-glow p-8 mb-8"
              style="position:relative; overflow:hidden;">
 
@@ -396,61 +449,93 @@
                 </div>
             </div>
 
-            <!-- Drop area -->
-            <div x-show="!uploading && !verifying && !result"
-                 class="relative border-2 border-dashed p-16 text-center
-                        cursor-pointer transition-all duration-500"
-                 style="border-color:rgba(74,144,226,.3); background-color:#000000;"
-                 @click="$refs.fileInput.click()">
+            <!-- ── FORMULARIO: estado inicial ─────────────────── -->
+            <div x-show="!verifying && !report && !apiError">
 
-                <input type="file" x-ref="fileInput" class="hidden"
-                       accept="video/*" @change="startUpload()">
-
-                <div class="mb-8">
-                    <svg class="w-24 h-24 mx-auto transition-all duration-500"
-                         style="color:#4b5563;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-                    </svg>
-                </div>
-
-                <p class="text-xl font-mono mb-2" style="color:#d1d5db;">Drop Video File Here</p>
-                <p class="text-sm font-mono mb-8" style="color:#6b7280;">Or click to select · Max 500MB</p>
-
-                <button class="inline-block px-8 py-3 border-2 font-mono text-sm
-                               tracking-widest transition-all duration-300"
-                        style="border-color:#4a90e2; color:#4a90e2; background-color:transparent;">
-                    Select File
-                </button>
-
-                <div class="mt-8 pt-8 border-t" style="border-color:rgba(74,144,226,.2);">
-                    <p class="text-xs font-mono" style="color:#6b7280;">Supported: MP4 · AVI · MOV · MKV</p>
-                </div>
-            </div>
-
-            <!-- Upload Progress -->
-            <div x-show="uploading" x-transition class="space-y-6">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center space-x-3">
-                        <div class="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin"
-                             style="border-color:#4a90e2;"></div>
-                        <span class="font-mono text-sm" style="color:#d1d5db;">Uploading video file...</span>
+                <!-- Campos de contexto -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div>
+                        <label class="block font-mono text-xs tracking-widest uppercase mb-2"
+                               style="color:#9ca3af;">Camera ID</label>
+                        <input type="text"
+                               x-model="form.camera_id"
+                               placeholder="CAM-001"
+                               class="w-full bg-black border px-4 py-3 font-mono text-sm
+                                      focus:outline-none focus:border-blue-500 transition-colors"
+                               style="border-color:#2c5f8d; color:#e5e7eb;"
+                               onfocus="this.style.borderColor='#4a90e2'"
+                               onblur="this.style.borderColor='#2c5f8d'" />
+                        <p class="mt-1 font-mono text-xs" style="color:#6b7280;">
+                            ID físico de la cámara (campo <code>camera_id</code>)
+                        </p>
                     </div>
-                    <span class="font-mono text-lg" style="color:#4a90e2;" x-text="progress + '%'"></span>
+                    <div>
+                        <label class="block font-mono text-xs tracking-widest uppercase mb-2"
+                               style="color:#9ca3af;">Video DB ID</label>
+                        <input type="text"
+                               x-model="form.video_db_id"
+                               placeholder="uuid del video en BD"
+                               class="w-full bg-black border px-4 py-3 font-mono text-sm
+                                      focus:outline-none transition-colors"
+                               style="border-color:#2c5f8d; color:#e5e7eb;"
+                               onfocus="this.style.borderColor='#4a90e2'"
+                               onblur="this.style.borderColor='#2c5f8d'" />
+                        <p class="mt-1 font-mono text-xs" style="color:#6b7280;">
+                            UUID del video registrado en la base de datos
+                        </p>
+                    </div>
                 </div>
-                <div class="relative h-2" style="background-color:#1f2937;">
-                    <div class="absolute top-0 left-0 h-full transition-all duration-300"
-                         style="background-color:#4a90e2;"
-                         :style="'width: ' + progress + '%'"></div>
+
+                <!-- Drop area -->
+                <div class="relative border-2 border-dashed p-12 text-center
+                            cursor-pointer transition-all duration-500"
+                     style="border-color:rgba(74,144,226,.3); background-color:#000000;"
+                     @click="$refs.fileInput.click()">
+
+                    <input type="file"
+                           id="fileInput"
+                           x-ref="fileInput"
+                           class="hidden"
+                           accept=".mp4,.avi,.mkv,.mov"
+                           @change="onFileSelected($event)">
+
+                    <div class="mb-6">
+                        <svg class="w-20 h-20 mx-auto" style="color:#4b5563;"
+                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                        </svg>
+                    </div>
+
+                    <!-- Nombre del fichero seleccionado -->
+                    <p class="text-lg font-mono mb-2" style="color:#d1d5db;"
+                       x-text="selectedFile ? selectedFile.name : 'Drop Video File Here'"></p>
+                    <p class="text-sm font-mono mb-6" style="color:#6b7280;"
+                       x-text="selectedFile ? fmtSize(selectedFile.size) : 'Or click to select · MP4 · AVI · MOV · MKV'"></p>
+
+                    <button type="button"
+                            class="inline-block px-8 py-3 border-2 font-mono text-sm tracking-widest transition-all duration-300"
+                            style="border-color:#4a90e2; color:#4a90e2; background-color:transparent;">
+                        <span x-text="selectedFile ? 'Change File' : 'Select File'"></span>
+                    </button>
                 </div>
-                <div class="grid grid-cols-3 gap-4 text-xs font-mono" style="color:#6b7280;">
-                    <div>File: video_sample.mp4</div>
-                    <div>Size: 125.4 MB</div>
-                    <div>Speed: 2.4 MB/s</div>
+
+                <!-- Botón Verify -->
+                <div class="mt-6 flex justify-end">
+                    <button @click="uploadAndVerify()"
+                            :disabled="!canSubmit()"
+                            class="px-10 py-4 font-mono text-sm tracking-widest
+                                   transition-all duration-300 border-2"
+                            :style="canSubmit()
+                                ? 'border-color:#4a90e2; color:#000; background-color:#4a90e2; cursor:pointer;'
+                                : 'border-color:#2c5f8d; color:#4b5563; background-color:#0a0a0a; cursor:not-allowed;'">
+                        Verify Integrity
+                    </button>
                 </div>
             </div>
 
-            <!-- Verification Process -->
+
+            <!-- ── PROCESANDO ─────────────────────────────────── -->
             <div x-show="verifying" x-transition class="py-12 text-center">
                 <div class="inline-flex items-center justify-center w-20 h-20
                             border-2 mb-6 relative" style="border-color:#4a90e2;">
@@ -462,9 +547,12 @@
                               d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
                     </svg>
                 </div>
-                <h3 class="text-2xl font-bold font-mono mb-2 text-glow" style="color:#4a90e2;">Analyzing Video Integrity</h3>
-                <p class="font-mono text-sm mb-12" style="color:#9ca3af;">Processing cryptographic verification...</p>
-
+                <h3 class="text-2xl font-bold font-mono mb-2 text-glow" style="color:#4a90e2;">
+                    Analyzing Video Integrity
+                </h3>
+                <p class="font-mono text-sm mb-10" style="color:#9ca3af;">
+                    Segmenting · SHA-256 · Merkle tree · ECDSA
+                </p>
                 <div class="max-w-md mx-auto space-y-3 text-left">
                     <div class="flex items-center space-x-3 font-mono text-sm">
                         <span style="color:#4a90e2;">&#9656;</span>
@@ -473,12 +561,12 @@
                     </div>
                     <div class="flex items-center space-x-3 font-mono text-sm">
                         <span class="pulse-dot" style="color:#4a90e2;">&#9656;</span>
-                        <span style="color:#d1d5db;">Segmenting video frames</span>
+                        <span style="color:#d1d5db;">Segmenting into 30 s chunks</span>
                         <span class="ml-auto" style="color:#6b7280;">...</span>
                     </div>
                     <div class="flex items-center space-x-3 font-mono text-sm">
                         <span style="color:#4b5563;">&#9656;</span>
-                        <span style="color:#4b5563;">Calculating SHA-256 hashes</span>
+                        <span style="color:#4b5563;">Calculating SHA-256 + Merkle tree</span>
                         <span class="ml-auto" style="color:#4b5563;">...</span>
                     </div>
                     <div class="flex items-center space-x-3 font-mono text-sm">
@@ -489,106 +577,171 @@
                 </div>
             </div>
 
-            <!-- Results -->
-            <div x-show="result" x-transition>
 
-                <!-- Verified -->
-                <div x-show="result === 'verified'" class="py-12 text-center">
+            <!-- ── ERROR DE API ───────────────────────────────── -->
+            <div x-show="apiError" x-transition class="py-10 text-center">
+                <div class="inline-flex items-center justify-center w-20 h-20
+                            border-2 mb-6" style="border-color:#f59e0b;">
+                    <svg class="w-10 h-10" style="color:#f59e0b;"
+                         fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0
+                                 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464
+                                 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                    </svg>
+                </div>
+                <h3 class="text-2xl font-bold font-mono mb-3" style="color:#f59e0b;">Verification Error</h3>
+                <p class="font-mono text-sm mb-8 max-w-lg mx-auto" style="color:#9ca3af;"
+                   x-text="apiError"></p>
+                <button @click="reset()"
+                        class="px-8 py-3 border-2 font-mono text-sm tracking-widest"
+                        style="border-color:#f59e0b; color:#f59e0b; background-color:transparent;">
+                    Try Again
+                </button>
+            </div>
+
+
+            <!-- ── RESULTADO REAL DEL API ─────────────────────── -->
+            <div x-show="report" x-transition>
+
+                <!-- ✓ ÍNTEGRO -->
+                <div x-show="integrityOk()" class="py-10 text-center">
                     <div class="inline-flex items-center justify-center w-24 h-24
                                 border-2 mb-8 relative" style="border-color:#4a90e2;">
                         <div class="absolute inset-0 border-2 animate-pulse-subtle"
                              style="border-color:rgba(74,144,226,.5);"></div>
-                        <svg class="w-12 h-12 relative" style="color:#4a90e2;"
+                        <svg class="w-12 h-12" style="color:#4a90e2;"
                              fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                   d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                         </svg>
                     </div>
-                    <h3 class="text-3xl font-bold font-mono mb-3 text-glow" style="color:#4a90e2;">Verification Successful</h3>
-                    <p class="font-mono text-sm mb-12" style="color:#9ca3af;">All cryptographic signatures validated · Video integrity confirmed</p>
+                    <h3 class="text-3xl font-bold font-mono mb-3 text-glow" style="color:#4a90e2;">
+                        Verification Successful
+                    </h3>
+                    <p class="font-mono text-sm mb-10" style="color:#9ca3af;">
+                        All cryptographic checks passed · Video integrity confirmed
+                    </p>
 
+                    <!-- Informe real -->
                     <div class="border p-8 max-w-2xl mx-auto text-left mb-8"
                          style="border-color:rgba(74,144,226,.3); background-color:#000000;">
-                        <h4 class="font-mono mb-6 tracking-widest text-sm" style="color:#4a90e2;">Verification Report</h4>
-                        <div class="space-y-4 font-mono text-sm">
-                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);">
-                                <span style="color:#9ca3af;">Duration:</span>
-                                <span style="color:#4a90e2;">00:02:30</span>
-                            </div>
-                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);">
-                                <span style="color:#9ca3af;">Total Segments:</span>
-                                <span style="color:#4a90e2;">05</span>
-                            </div>
-                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);">
-                                <span style="color:#9ca3af;">Verified Segments:</span>
-                                <span style="color:#4a90e2;">05 / 05 ✓</span>
-                            </div>
-                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);">
+                        <h4 class="font-mono mb-6 tracking-widest text-sm"
+                            style="color:#4a90e2;">Verification Report</h4>
+                        <div class="space-y-3 font-mono text-sm">
+                            <div class="flex justify-between pb-2 border-b"
+                                 style="border-color:rgba(74,144,226,.2);">
                                 <span style="color:#9ca3af;">Camera ID:</span>
-                                <span style="color:#4a90e2;">CAM-001</span>
+                                <span style="color:#4a90e2;" x-text="report && report.camera_id"></span>
                             </div>
-                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);">
-                                <span style="color:#9ca3af;">Timestamp:</span>
-                                <span style="color:#4a90e2;">2026-02-17 18:15:32 UTC</span>
+                            <div class="flex justify-between pb-2 border-b"
+                                 style="border-color:rgba(74,144,226,.2);">
+                                <span style="color:#9ca3af;">Total Segments:</span>
+                                <span style="color:#4a90e2;"
+                                      x-text="report && report.summary && report.summary.total_segments"></span>
                             </div>
-                            <div class="flex justify-between pb-2">
-                                <span style="color:#9ca3af;">Hash Algorithm:</span>
-                                <span style="color:#4a90e2;">SHA-256</span>
+                            <div class="flex justify-between pb-2 border-b"
+                                 style="border-color:rgba(74,144,226,.2);">
+                                <span style="color:#9ca3af;">Passed / Failed:</span>
+                                <span style="color:#4a90e2;"
+                                      x-text="report && report.summary && (report.summary.passed + ' ✓ / ' + report.summary.failed + ' ✗')"></span>
+                            </div>
+                            <div class="flex justify-between pb-2 border-b"
+                                 style="border-color:rgba(74,144,226,.2);">
+                                <span style="color:#9ca3af;">Verified at:</span>
+                                <span style="color:#4a90e2;"
+                                      x-text="report && report.verified_at && report.verified_at.slice(0,19).replace('T',' ') + ' UTC'"></span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span style="color:#9ca3af;">Verdict:</span>
+                                <span class="font-bold" style="color:#4a90e2;"
+                                      x-text="report && report.verdict"></span>
                             </div>
                         </div>
                     </div>
 
+                    <!-- Lista de segmentos -->
+                    <div class="max-w-2xl mx-auto mb-8 space-y-2 text-left">
+                        <template x-for="seg in (report ? report.segments : [])" :key="seg.segment_index">
+                            <div class="flex items-center justify-between p-3 border font-mono text-sm"
+                                 :style="seg.result === 'pass'
+                                    ? 'border-color:rgba(74,144,226,.2); background:#000;'
+                                    : 'border-color:rgba(220,38,38,.4); background:rgba(127,29,29,.1);'">
+                                <span style="color:#d1d5db;"
+                                      x-text="'Segment ' + seg.segment_index + '  (' + fmtTime(seg.start_time_secs) + ' – ' + fmtTime(seg.end_time_secs) + ')'"></span>
+                                <span :style="seg.result === 'pass' ? 'color:#4a90e2;' : 'color:#ef4444;'"
+                                      x-text="seg.result === 'pass' ? 'Valid' : 'TAMPERED'"></span>
+                            </div>
+                        </template>
+                    </div>
+
                     <button @click="reset()"
-                            class="px-8 py-3 border-2 font-mono text-sm tracking-widest transition-all duration-300"
-                            style="border-color:#4a90e2; color:#4a90e2; background-color:transparent;">Verify Another Video</button>
+                            class="px-8 py-3 border-2 font-mono text-sm tracking-widest"
+                            style="border-color:#4a90e2; color:#4a90e2; background-color:transparent;">
+                        Verify Another Video
+                    </button>
                 </div>
 
-                <!-- Tampered -->
-                <div x-show="result === 'tampered'" class="py-12 text-center">
+                <!-- ✗ MANIPULADO -->
+                <div x-show="report && !report.integrity_ok" class="py-10 text-center">
                     <div class="inline-flex items-center justify-center w-24 h-24
                                 border-2 mb-8 relative" style="border-color:#ef4444;">
                         <div class="absolute inset-0 border-2 animate-pulse"
                              style="border-color:rgba(239,68,68,.5);"></div>
-                        <svg class="w-12 h-12 relative" style="color:#ef4444;"
+                        <svg class="w-12 h-12" style="color:#ef4444;"
                              fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3
+                                     L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                         </svg>
                     </div>
-                    <h3 class="text-3xl font-bold font-mono mb-3" style="color:#ef4444;">Tampering Detected</h3>
-                    <p class="font-mono text-sm mb-12" style="color:#9ca3af;">Video integrity compromised · Signature verification failed</p>
+                    <h3 class="text-3xl font-bold font-mono mb-3" style="color:#ef4444;">
+                        Tampering Detected
+                    </h3>
+                    <p class="font-mono text-sm mb-10" style="color:#9ca3af;"
+                       x-text="report && report.verdict"></p>
 
+                    <!-- Segmentos comprometidos -->
                     <div class="border p-8 max-w-2xl mx-auto text-left mb-8"
                          style="border-color:rgba(220,38,38,.3); background-color:#000000;">
-                        <h4 class="font-mono mb-6 tracking-widest text-sm" style="color:#ef4444;">Compromised Segments</h4>
+                        <h4 class="font-mono mb-4 tracking-widest text-sm"
+                            style="color:#ef4444;">Segment Analysis</h4>
                         <div class="space-y-2">
-                            <div class="flex items-center justify-between p-3 border"
-                                 style="background-color:#000000; border-color:rgba(74,144,226,.2);">
-                                <span class="font-mono text-sm" style="color:#d1d5db;">Segment 1 (00:00 - 00:30)</span>
-                                <span class="font-mono text-xs" style="color:#4a90e2;">Valid</span>
-                            </div>
-                            <div class="flex items-center justify-between p-3 border"
-                                 style="background-color:rgba(127,29,29,.15); border-color:rgba(220,38,38,.4);">
-                                <span class="font-mono text-sm" style="color:#d1d5db;">Segment 2 (00:30 - 01:00)</span>
-                                <span class="font-mono text-xs" style="color:#ef4444;">Tampered</span>
-                            </div>
-                            <div class="flex items-center justify-between p-3 border"
-                                 style="background-color:#000000; border-color:rgba(74,144,226,.2);">
-                                <span class="font-mono text-sm" style="color:#d1d5db;">Segment 3 (01:00 - 01:30)</span>
-                                <span class="font-mono text-xs" style="color:#4a90e2;">Valid</span>
-                            </div>
+                            <template x-for="seg in (report ? report.segments : [])" :key="seg.segment_index">
+                                <div class="flex items-center justify-between p-3 border font-mono text-sm"
+                                     :style="seg.result === 'pass'
+                                        ? 'border-color:rgba(74,144,226,.2); background:#000;'
+                                        : 'border-color:rgba(220,38,38,.4); background:rgba(127,29,29,.15);'">
+                                    <div>
+                                        <span style="color:#d1d5db;"
+                                              x-text="'Segment ' + seg.segment_index + '  (' + fmtTime(seg.start_time_secs) + ' – ' + fmtTime(seg.end_time_secs) + ')'"></span>
+                                        <!-- Segundos manipulados si hay Merkle data -->
+                                        <span x-show="seg.second_results && seg.second_results.some(s => s.tampered)"
+                                              class="block text-xs mt-1" style="color:#f87171;"
+                                              x-text="'Tampered seconds: [' + seg.second_results.filter(s=>s.tampered).map(s=>s.second_index).join(', ') + ']'"></span>
+                                    </div>
+                                    <span :style="seg.result === 'pass' ? 'color:#4a90e2;' : 'color:#ef4444;'"
+                                          x-text="seg.result === 'pass' ? 'Valid' : 'TAMPERED'"></span>
+                                </div>
+                            </template>
                         </div>
                         <div class="mt-6 p-4 border"
                              style="background-color:rgba(127,29,29,.08); border-color:rgba(220,38,38,.3);">
                             <p class="text-xs font-mono" style="color:#9ca3af;">
-                                &#9888; Warning: This video cannot be used as forensic evidence due to detected integrity violations.
+                                &#9888; This video cannot be used as forensic evidence due to detected integrity violations.
                             </p>
                         </div>
                     </div>
 
+                    <!-- Resumen numérico -->
+                    <p class="font-mono text-sm mb-8" style="color:#9ca3af;"
+                       x-text="report && report.summary && ('Passed: ' + report.summary.passed + ' · Failed: ' + report.summary.failed + ' · Missing: ' + report.summary.missing)"></p>
+
                     <button @click="reset()"
-                            class="px-8 py-3 border-2 font-mono text-sm tracking-widest transition-all duration-300"
-                            style="border-color:#dc2626; color:#ef4444; background-color:transparent;">Verify Another Video</button>
+                            class="px-8 py-3 border-2 font-mono text-sm tracking-widest"
+                            style="border-color:#dc2626; color:#ef4444; background-color:transparent;">
+                        Verify Another Video
+                    </button>
                 </div>
 
             </div>
@@ -597,7 +750,6 @@
 
         <!-- ═══════════════════════════════════════════════════════
              Recent Activity Log  →  GET /api/v1/logs/activity?per_page=10
-             ID: activity-log-list
              ═══════════════════════════════════════════════════════ -->
         <div class="card-bg border border-glow p-8">
             <div class="flex items-center justify-between mb-8">
@@ -608,14 +760,8 @@
                 <a href="#" class="font-mono text-xs transition-colors duration-300" style="color:#4a90e2;">View All &#8594;</a>
             </div>
 
-            <!--
-                activity-log-list: contenedor dinámico.
-                Se rellena por renderActivityLog() con los últimos 10 eventos.
-                Mientras carga muestra el esqueleto de 3 filas.
-            -->
             <div id="activity-log-list" class="space-y-2">
-
-                <!-- Skeleton de carga inicial (se reemplaza en cuanto llega la API) -->
+                <!-- Skeleton inicial -->
                 <div class="flex items-center justify-between p-4 border animate-pulse"
                      style="border-color:rgba(74,144,226,.1); background-color:#000000;">
                     <div class="flex items-center space-x-4">
@@ -649,7 +795,6 @@
                     </div>
                     <div class="h-3 w-16" style="background-color:#1f2937;"></div>
                 </div>
-
             </div>
         </div>
 
@@ -670,20 +815,11 @@
     </footer>
 
 
-    <!-- ═══════════════════════════════════════════════════════
-         ELEMENTO 1: Stats Cards → GET /api/v1/stats/
-         ELEMENTO 2: Activity Log → GET /api/v1/logs/activity
-         ═══════════════════════════════════════════════════════ -->
     <script>
-
-        // ───────────────────────────────────────────────────────
-        // ELEMENTO 1: Stats Cards
-        // ───────────────────────────────────────────────────────
+        // ── Stats Cards ──────────────────────────────────────────
         async function loadStats() {
             try {
-                const res = await fetch('/api/v1/stats/', {
-                    headers: Auth.authHeader()
-                });
+                const res = await fetch('/api/v1/stats/', { headers: Auth.authHeader() });
                 if (res.status === 401) { Auth.logout(); return; }
                 if (!res.ok) throw new Error('Stats HTTP ' + res.status);
 
@@ -691,50 +827,31 @@
                 const el = id => document.getElementById(id);
 
                 if (el('stat-verifs-total'))
-                    el('stat-verifs-total').textContent =
-                        d.verifications.total.toLocaleString('es-ES');
-
+                    el('stat-verifs-total').textContent = d.verifications.total.toLocaleString('es-ES');
                 if (el('stat-cameras-online'))
-                    el('stat-cameras-online').textContent =
-                        String(d.cameras.online_now).padStart(2, '0');
+                    el('stat-cameras-online').textContent = String(d.cameras.online_now).padStart(2, '0');
                 if (el('stat-cameras-total'))
-                    el('stat-cameras-total').textContent =
-                        '/' + String(d.cameras.total).padStart(2, '0');
-
+                    el('stat-cameras-total').textContent = '/' + String(d.cameras.total).padStart(2, '0');
                 if (el('stat-threats'))
-                    el('stat-threats').textContent =
-                        String(d.verifications.fail ?? 0).padStart(3, '0');
+                    el('stat-threats').textContent = String(d.verifications.fail ?? 0).padStart(3, '0');
 
                 const rate = d.segments.integrity_rate_pct ?? 0;
-                if (el('stat-integrity-rate'))   el('stat-integrity-rate').textContent  = rate + '%';
-                if (el('stat-integrity-badge'))  el('stat-integrity-badge').textContent = rate + '%';
-                if (el('stat-integrity-bar'))    el('stat-integrity-bar').style.width   = rate + '%';
-
+                if (el('stat-integrity-rate'))  el('stat-integrity-rate').textContent  = rate + '%';
+                if (el('stat-integrity-badge')) el('stat-integrity-badge').textContent = rate + '%';
+                if (el('stat-integrity-bar'))   el('stat-integrity-bar').style.width   = rate + '%';
             } catch (err) {
                 console.error('[EVIDETH] loadStats:', err);
             }
         }
 
-
-        // ───────────────────────────────────────────────────────
-        // ELEMENTO 2: Activity Log
-        // Endpoint: GET /api/v1/logs/activity?per_page=10
-        // Response: { total, page, per_page, pages, items: [...] }
-        // Cada item: { event_type, timestamp, camera_id, video_id,
-        //              actor_id, actor_type, ip_address, detail: {} }
-        // event_type: verification | video_started | video_finished | segment_uploaded
-        // ───────────────────────────────────────────────────────
+        // ── Activity Log ─────────────────────────────────────────
         async function loadActivityLog() {
             try {
-                const res = await fetch('/api/v1/logs/activity?per_page=10', {
-                    headers: Auth.authHeader()
-                });
+                const res = await fetch('/api/v1/logs/activity?per_page=10', { headers: Auth.authHeader() });
                 if (res.status === 401) { Auth.logout(); return; }
                 if (!res.ok) throw new Error('Logs HTTP ' + res.status);
-
                 const data = await res.json();
                 renderActivityLog(data.items ?? []);
-
             } catch (err) {
                 console.error('[EVIDETH] loadActivityLog:', err);
             }
@@ -745,71 +862,48 @@
             if (!container) return;
 
             if (!items.length) {
-                container.innerHTML = `
-                    <div class="p-8 text-center font-mono text-sm" style="color:#6b7280;">
-                        No hay actividad reciente.
-                    </div>`;
+                container.innerHTML = `<div class="p-8 text-center font-mono text-sm" style="color:#6b7280;">No hay actividad reciente.</div>`;
                 return;
             }
 
             container.innerHTML = items.map(entry => {
-                const et     = entry.event_type;
-                const detail = entry.detail || {};
-                const cam    = entry.camera_id || '—';
-
-                // — Color scheme y contenido según tipo de evento —
+                const et = entry.event_type, detail = entry.detail || {}, cam = entry.camera_id || '—';
                 let borderColor, iconColor, iconPath, badgeText, mainText, subText;
 
                 if (et === 'verification') {
                     const r = detail.result;
                     if (r === 'pass') {
-                        borderColor = 'rgba(74,144,226,.2)';
-                        iconColor   = '#4a90e2';
-                        iconPath    = 'M5 13l4 4L19 7';
-                        badgeText   = 'Verified';
+                        borderColor = 'rgba(74,144,226,.2)'; iconColor = '#4a90e2';
+                        iconPath = 'M5 13l4 4L19 7'; badgeText = 'Verified';
                     } else if (r === 'fail') {
-                        borderColor = 'rgba(220,38,38,.2)';
-                        iconColor   = '#ef4444';
-                        iconPath    = 'M6 18L18 6M6 6l12 12';
-                        badgeText   = 'Tampered';
+                        borderColor = 'rgba(220,38,38,.2)'; iconColor = '#ef4444';
+                        iconPath = 'M6 18L18 6M6 6l12 12'; badgeText = 'Tampered';
                     } else {
-                        borderColor = 'rgba(234,179,8,.2)';
-                        iconColor   = '#eab308';
-                        iconPath    = 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z';
-                        badgeText   = 'Error';
+                        borderColor = 'rgba(234,179,8,.2)'; iconColor = '#eab308';
+                        iconPath = 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z';
+                        badgeText = 'Error';
                     }
                     const seg = detail.segment_index != null ? ' · Seg ' + detail.segment_index : '';
                     mainText = 'Camera ' + cam + seg;
                     subText  = 'Verification · ' + (entry.ip_address || 'local');
-
                 } else if (et === 'video_started') {
-                    borderColor = 'rgba(74,144,226,.2)';
-                    iconColor   = '#5ba3f5';
-                    iconPath    = 'M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z';
-                    badgeText   = 'Recording';
-                    mainText    = detail.filename || ('Video · ' + cam);
-                    subText     = 'Camera ' + cam + ' · Started';
-
+                    borderColor = 'rgba(74,144,226,.2)'; iconColor = '#5ba3f5';
+                    iconPath = 'M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z';
+                    badgeText = 'Recording'; mainText = detail.filename || ('Video · ' + cam);
+                    subText = 'Camera ' + cam + ' · Started';
                 } else if (et === 'video_finished') {
-                    borderColor = 'rgba(74,144,226,.2)';
-                    iconColor   = '#4a90e2';
-                    iconPath    = 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z';
-                    badgeText   = 'Completed';
-                    const dur   = detail.duration_secs;
-                    const dStr  = dur != null
-                        ? ' · ' + Math.floor(dur / 60) + ':' + String(dur % 60).padStart(2, '0') + ' min'
-                        : '';
-                    mainText    = detail.filename || ('Video · ' + cam);
-                    subText     = 'Camera ' + cam + dStr;
-
+                    borderColor = 'rgba(74,144,226,.2)'; iconColor = '#4a90e2';
+                    iconPath = 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z';
+                    badgeText = 'Completed';
+                    const dur = detail.duration_secs;
+                    const dStr = dur != null ? ' · ' + Math.floor(dur/60) + ':' + String(dur%60).padStart(2,'0') + ' min' : '';
+                    mainText = detail.filename || ('Video · ' + cam); subText = 'Camera ' + cam + dStr;
                 } else {
-                    // segment_uploaded
-                    borderColor = 'rgba(74,144,226,.1)';
-                    iconColor   = '#6b7280';
-                    iconPath    = 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4';
-                    badgeText   = 'Segment';
-                    mainText    = 'Segment ' + (detail.segment_index != null ? detail.segment_index : '?') + ' uploaded';
-                    subText     = 'Camera ' + cam;
+                    borderColor = 'rgba(74,144,226,.1)'; iconColor = '#6b7280';
+                    iconPath = 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4';
+                    badgeText = 'Segment';
+                    mainText = 'Segment ' + (detail.segment_index != null ? detail.segment_index : '?') + ' uploaded';
+                    subText = 'Camera ' + cam;
                 }
 
                 return `
@@ -831,15 +925,12 @@
                         </div>
                         <div class="text-right flex-shrink-0 ml-4">
                             <span class="font-mono text-xs" style="color:${iconColor};">${badgeText}</span>
-                            <p class="font-mono text-xs mt-1" style="color:#6b7280;">
-                                ${fmtRelative(entry.timestamp)}
-                            </p>
+                            <p class="font-mono text-xs mt-1" style="color:#6b7280;">${fmtRelative(entry.timestamp)}</p>
                         </div>
                     </div>`;
             }).join('');
         }
 
-        /** Tiempo relativo legible: "just now", "5 min ago", "2 h ago", "21/02" */
         function fmtRelative(isoStr) {
             if (!isoStr) return '—';
             const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
@@ -849,15 +940,10 @@
             return new Date(isoStr).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' });
         }
 
-
-        // ───────────────────────────────────────────────────────
-        // Refrescos automáticos
-        // ───────────────────────────────────────────────────────
         document.addEventListener('DOMContentLoaded', () => {
-            setInterval(loadStats,       60_000);   // stats cada 60 s
-            setInterval(loadActivityLog, 30_000);   // log cada 30 s
+            setInterval(loadStats,       60_000);
+            setInterval(loadActivityLog, 30_000);
         });
-
     </script>
 
 
