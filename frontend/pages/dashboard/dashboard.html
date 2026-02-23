@@ -153,6 +153,7 @@
     init() {
         if (typeof Auth !== 'undefined') Auth.requireAuth();
         loadStats();
+        loadActivityLog();
     },
 
     startUpload() {
@@ -594,7 +595,10 @@
         </div>
 
 
-        <!-- Recent Activity Log -->
+        <!-- ═══════════════════════════════════════════════════════
+             Recent Activity Log  →  GET /api/v1/logs/activity?per_page=10
+             ID: activity-log-list
+             ═══════════════════════════════════════════════════════ -->
         <div class="card-bg border border-glow p-8">
             <div class="flex items-center justify-between mb-8">
                 <div class="flex items-center space-x-4">
@@ -604,63 +608,46 @@
                 <a href="#" class="font-mono text-xs transition-colors duration-300" style="color:#4a90e2;">View All &#8594;</a>
             </div>
 
-            <div class="space-y-2">
+            <!--
+                activity-log-list: contenedor dinámico.
+                Se rellena por renderActivityLog() con los últimos 10 eventos.
+                Mientras carga muestra el esqueleto de 3 filas.
+            -->
+            <div id="activity-log-list" class="space-y-2">
 
-                <div class="flex items-center justify-between p-4 border transition-all duration-300"
-                     style="border-color:rgba(74,144,226,.2); background-color:#000000;">
+                <!-- Skeleton de carga inicial (se reemplaza en cuanto llega la API) -->
+                <div class="flex items-center justify-between p-4 border animate-pulse"
+                     style="border-color:rgba(74,144,226,.1); background-color:#000000;">
                     <div class="flex items-center space-x-4">
-                        <div class="w-8 h-8 border flex items-center justify-center" style="border-color:rgba(74,144,226,.3);">
-                            <svg class="w-4 h-4" style="color:#4a90e2;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                            </svg>
-                        </div>
+                        <div class="w-8 h-8 border" style="border-color:rgba(74,144,226,.15); background-color:#0a0a0a;"></div>
                         <div>
-                            <p class="font-mono text-sm" style="color:#e5e7eb;">CAM001_2026-02-17_14-30.mp4</p>
-                            <p class="font-mono text-xs" style="color:#6b7280;">Camera 001 · 02:30 duration</p>
+                            <div class="h-3 w-48 mb-2" style="background-color:#1f2937;"></div>
+                            <div class="h-2 w-32" style="background-color:#111827;"></div>
                         </div>
                     </div>
-                    <div class="text-right">
-                        <span class="font-mono text-xs" style="color:#4a90e2;">Verified</span>
-                        <p class="font-mono text-xs mt-1" style="color:#6b7280;">2 minutes ago</p>
-                    </div>
+                    <div class="h-3 w-16" style="background-color:#1f2937;"></div>
                 </div>
-
-                <div class="flex items-center justify-between p-4 border transition-all duration-300"
-                     style="border-color:rgba(220,38,38,.2); background-color:#000000;">
+                <div class="flex items-center justify-between p-4 border animate-pulse"
+                     style="border-color:rgba(74,144,226,.1); background-color:#000000;">
                     <div class="flex items-center space-x-4">
-                        <div class="w-8 h-8 border flex items-center justify-center" style="border-color:rgba(220,38,38,.3);">
-                            <svg class="w-4 h-4" style="color:#ef4444;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                            </svg>
-                        </div>
+                        <div class="w-8 h-8 border" style="border-color:rgba(74,144,226,.15); background-color:#0a0a0a;"></div>
                         <div>
-                            <p class="font-mono text-sm" style="color:#e5e7eb;">CAM003_2026-02-17_12-15.mp4</p>
-                            <p class="font-mono text-xs" style="color:#6b7280;">Camera 003 · 01:45 duration</p>
+                            <div class="h-3 w-40 mb-2" style="background-color:#1f2937;"></div>
+                            <div class="h-2 w-28" style="background-color:#111827;"></div>
                         </div>
                     </div>
-                    <div class="text-right">
-                        <span class="font-mono text-xs" style="color:#ef4444;">Tampered</span>
-                        <p class="font-mono text-xs mt-1" style="color:#6b7280;">1 hour ago</p>
-                    </div>
+                    <div class="h-3 w-16" style="background-color:#1f2937;"></div>
                 </div>
-
-                <div class="flex items-center justify-between p-4 border transition-all duration-300"
-                     style="border-color:rgba(74,144,226,.2); background-color:#000000;">
+                <div class="flex items-center justify-between p-4 border animate-pulse"
+                     style="border-color:rgba(74,144,226,.1); background-color:#000000;">
                     <div class="flex items-center space-x-4">
-                        <div class="w-8 h-8 border flex items-center justify-center" style="border-color:rgba(74,144,226,.3);">
-                            <svg class="w-4 h-4" style="color:#4a90e2;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                            </svg>
-                        </div>
+                        <div class="w-8 h-8 border" style="border-color:rgba(74,144,226,.15); background-color:#0a0a0a;"></div>
                         <div>
-                            <p class="font-mono text-sm" style="color:#e5e7eb;">CAM002_2026-02-17_10-00.mp4</p>
-                            <p class="font-mono text-xs" style="color:#6b7280;">Camera 002 · 03:20 duration</p>
+                            <div class="h-3 w-44 mb-2" style="background-color:#1f2937;"></div>
+                            <div class="h-2 w-24" style="background-color:#111827;"></div>
                         </div>
                     </div>
-                    <div class="text-right">
-                        <span class="font-mono text-xs" style="color:#4a90e2;">Verified</span>
-                        <p class="font-mono text-xs mt-1" style="color:#6b7280;">3 hours ago</p>
-                    </div>
+                    <div class="h-3 w-16" style="background-color:#1f2937;"></div>
                 </div>
 
             </div>
@@ -684,41 +671,29 @@
 
 
     <!-- ═══════════════════════════════════════════════════════
-         ELEMENTO 1 CONECTADO: Stats Cards → GET /api/v1/stats/
+         ELEMENTO 1: Stats Cards → GET /api/v1/stats/
+         ELEMENTO 2: Activity Log → GET /api/v1/logs/activity
          ═══════════════════════════════════════════════════════ -->
     <script>
-        /**
-         * loadStats()
-         * Llama a GET /api/v1/stats/ con el JWT del usuario autenticado
-         * y actualiza los 4 stat cards del dashboard.
-         *
-         * Mapeo de campos:
-         *   stat-verifs-total     ← data.verifications.total
-         *   stat-cameras-online   ← data.cameras.online_now
-         *   stat-cameras-total    ← data.cameras.total
-         *   stat-threats          ← data.verifications.fail
-         *   stat-integrity-rate   ← data.segments.integrity_rate_pct
-         *   stat-integrity-badge  ← data.segments.integrity_rate_pct
-         *   stat-integrity-bar    ← data.segments.integrity_rate_pct (width %)
-         */
+
+        // ───────────────────────────────────────────────────────
+        // ELEMENTO 1: Stats Cards
+        // ───────────────────────────────────────────────────────
         async function loadStats() {
             try {
                 const res = await fetch('/api/v1/stats/', {
                     headers: Auth.authHeader()
                 });
-
                 if (res.status === 401) { Auth.logout(); return; }
                 if (!res.ok) throw new Error('Stats HTTP ' + res.status);
 
                 const d  = await res.json();
                 const el = id => document.getElementById(id);
 
-                // Card 1 – Verificaciones totales
                 if (el('stat-verifs-total'))
                     el('stat-verifs-total').textContent =
                         d.verifications.total.toLocaleString('es-ES');
 
-                // Card 2 – Cámaras online / total
                 if (el('stat-cameras-online'))
                     el('stat-cameras-online').textContent =
                         String(d.cameras.online_now).padStart(2, '0');
@@ -726,29 +701,163 @@
                     el('stat-cameras-total').textContent =
                         '/' + String(d.cameras.total).padStart(2, '0');
 
-                // Card 3 – Amenazas (verificaciones con result = fail)
                 if (el('stat-threats'))
                     el('stat-threats').textContent =
                         String(d.verifications.fail ?? 0).padStart(3, '0');
 
-                // Card 4 – Tasa de integridad de segmentos
                 const rate = d.segments.integrity_rate_pct ?? 0;
-                if (el('stat-integrity-rate'))
-                    el('stat-integrity-rate').textContent  = rate + '%';
-                if (el('stat-integrity-badge'))
-                    el('stat-integrity-badge').textContent = rate + '%';
-                if (el('stat-integrity-bar'))
-                    el('stat-integrity-bar').style.width   = rate + '%';
+                if (el('stat-integrity-rate'))   el('stat-integrity-rate').textContent  = rate + '%';
+                if (el('stat-integrity-badge'))  el('stat-integrity-badge').textContent = rate + '%';
+                if (el('stat-integrity-bar'))    el('stat-integrity-bar').style.width   = rate + '%';
 
             } catch (err) {
                 console.error('[EVIDETH] loadStats:', err);
             }
         }
 
-        // Refresco automático cada 60 s (se ejecuta aunque no haya actividad)
+
+        // ───────────────────────────────────────────────────────
+        // ELEMENTO 2: Activity Log
+        // Endpoint: GET /api/v1/logs/activity?per_page=10
+        // Response: { total, page, per_page, pages, items: [...] }
+        // Cada item: { event_type, timestamp, camera_id, video_id,
+        //              actor_id, actor_type, ip_address, detail: {} }
+        // event_type: verification | video_started | video_finished | segment_uploaded
+        // ───────────────────────────────────────────────────────
+        async function loadActivityLog() {
+            try {
+                const res = await fetch('/api/v1/logs/activity?per_page=10', {
+                    headers: Auth.authHeader()
+                });
+                if (res.status === 401) { Auth.logout(); return; }
+                if (!res.ok) throw new Error('Logs HTTP ' + res.status);
+
+                const data = await res.json();
+                renderActivityLog(data.items ?? []);
+
+            } catch (err) {
+                console.error('[EVIDETH] loadActivityLog:', err);
+            }
+        }
+
+        function renderActivityLog(items) {
+            const container = document.getElementById('activity-log-list');
+            if (!container) return;
+
+            if (!items.length) {
+                container.innerHTML = `
+                    <div class="p-8 text-center font-mono text-sm" style="color:#6b7280;">
+                        No hay actividad reciente.
+                    </div>`;
+                return;
+            }
+
+            container.innerHTML = items.map(entry => {
+                const et     = entry.event_type;
+                const detail = entry.detail || {};
+                const cam    = entry.camera_id || '—';
+
+                // — Color scheme y contenido según tipo de evento —
+                let borderColor, iconColor, iconPath, badgeText, mainText, subText;
+
+                if (et === 'verification') {
+                    const r = detail.result;
+                    if (r === 'pass') {
+                        borderColor = 'rgba(74,144,226,.2)';
+                        iconColor   = '#4a90e2';
+                        iconPath    = 'M5 13l4 4L19 7';
+                        badgeText   = 'Verified';
+                    } else if (r === 'fail') {
+                        borderColor = 'rgba(220,38,38,.2)';
+                        iconColor   = '#ef4444';
+                        iconPath    = 'M6 18L18 6M6 6l12 12';
+                        badgeText   = 'Tampered';
+                    } else {
+                        borderColor = 'rgba(234,179,8,.2)';
+                        iconColor   = '#eab308';
+                        iconPath    = 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z';
+                        badgeText   = 'Error';
+                    }
+                    const seg = detail.segment_index != null ? ' · Seg ' + detail.segment_index : '';
+                    mainText = 'Camera ' + cam + seg;
+                    subText  = 'Verification · ' + (entry.ip_address || 'local');
+
+                } else if (et === 'video_started') {
+                    borderColor = 'rgba(74,144,226,.2)';
+                    iconColor   = '#5ba3f5';
+                    iconPath    = 'M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z';
+                    badgeText   = 'Recording';
+                    mainText    = detail.filename || ('Video · ' + cam);
+                    subText     = 'Camera ' + cam + ' · Started';
+
+                } else if (et === 'video_finished') {
+                    borderColor = 'rgba(74,144,226,.2)';
+                    iconColor   = '#4a90e2';
+                    iconPath    = 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z';
+                    badgeText   = 'Completed';
+                    const dur   = detail.duration_secs;
+                    const dStr  = dur != null
+                        ? ' · ' + Math.floor(dur / 60) + ':' + String(dur % 60).padStart(2, '0') + ' min'
+                        : '';
+                    mainText    = detail.filename || ('Video · ' + cam);
+                    subText     = 'Camera ' + cam + dStr;
+
+                } else {
+                    // segment_uploaded
+                    borderColor = 'rgba(74,144,226,.1)';
+                    iconColor   = '#6b7280';
+                    iconPath    = 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4';
+                    badgeText   = 'Segment';
+                    mainText    = 'Segment ' + (detail.segment_index != null ? detail.segment_index : '?') + ' uploaded';
+                    subText     = 'Camera ' + cam;
+                }
+
+                return `
+                    <div class="flex items-center justify-between p-4 border transition-all duration-300"
+                         style="border-color:${borderColor}; background-color:#000000;">
+                        <div class="flex items-center space-x-4">
+                            <div class="w-8 h-8 border flex items-center justify-center flex-shrink-0"
+                                 style="border-color:${iconColor}44;">
+                                <svg class="w-4 h-4" style="color:${iconColor};"
+                                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                          stroke-width="2" d="${iconPath}"/>
+                                </svg>
+                            </div>
+                            <div class="min-w-0">
+                                <p class="font-mono text-sm truncate" style="color:#e5e7eb;">${mainText}</p>
+                                <p class="font-mono text-xs" style="color:#6b7280;">${subText}</p>
+                            </div>
+                        </div>
+                        <div class="text-right flex-shrink-0 ml-4">
+                            <span class="font-mono text-xs" style="color:${iconColor};">${badgeText}</span>
+                            <p class="font-mono text-xs mt-1" style="color:#6b7280;">
+                                ${fmtRelative(entry.timestamp)}
+                            </p>
+                        </div>
+                    </div>`;
+            }).join('');
+        }
+
+        /** Tiempo relativo legible: "just now", "5 min ago", "2 h ago", "21/02" */
+        function fmtRelative(isoStr) {
+            if (!isoStr) return '—';
+            const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+            if (diff < 60)    return 'just now';
+            if (diff < 3600)  return Math.floor(diff / 60) + ' min ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + ' h ago';
+            return new Date(isoStr).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' });
+        }
+
+
+        // ───────────────────────────────────────────────────────
+        // Refrescos automáticos
+        // ───────────────────────────────────────────────────────
         document.addEventListener('DOMContentLoaded', () => {
-            setInterval(loadStats, 60_000);
+            setInterval(loadStats,       60_000);   // stats cada 60 s
+            setInterval(loadActivityLog, 30_000);   // log cada 30 s
         });
+
     </script>
 
 
