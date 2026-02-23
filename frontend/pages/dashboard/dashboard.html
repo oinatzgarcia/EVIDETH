@@ -5,23 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EVIDETH - Forensic Video Integrity System</title>
 
-    <!-- Favicon -->
     <link rel="icon" type="image/png" href="../../assets/images/Buho.png" sizes="59x59">
-
-    <!--
-        auth.js — cargar ANTES de Alpine.js
-        Auth.requireAuth() se llama dentro de init() para que Alpine
-        renderice el DOM antes de redirigir.
-    -->
     <script src="../../assets/js/auth.js"></script>
-
-    <!-- Tailwind CSS -->
+    <script src="../../assets/js/profile-menu.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-
-    <!-- Alpine.js -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-
-    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -47,14 +35,8 @@
                         'float':        'float 6s ease-in-out infinite',
                     },
                     keyframes: {
-                        pulseSubtle: {
-                            '0%, 100%': { opacity: '0.6' },
-                            '50%':      { opacity: '1'   }
-                        },
-                        float: {
-                            '0%, 100%': { transform: 'translateY(0px)'   },
-                            '50%':      { transform: 'translateY(-10px)' }
-                        }
+                        pulseSubtle: { '0%, 100%': { opacity: '0.6' }, '50%': { opacity: '1' } },
+                        float:       { '0%, 100%': { transform: 'translateY(0px)' }, '50%': { transform: 'translateY(-10px)' } }
                     }
                 }
             }
@@ -63,95 +45,27 @@
 
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: 'Rajdhani', sans-serif;
-            background: #000000;
-            color: #ffffff;
-            overflow-x: hidden;
-        }
-
-        .particle-field {
-            position: fixed; top: 0; left: 0;
-            width: 100%; height: 100%;
-            z-index: -1; overflow: hidden;
-            background: #000000;
-        }
-        .particle {
-            position: absolute;
-            background: radial-gradient(circle, rgba(74,144,226,.8) 0%,
-                        rgba(91,163,245,.4) 50%, transparent 100%);
-            border-radius: 50%;
-            pointer-events: none;
-            transition: all 0.3s ease-out;
-        }
-
-        .subtle-grid {
-            background-image:
-                linear-gradient(rgba(74,144,226,.05) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(74,144,226,.05) 1px, transparent 1px);
-            background-size: 60px 60px;
-            background-color: #000000;
-        }
-
+        body { font-family: 'Rajdhani', sans-serif; background: #000000; color: #ffffff; overflow-x: hidden; }
+        .particle-field { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; overflow: hidden; background: #000000; }
+        .particle { position: absolute; background: radial-gradient(circle, rgba(74,144,226,.8) 0%, rgba(91,163,245,.4) 50%, transparent 100%); border-radius: 50%; pointer-events: none; transition: all 0.3s ease-out; }
+        .subtle-grid { background-image: linear-gradient(rgba(74,144,226,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(74,144,226,.05) 1px, transparent 1px); background-size: 60px 60px; background-color: #000000; }
         .card-bg  { background-color: #0a0a0a; }
-
-        .text-glow {
-            text-shadow: 0 0 10px rgba(74,144,226,.6),
-                         0 0 20px rgba(74,144,226,.4);
-        }
-
-        .logo-glow {
-            filter: drop-shadow(0 0 8px rgba(74,144,226,.4));
-            transition: all 0.5s ease;
-        }
+        .text-glow { text-shadow: 0 0 10px rgba(74,144,226,.6), 0 0 20px rgba(74,144,226,.4); }
+        .logo-glow { filter: drop-shadow(0 0 8px rgba(74,144,226,.4)); transition: all 0.5s ease; }
         .logo-glow:hover { filter: drop-shadow(0 0 15px rgba(74,144,226,.7)); }
-
-        .border-glow {
-            border: 1px solid rgba(74,144,226,.25);
-            transition: all 0.3s ease;
-        }
-        .border-glow:hover {
-            border-color: rgba(74,144,226,.6);
-            box-shadow: 0 0 15px rgba(74,144,226,.2);
-        }
-
-        ::-webkit-scrollbar       { width: 8px; }
+        .border-glow { border: 1px solid rgba(74,144,226,.25); transition: all 0.3s ease; }
+        .border-glow:hover { border-color: rgba(74,144,226,.6); box-shadow: 0 0 15px rgba(74,144,226,.2); }
+        ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: #000000; }
         ::-webkit-scrollbar-thumb { background: #4a90e2; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #5ba3f5; }
-
-        .scan-line-local {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 1px;
-            background: linear-gradient(90deg, transparent,
-                        rgba(74,144,226,.55), transparent);
-            animation: scan-local 4s linear infinite;
-            z-index: 10;
-            pointer-events: none;
-        }
-        @keyframes scan-local {
-            0%   { top: 0;    }
-            100% { top: 100%; }
-        }
-
+        .scan-line-local { position: absolute; top: 0; left: 0; width: 100%; height: 1px; background: linear-gradient(90deg, transparent, rgba(74,144,226,.55), transparent); animation: scan-local 4s linear infinite; z-index: 10; pointer-events: none; }
+        @keyframes scan-local { 0% { top: 0; } 100% { top: 100%; } }
         .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
-        @keyframes pulseSubtle {
-            0%, 100% { opacity: 0.6; }
-            50%       { opacity: 1;   }
-        }
+        @keyframes pulseSubtle { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
     </style>
 </head>
 
-<!--
-    Alpine x-data: estado del módulo de verificación.
-    - form.camera_id / form.video_db_id: campos del formulario
-    - selectedFile: fichero seleccionado
-    - verifying: true mientras el API procesa
-    - report: VerificationReport completo del API (null hasta recibir)
-    - apiError: mensaje de error si el API falla
--->
 <body class="subtle-grid" x-data="{
     form: { camera_id: '', video_db_id: '' },
     selectedFile:  null,
@@ -183,31 +97,18 @@
         this.verifying = true;
         this.report    = null;
         this.apiError  = null;
-
         try {
             const fd = new FormData();
             fd.append('video',       this.selectedFile);
             fd.append('camera_id',   this.form.camera_id.trim());
             fd.append('video_db_id', this.form.video_db_id.trim());
-
             const res = await fetch('/api/v1/verification/upload', {
-                method:  'POST',
-                headers: Auth.authHeader(),   // solo JWT, sin Content-Type (FormData lo pone solo)
-                body:    fd
+                method: 'POST', headers: Auth.authHeader(), body: fd
             });
-
             if (res.status === 401) { Auth.logout(); return; }
-
             const data = await res.json();
-
-            if (!res.ok) {
-                // 400 / 404 / 500 — el API devuelve { detail: '...' }
-                this.apiError = data.detail || ('HTTP ' + res.status);
-                return;
-            }
-
-            this.report = data;   // VerificationReport
-
+            if (!res.ok) { this.apiError = data.detail || ('HTTP ' + res.status); return; }
+            this.report = data;
         } catch (err) {
             this.apiError = 'Error de red: ' + err.message;
         } finally {
@@ -216,25 +117,19 @@
     },
 
     reset() {
-        this.report       = null;
-        this.apiError     = null;
-        this.verifying    = false;
-        this.selectedFile = null;
-        this.form         = { camera_id: '', video_db_id: '' };
-        // Limpiar el input file
-        const fi = document.getElementById('fileInput');
-        if (fi) fi.value = '';
+        this.report = null; this.apiError = null; this.verifying = false; this.selectedFile = null;
+        this.form = { camera_id: '', video_db_id: '' };
+        const fi = document.getElementById('fileInput'); if (fi) fi.value = '';
     },
 
-    // Helpers para la plantilla
-    integrityOk()   { return this.report && this.report.integrity_ok; },
-    fmtSize(bytes)  {
-        if (!bytes) return '—';
+    integrityOk()  { return this.report && this.report.integrity_ok; },
+    fmtSize(bytes) {
+        if (!bytes) return '\u2014';
         if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
         return (bytes / 1048576).toFixed(1) + ' MB';
     },
     fmtTime(secs) {
-        if (secs == null) return '—';
+        if (secs == null) return '\u2014';
         const m = Math.floor(secs / 60), s = secs % 60;
         return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
     }
@@ -244,64 +139,121 @@
 
 
     <!-- HEADER -->
-    <header class="relative border-b"
-            style="border-color:#2c5f8d; background-color:#000000;">
+    <header class="relative border-b" style="border-color:#2c5f8d; background-color:#000000;">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-20">
 
+                <!-- Logo -->
                 <div class="flex items-center space-x-4 group cursor-pointer">
                     <div class="relative animate-float">
-                        <img src="../../assets/images/Buho.png" alt="EVIDETH Logo"
-                             class="w-20 h-20 logo-glow object-contain">
+                        <img src="../../assets/images/Buho.png" alt="EVIDETH Logo" class="w-20 h-20 logo-glow object-contain">
                     </div>
                     <div>
-                        <h1 class="text-3xl font-bold tracking-[0.3em] text-glow font-mono"
-                            style="color:#4a90e2;">EVIDETH</h1>
-                        <p class="text-[10px] tracking-[0.2em] uppercase font-mono"
-                           style="color:#6b7280;">Forensic System v2.0</p>
+                        <h1 class="text-3xl font-bold tracking-[0.3em] text-glow font-mono" style="color:#4a90e2;">EVIDETH</h1>
+                        <p class="text-[10px] tracking-[0.2em] uppercase font-mono" style="color:#6b7280;">Forensic System v2.0</p>
                     </div>
                 </div>
 
+                <!-- Nav -->
                 <nav class="hidden md:flex items-center space-x-8 font-mono text-sm">
-                    <a href="#" class="font-semibold transition-colors duration-300"
-                       style="color:#4a90e2;">Dashboard</a>
-                    <a href="../cameras/cameras.html"
-                       class="transition-colors duration-300"
-                       style="color:#6b7280;"
-                       onmouseover="this.style.color='#4a90e2'"
-                       onmouseout="this.style.color='#6b7280'">Cameras</a>
-                    <a href="#" class="transition-colors duration-300"
-                       style="color:#6b7280;"
-                       onmouseover="this.style.color='#4a90e2'"
-                       onmouseout="this.style.color='#6b7280'">Logs</a>
-                    <a href="#" class="transition-colors duration-300"
-                       style="color:#6b7280;"
-                       onmouseover="this.style.color='#4a90e2'"
-                       onmouseout="this.style.color='#6b7280'">Settings</a>
+                    <a href="#" class="font-semibold" style="color:#4a90e2;">Dashboard</a>
+                    <a href="../cameras/cameras.html" class="transition-colors duration-300" style="color:#6b7280;"
+                       onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Cameras</a>
+                    <a href="#" class="transition-colors duration-300" style="color:#6b7280;"
+                       onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Logs</a>
+                    <a href="#" class="transition-colors duration-300" style="color:#6b7280;"
+                       onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Settings</a>
                 </nav>
 
+                <!-- Right: System Online + Profile Dropdown -->
                 <div class="flex items-center space-x-4">
-                    <div class="hidden lg:flex items-center space-x-2 px-4 py-2 border"
-                         style="border-color:#2c5f8d; background-color:#000000;">
+
+                    <div class="hidden lg:flex items-center space-x-2 px-4 py-2 border" style="border-color:#2c5f8d; background-color:#000000;">
                         <div class="relative w-2 h-2">
-                            <div class="absolute w-2 h-2 rounded-full pulse-dot"
-                                 style="background-color:#4a90e2;"></div>
+                            <div class="absolute w-2 h-2 rounded-full pulse-dot" style="background-color:#4a90e2;"></div>
                         </div>
                         <span class="text-xs font-mono" style="color:#4a90e2;">System Online</span>
                     </div>
 
-                    <div class="w-10 h-10 border flex items-center justify-center
-                                transition-colors duration-300 cursor-pointer"
-                         style="border-color:#2c5f8d; background-color:#000000; color:#4a90e2;"
-                         title="Logout"
-                         onclick="Auth.logout({ message: 'Session closed. Please log in again.' })">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-                        </svg>
-                    </div>
-                </div>
+                    <!-- Profile dropdown -->
+                    <div class="relative" x-data="profileMenu()" @keydown.escape.window="open = false">
 
+                        <!-- Trigger -->
+                        <button @click="open = !open"
+                                class="flex items-center space-x-2 px-3 py-2 border transition-all duration-200 cursor-pointer"
+                                style="border-color:#2c5f8d; background:#000;"
+                                onmouseover="this.style.borderColor='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'">
+                            <!-- Avatar initials -->
+                            <div class="w-8 h-8 flex items-center justify-center border text-xs font-mono font-bold flex-shrink-0"
+                                 style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);"
+                                 x-text="initials()"></div>
+                            <!-- Name + role -->
+                            <div class="hidden lg:block text-left leading-tight">
+                                <p class="text-xs font-mono font-semibold truncate max-w-[130px]" style="color:#e5e7eb;" x-text="fullName()"></p>
+                                <p class="text-[10px] font-mono uppercase tracking-widest"
+                                   :style="isAdmin ? 'color:#f59e0b;' : 'color:#6b7280;'"
+                                   x-text="role()"></p>
+                            </div>
+                            <!-- Chevron -->
+                            <svg class="w-3 h-3 transition-transform duration-200 flex-shrink-0"
+                                 :class="open ? 'rotate-180' : ''"
+                                 style="color:#6b7280;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+
+                        <!-- Dropdown panel -->
+                        <div x-show="open"
+                             @click.outside="open = false"
+                             x-transition:enter="transition ease-out duration-150"
+                             x-transition:enter-start="opacity-0 scale-95"
+                             x-transition:enter-end="opacity-100 scale-100"
+                             x-transition:leave="transition ease-in duration-100"
+                             x-transition:leave-start="opacity-100 scale-100"
+                             x-transition:leave-end="opacity-0 scale-95"
+                             class="absolute right-0 mt-2 w-64 border z-50"
+                             style="background:#0a0a0a; border-color:#2c5f8d; top:100%; transform-origin:top right;">
+
+                            <!-- User info -->
+                            <div class="px-4 py-4 border-b" style="border-color:rgba(74,144,226,.15);">
+                                <div class="flex items-center space-x-3">
+                                    <div class="w-10 h-10 flex items-center justify-center border text-sm font-mono font-bold flex-shrink-0"
+                                         style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);"
+                                         x-text="initials()"></div>
+                                    <div class="min-w-0">
+                                        <p class="font-mono text-sm font-semibold truncate" style="color:#e5e7eb;" x-text="fullName()"></p>
+                                        <p class="font-mono text-xs truncate" style="color:#6b7280;" x-text="email()"></p>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <span class="font-mono text-[10px] px-2 py-0.5 border uppercase tracking-widest"
+                                          :style="isAdmin
+                                            ? 'border-color:rgba(245,158,11,.35); color:#f59e0b; background:rgba(245,158,11,.05);'
+                                            : 'border-color:rgba(74,144,226,.3); color:#4a90e2; background:rgba(74,144,226,.05);'"
+                                          x-text="role()"></span>
+                                </div>
+                            </div>
+
+                            <!-- Logout -->
+                            <div class="py-1">
+                                <button @click="logout()"
+                                        class="w-full px-4 py-3 text-left font-mono text-xs flex items-center space-x-3 transition-colors duration-150"
+                                        style="color:#ef4444;"
+                                        onmouseover="this.style.background='rgba(239,68,68,.07)';"
+                                        onmouseout="this.style.background='';">
+                                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                                    </svg>
+                                    <span>Cerrar sesión</span>
+                                </button>
+                            </div>
+
+                        </div>
+                    </div>
+                    <!-- End profile dropdown -->
+
+                </div>
             </div>
         </div>
     </header>
@@ -312,13 +264,10 @@
 
         <div class="mb-12 text-center">
             <div class="inline-block mb-4">
-                <div class="flex items-center justify-center space-x-2 font-mono text-sm mb-2"
-                     style="color:#5ba3f5;">
-                    <span class="w-12 h-px"
-                          style="background:linear-gradient(to right, transparent, #4a90e2);"></span>
+                <div class="flex items-center justify-center space-x-2 font-mono text-sm mb-2" style="color:#5ba3f5;">
+                    <span class="w-12 h-px" style="background:linear-gradient(to right, transparent, #4a90e2);"></span>
                     <span class="tracking-widest text-xs">Security Level: Maximum</span>
-                    <span class="w-12 h-px"
-                          style="background:linear-gradient(to left, transparent, #4a90e2);"></span>
+                    <span class="w-12 h-px" style="background:linear-gradient(to left, transparent, #4a90e2);"></span>
                 </div>
             </div>
             <h2 class="text-5xl font-bold mb-4 tracking-wider" style="color:#ffffff;">
@@ -331,433 +280,233 @@
         </div>
 
 
-        <!-- ═══════════════════════════════════════════════════════
-             Stats Grid  →  GET /api/v1/stats/
-             ═══════════════════════════════════════════════════════ -->
+        <!-- Stats Grid -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-12">
 
             <div class="card-bg border border-glow p-6 group">
                 <div class="flex items-start justify-between mb-4">
-                    <div class="w-10 h-10 border flex items-center justify-center"
-                         style="border-color:#2c5f8d;">
-                        <svg class="w-5 h-5" style="color:#4a90e2;"
-                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    <div class="w-10 h-10 border flex items-center justify-center" style="border-color:#2c5f8d;">
+                        <svg class="w-5 h-5" style="color:#4a90e2;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                         </svg>
                     </div>
-                    <span class="text-xs font-mono" style="color:#4a90e2;">&#8593; 12.5%</span>
+                    <span class="text-xs font-mono" style="color:#4a90e2;">↑ 12.5%</span>
                 </div>
-                <h3 class="text-xs font-mono mb-2 tracking-widest uppercase"
-                    style="color:#9ca3af;">Verifications</h3>
-                <p class="text-4xl font-bold font-mono"
-                   id="stat-verifs-total"
-                   style="color:#4a90e2;">—</p>
-                <div class="mt-3 h-px"
-                     style="background:linear-gradient(to right, #4a90e2, transparent);"></div>
+                <h3 class="text-xs font-mono mb-2 tracking-widest uppercase" style="color:#9ca3af;">Verifications</h3>
+                <p class="text-4xl font-bold font-mono" id="stat-verifs-total" style="color:#4a90e2;">—</p>
+                <div class="mt-3 h-px" style="background:linear-gradient(to right, #4a90e2, transparent);"></div>
             </div>
 
             <div class="card-bg border border-glow p-6 group">
                 <div class="flex items-start justify-between mb-4">
-                    <div class="w-10 h-10 border flex items-center justify-center"
-                         style="border-color:#2c5f8d;">
-                        <svg class="w-5 h-5" style="color:#4a90e2;"
-                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                    <div class="w-10 h-10 border flex items-center justify-center" style="border-color:#2c5f8d;">
+                        <svg class="w-5 h-5" style="color:#4a90e2;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
                         </svg>
                     </div>
-                    <div class="w-2 h-2 rounded-full pulse-dot"
-                         style="background-color:#4a90e2;"></div>
+                    <div class="w-2 h-2 rounded-full pulse-dot" style="background-color:#4a90e2;"></div>
                 </div>
-                <h3 class="text-xs font-mono mb-2 tracking-widest uppercase"
-                    style="color:#9ca3af;">Cameras Online</h3>
+                <h3 class="text-xs font-mono mb-2 tracking-widest uppercase" style="color:#9ca3af;">Cameras Online</h3>
                 <p class="text-4xl font-bold font-mono" style="color:#4a90e2;">
-                    <span id="stat-cameras-online">—</span><span id="stat-cameras-total"
-                          class="text-xl" style="color:#6b7280;">/—</span>
+                    <span id="stat-cameras-online">—</span><span id="stat-cameras-total" class="text-xl" style="color:#6b7280;">/—</span>
                 </p>
-                <div class="mt-3 h-px"
-                     style="background:linear-gradient(to right, #4a90e2, transparent);"></div>
+                <div class="mt-3 h-px" style="background:linear-gradient(to right, #4a90e2, transparent);"></div>
             </div>
 
-            <div class="card-bg border p-6 group"
-                 style="border-color:rgba(220,38,38,.3);">
+            <div class="card-bg border p-6 group" style="border-color:rgba(220,38,38,.3);">
                 <div class="flex items-start justify-between mb-4">
-                    <div class="w-10 h-10 border flex items-center justify-center"
-                         style="border-color:rgba(220,38,38,.4);">
-                        <svg class="w-5 h-5" style="color:#ef4444;"
-                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                    <div class="w-10 h-10 border flex items-center justify-center" style="border-color:rgba(220,38,38,.4);">
+                        <svg class="w-5 h-5" style="color:#ef4444;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                         </svg>
                     </div>
-                    <span class="text-xs font-mono" style="color:#ef4444;">&#8595; 5.2%</span>
+                    <span class="text-xs font-mono" style="color:#ef4444;">↓ 5.2%</span>
                 </div>
-                <h3 class="text-xs font-mono mb-2 tracking-widest uppercase"
-                    style="color:#9ca3af;">Threats Detected</h3>
-                <p class="text-4xl font-bold font-mono"
-                   id="stat-threats"
-                   style="color:#ef4444;">—</p>
-                <div class="mt-3 h-px"
-                     style="background:linear-gradient(to right, rgba(220,38,38,.4), transparent);"></div>
+                <h3 class="text-xs font-mono mb-2 tracking-widest uppercase" style="color:#9ca3af;">Threats Detected</h3>
+                <p class="text-4xl font-bold font-mono" id="stat-threats" style="color:#ef4444;">—</p>
+                <div class="mt-3 h-px" style="background:linear-gradient(to right, rgba(220,38,38,.4), transparent);"></div>
             </div>
 
             <div class="card-bg border border-glow p-6 group">
                 <div class="flex items-start justify-between mb-4">
-                    <div class="w-10 h-10 border flex items-center justify-center"
-                         style="border-color:#2c5f8d;">
-                        <svg class="w-5 h-5" style="color:#4a90e2;"
-                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                    <div class="w-10 h-10 border flex items-center justify-center" style="border-color:#2c5f8d;">
+                        <svg class="w-5 h-5" style="color:#4a90e2;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
                         </svg>
                     </div>
-                    <span id="stat-integrity-badge"
-                          class="text-xs font-mono" style="color:#6b7280;">—</span>
+                    <span id="stat-integrity-badge" class="text-xs font-mono" style="color:#6b7280;">—</span>
                 </div>
-                <h3 class="text-xs font-mono mb-2 tracking-widest uppercase"
-                    style="color:#9ca3af;">Integrity Rate</h3>
-                <p class="text-4xl font-bold font-mono" style="color:#4a90e2;">
-                    <span id="stat-integrity-rate">—</span>
-                </p>
+                <h3 class="text-xs font-mono mb-2 tracking-widest uppercase" style="color:#9ca3af;">Integrity Rate</h3>
+                <p class="text-4xl font-bold font-mono" style="color:#4a90e2;"><span id="stat-integrity-rate">—</span></p>
                 <div class="mt-3 h-1" style="background-color:#1f2937;">
-                    <div id="stat-integrity-bar"
-                         class="h-full transition-all duration-1000"
-                         style="width:0%; background-color:#4a90e2;"></div>
+                    <div id="stat-integrity-bar" class="h-full transition-all duration-1000" style="width:0%; background-color:#4a90e2;"></div>
                 </div>
             </div>
 
         </div>
 
 
-        <!-- ═══════════════════════════════════════════════════════
-             Video Verification Module
-             POST /api/v1/verification/upload
-             Params (FormData): video, camera_id, video_db_id
-             ═══════════════════════════════════════════════════════ -->
-        <div class="card-bg border border-glow p-8 mb-8"
-             style="position:relative; overflow:hidden;">
-
+        <!-- Video Verification Module -->
+        <div class="card-bg border border-glow p-8 mb-8" style="position:relative; overflow:hidden;">
             <div class="scan-line-local"></div>
-
             <div class="flex items-center justify-between mb-8">
                 <div class="flex items-center space-x-4">
                     <div class="w-1 h-12" style="background-color:#4a90e2;"></div>
                     <div>
-                        <h2 class="text-2xl font-bold tracking-wide font-mono"
-                            style="color:#4a90e2;">Video Verification Module</h2>
-                        <p class="text-sm font-mono mt-1" style="color:#9ca3af;">
-                            Upload video file for cryptographic integrity analysis
-                        </p>
+                        <h2 class="text-2xl font-bold tracking-wide font-mono" style="color:#4a90e2;">Video Verification Module</h2>
+                        <p class="text-sm font-mono mt-1" style="color:#9ca3af;">Upload video file for cryptographic integrity analysis</p>
                     </div>
                 </div>
-                <div class="font-mono text-xs" style="color:#6b7280;">
-                    <span style="color:#4a90e2;">&#9679;</span> System Ready
-                </div>
+                <div class="font-mono text-xs" style="color:#6b7280;"><span style="color:#4a90e2;">&#9679;</span> System Ready</div>
             </div>
 
-            <!-- ── FORMULARIO: estado inicial ─────────────────── -->
+            <!-- Form: idle -->
             <div x-show="!verifying && !report && !apiError">
-
-                <!-- Campos de contexto -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                     <div>
-                        <label class="block font-mono text-xs tracking-widest uppercase mb-2"
-                               style="color:#9ca3af;">Camera ID</label>
-                        <input type="text"
-                               x-model="form.camera_id"
-                               placeholder="CAM-001"
-                               class="w-full bg-black border px-4 py-3 font-mono text-sm
-                                      focus:outline-none focus:border-blue-500 transition-colors"
+                        <label class="block font-mono text-xs tracking-widest uppercase mb-2" style="color:#9ca3af;">Camera ID</label>
+                        <input type="text" x-model="form.camera_id" placeholder="CAM-001"
+                               class="w-full bg-black border px-4 py-3 font-mono text-sm focus:outline-none transition-colors"
                                style="border-color:#2c5f8d; color:#e5e7eb;"
-                               onfocus="this.style.borderColor='#4a90e2'"
-                               onblur="this.style.borderColor='#2c5f8d'" />
-                        <p class="mt-1 font-mono text-xs" style="color:#6b7280;">
-                            ID físico de la cámara (campo <code>camera_id</code>)
-                        </p>
+                               onfocus="this.style.borderColor='#4a90e2'" onblur="this.style.borderColor='#2c5f8d'" />
+                        <p class="mt-1 font-mono text-xs" style="color:#6b7280;">ID físico de la cámara (campo <code>camera_id</code>)</p>
                     </div>
                     <div>
-                        <label class="block font-mono text-xs tracking-widest uppercase mb-2"
-                               style="color:#9ca3af;">Video DB ID</label>
-                        <input type="text"
-                               x-model="form.video_db_id"
-                               placeholder="uuid del video en BD"
-                               class="w-full bg-black border px-4 py-3 font-mono text-sm
-                                      focus:outline-none transition-colors"
+                        <label class="block font-mono text-xs tracking-widest uppercase mb-2" style="color:#9ca3af;">Video DB ID</label>
+                        <input type="text" x-model="form.video_db_id" placeholder="uuid del video en BD"
+                               class="w-full bg-black border px-4 py-3 font-mono text-sm focus:outline-none transition-colors"
                                style="border-color:#2c5f8d; color:#e5e7eb;"
-                               onfocus="this.style.borderColor='#4a90e2'"
-                               onblur="this.style.borderColor='#2c5f8d'" />
-                        <p class="mt-1 font-mono text-xs" style="color:#6b7280;">
-                            UUID del video registrado en la base de datos
-                        </p>
+                               onfocus="this.style.borderColor='#4a90e2'" onblur="this.style.borderColor='#2c5f8d'" />
+                        <p class="mt-1 font-mono text-xs" style="color:#6b7280;">UUID del video registrado en la base de datos</p>
                     </div>
                 </div>
 
-                <!-- Drop area -->
-                <div class="relative border-2 border-dashed p-12 text-center
-                            cursor-pointer transition-all duration-500"
+                <div class="relative border-2 border-dashed p-12 text-center cursor-pointer transition-all duration-500"
                      style="border-color:rgba(74,144,226,.3); background-color:#000000;"
                      @click="$refs.fileInput.click()">
-
-                    <input type="file"
-                           id="fileInput"
-                           x-ref="fileInput"
-                           class="hidden"
-                           accept=".mp4,.avi,.mkv,.mov"
-                           @change="onFileSelected($event)">
-
+                    <input type="file" id="fileInput" x-ref="fileInput" class="hidden" accept=".mp4,.avi,.mkv,.mov" @change="onFileSelected($event)">
                     <div class="mb-6">
-                        <svg class="w-20 h-20 mx-auto" style="color:#4b5563;"
-                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                        <svg class="w-20 h-20 mx-auto" style="color:#4b5563;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
                         </svg>
                     </div>
-
-                    <!-- Nombre del fichero seleccionado -->
-                    <p class="text-lg font-mono mb-2" style="color:#d1d5db;"
-                       x-text="selectedFile ? selectedFile.name : 'Drop Video File Here'"></p>
-                    <p class="text-sm font-mono mb-6" style="color:#6b7280;"
-                       x-text="selectedFile ? fmtSize(selectedFile.size) : 'Or click to select · MP4 · AVI · MOV · MKV'"></p>
-
-                    <button type="button"
-                            class="inline-block px-8 py-3 border-2 font-mono text-sm tracking-widest transition-all duration-300"
+                    <p class="text-lg font-mono mb-2" style="color:#d1d5db;" x-text="selectedFile ? selectedFile.name : 'Drop Video File Here'"></p>
+                    <p class="text-sm font-mono mb-6" style="color:#6b7280;" x-text="selectedFile ? fmtSize(selectedFile.size) : 'Or click to select · MP4 · AVI · MOV · MKV'"></p>
+                    <button type="button" class="inline-block px-8 py-3 border-2 font-mono text-sm tracking-widest transition-all duration-300"
                             style="border-color:#4a90e2; color:#4a90e2; background-color:transparent;">
                         <span x-text="selectedFile ? 'Change File' : 'Select File'"></span>
                     </button>
                 </div>
 
-                <!-- Botón Verify -->
                 <div class="mt-6 flex justify-end">
-                    <button @click="uploadAndVerify()"
-                            :disabled="!canSubmit()"
-                            class="px-10 py-4 font-mono text-sm tracking-widest
-                                   transition-all duration-300 border-2"
-                            :style="canSubmit()
-                                ? 'border-color:#4a90e2; color:#000; background-color:#4a90e2; cursor:pointer;'
-                                : 'border-color:#2c5f8d; color:#4b5563; background-color:#0a0a0a; cursor:not-allowed;'">
+                    <button @click="uploadAndVerify()" :disabled="!canSubmit()"
+                            class="px-10 py-4 font-mono text-sm tracking-widest transition-all duration-300 border-2"
+                            :style="canSubmit() ? 'border-color:#4a90e2; color:#000; background-color:#4a90e2; cursor:pointer;' : 'border-color:#2c5f8d; color:#4b5563; background-color:#0a0a0a; cursor:not-allowed;'">
                         Verify Integrity
                     </button>
                 </div>
             </div>
 
-
-            <!-- ── PROCESANDO ─────────────────────────────────── -->
+            <!-- Processing -->
             <div x-show="verifying" x-transition class="py-12 text-center">
-                <div class="inline-flex items-center justify-center w-20 h-20
-                            border-2 mb-6 relative" style="border-color:#4a90e2;">
-                    <div class="absolute inset-0 border-2 animate-pulse-subtle"
-                         style="border-color:rgba(74,144,226,.5);"></div>
-                    <svg class="w-10 h-10 animate-pulse" style="color:#4a90e2;"
-                         fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                              d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                <div class="inline-flex items-center justify-center w-20 h-20 border-2 mb-6 relative" style="border-color:#4a90e2;">
+                    <div class="absolute inset-0 border-2 animate-pulse-subtle" style="border-color:rgba(74,144,226,.5);"></div>
+                    <svg class="w-10 h-10 animate-pulse" style="color:#4a90e2;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
                     </svg>
                 </div>
-                <h3 class="text-2xl font-bold font-mono mb-2 text-glow" style="color:#4a90e2;">
-                    Analyzing Video Integrity
-                </h3>
-                <p class="font-mono text-sm mb-10" style="color:#9ca3af;">
-                    Segmenting · SHA-256 · Merkle tree · ECDSA
-                </p>
+                <h3 class="text-2xl font-bold font-mono mb-2 text-glow" style="color:#4a90e2;">Analyzing Video Integrity</h3>
+                <p class="font-mono text-sm mb-10" style="color:#9ca3af;">Segmenting · SHA-256 · Merkle tree · ECDSA</p>
                 <div class="max-w-md mx-auto space-y-3 text-left">
-                    <div class="flex items-center space-x-3 font-mono text-sm">
-                        <span style="color:#4a90e2;">&#9656;</span>
-                        <span style="color:#9ca3af;">Extracting metadata</span>
-                        <span class="ml-auto" style="color:#4a90e2;">OK</span>
-                    </div>
-                    <div class="flex items-center space-x-3 font-mono text-sm">
-                        <span class="pulse-dot" style="color:#4a90e2;">&#9656;</span>
-                        <span style="color:#d1d5db;">Segmenting into 30 s chunks</span>
-                        <span class="ml-auto" style="color:#6b7280;">...</span>
-                    </div>
-                    <div class="flex items-center space-x-3 font-mono text-sm">
-                        <span style="color:#4b5563;">&#9656;</span>
-                        <span style="color:#4b5563;">Calculating SHA-256 + Merkle tree</span>
-                        <span class="ml-auto" style="color:#4b5563;">...</span>
-                    </div>
-                    <div class="flex items-center space-x-3 font-mono text-sm">
-                        <span style="color:#4b5563;">&#9656;</span>
-                        <span style="color:#4b5563;">Verifying ECDSA signatures</span>
-                        <span class="ml-auto" style="color:#4b5563;">...</span>
-                    </div>
+                    <div class="flex items-center space-x-3 font-mono text-sm"><span style="color:#4a90e2;">&#9656;</span><span style="color:#9ca3af;">Extracting metadata</span><span class="ml-auto" style="color:#4a90e2;">OK</span></div>
+                    <div class="flex items-center space-x-3 font-mono text-sm"><span class="pulse-dot" style="color:#4a90e2;">&#9656;</span><span style="color:#d1d5db;">Segmenting into 30 s chunks</span><span class="ml-auto" style="color:#6b7280;">...</span></div>
+                    <div class="flex items-center space-x-3 font-mono text-sm"><span style="color:#4b5563;">&#9656;</span><span style="color:#4b5563;">Calculating SHA-256 + Merkle tree</span><span class="ml-auto" style="color:#4b5563;">...</span></div>
+                    <div class="flex items-center space-x-3 font-mono text-sm"><span style="color:#4b5563;">&#9656;</span><span style="color:#4b5563;">Verifying ECDSA signatures</span><span class="ml-auto" style="color:#4b5563;">...</span></div>
                 </div>
             </div>
 
-
-            <!-- ── ERROR DE API ───────────────────────────────── -->
+            <!-- API Error -->
             <div x-show="apiError" x-transition class="py-10 text-center">
-                <div class="inline-flex items-center justify-center w-20 h-20
-                            border-2 mb-6" style="border-color:#f59e0b;">
-                    <svg class="w-10 h-10" style="color:#f59e0b;"
-                         fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0
-                                 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464
-                                 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                <div class="inline-flex items-center justify-center w-20 h-20 border-2 mb-6" style="border-color:#f59e0b;">
+                    <svg class="w-10 h-10" style="color:#f59e0b;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                     </svg>
                 </div>
                 <h3 class="text-2xl font-bold font-mono mb-3" style="color:#f59e0b;">Verification Error</h3>
-                <p class="font-mono text-sm mb-8 max-w-lg mx-auto" style="color:#9ca3af;"
-                   x-text="apiError"></p>
-                <button @click="reset()"
-                        class="px-8 py-3 border-2 font-mono text-sm tracking-widest"
-                        style="border-color:#f59e0b; color:#f59e0b; background-color:transparent;">
-                    Try Again
-                </button>
+                <p class="font-mono text-sm mb-8 max-w-lg mx-auto" style="color:#9ca3af;" x-text="apiError"></p>
+                <button @click="reset()" class="px-8 py-3 border-2 font-mono text-sm tracking-widest" style="border-color:#f59e0b; color:#f59e0b;">Try Again</button>
             </div>
 
-
-            <!-- ── RESULTADO REAL DEL API ─────────────────────── -->
+            <!-- Result -->
             <div x-show="report" x-transition>
-
-                <!-- ✓ ÍNTEGRO -->
+                <!-- OK -->
                 <div x-show="integrityOk()" class="py-10 text-center">
-                    <div class="inline-flex items-center justify-center w-24 h-24
-                                border-2 mb-8 relative" style="border-color:#4a90e2;">
-                        <div class="absolute inset-0 border-2 animate-pulse-subtle"
-                             style="border-color:rgba(74,144,226,.5);"></div>
-                        <svg class="w-12 h-12" style="color:#4a90e2;"
-                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    <div class="inline-flex items-center justify-center w-24 h-24 border-2 mb-8 relative" style="border-color:#4a90e2;">
+                        <div class="absolute inset-0 border-2 animate-pulse-subtle" style="border-color:rgba(74,144,226,.5);"></div>
+                        <svg class="w-12 h-12" style="color:#4a90e2;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                         </svg>
                     </div>
-                    <h3 class="text-3xl font-bold font-mono mb-3 text-glow" style="color:#4a90e2;">
-                        Verification Successful
-                    </h3>
-                    <p class="font-mono text-sm mb-10" style="color:#9ca3af;">
-                        All cryptographic checks passed · Video integrity confirmed
-                    </p>
-
-                    <!-- Informe real -->
-                    <div class="border p-8 max-w-2xl mx-auto text-left mb-8"
-                         style="border-color:rgba(74,144,226,.3); background-color:#000000;">
-                        <h4 class="font-mono mb-6 tracking-widest text-sm"
-                            style="color:#4a90e2;">Verification Report</h4>
+                    <h3 class="text-3xl font-bold font-mono mb-3 text-glow" style="color:#4a90e2;">Verification Successful</h3>
+                    <p class="font-mono text-sm mb-10" style="color:#9ca3af;">All cryptographic checks passed · Video integrity confirmed</p>
+                    <div class="border p-8 max-w-2xl mx-auto text-left mb-8" style="border-color:rgba(74,144,226,.3); background-color:#000000;">
+                        <h4 class="font-mono mb-6 tracking-widest text-sm" style="color:#4a90e2;">Verification Report</h4>
                         <div class="space-y-3 font-mono text-sm">
-                            <div class="flex justify-between pb-2 border-b"
-                                 style="border-color:rgba(74,144,226,.2);">
-                                <span style="color:#9ca3af;">Camera ID:</span>
-                                <span style="color:#4a90e2;" x-text="report && report.camera_id"></span>
-                            </div>
-                            <div class="flex justify-between pb-2 border-b"
-                                 style="border-color:rgba(74,144,226,.2);">
-                                <span style="color:#9ca3af;">Total Segments:</span>
-                                <span style="color:#4a90e2;"
-                                      x-text="report && report.summary && report.summary.total_segments"></span>
-                            </div>
-                            <div class="flex justify-between pb-2 border-b"
-                                 style="border-color:rgba(74,144,226,.2);">
-                                <span style="color:#9ca3af;">Passed / Failed:</span>
-                                <span style="color:#4a90e2;"
-                                      x-text="report && report.summary && (report.summary.passed + ' ✓ / ' + report.summary.failed + ' ✗')"></span>
-                            </div>
-                            <div class="flex justify-between pb-2 border-b"
-                                 style="border-color:rgba(74,144,226,.2);">
-                                <span style="color:#9ca3af;">Verified at:</span>
-                                <span style="color:#4a90e2;"
-                                      x-text="report && report.verified_at && report.verified_at.slice(0,19).replace('T',' ') + ' UTC'"></span>
-                            </div>
-                            <div class="flex justify-between">
-                                <span style="color:#9ca3af;">Verdict:</span>
-                                <span class="font-bold" style="color:#4a90e2;"
-                                      x-text="report && report.verdict"></span>
-                            </div>
+                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Camera ID:</span><span style="color:#4a90e2;" x-text="report && report.camera_id"></span></div>
+                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Total Segments:</span><span style="color:#4a90e2;" x-text="report && report.summary && report.summary.total_segments"></span></div>
+                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Passed / Failed:</span><span style="color:#4a90e2;" x-text="report && report.summary && (report.summary.passed + ' ✓ / ' + report.summary.failed + ' ✗')"></span></div>
+                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Verified at:</span><span style="color:#4a90e2;" x-text="report && report.verified_at && report.verified_at.slice(0,19).replace('T',' ') + ' UTC'"></span></div>
+                            <div class="flex justify-between"><span style="color:#9ca3af;">Verdict:</span><span class="font-bold" style="color:#4a90e2;" x-text="report && report.verdict"></span></div>
                         </div>
                     </div>
-
-                    <!-- Lista de segmentos -->
                     <div class="max-w-2xl mx-auto mb-8 space-y-2 text-left">
                         <template x-for="seg in (report ? report.segments : [])" :key="seg.segment_index">
                             <div class="flex items-center justify-between p-3 border font-mono text-sm"
-                                 :style="seg.result === 'pass'
-                                    ? 'border-color:rgba(74,144,226,.2); background:#000;'
-                                    : 'border-color:rgba(220,38,38,.4); background:rgba(127,29,29,.1);'">
-                                <span style="color:#d1d5db;"
-                                      x-text="'Segment ' + seg.segment_index + '  (' + fmtTime(seg.start_time_secs) + ' – ' + fmtTime(seg.end_time_secs) + ')'"></span>
-                                <span :style="seg.result === 'pass' ? 'color:#4a90e2;' : 'color:#ef4444;'"
-                                      x-text="seg.result === 'pass' ? 'Valid' : 'TAMPERED'"></span>
+                                 :style="seg.result==='pass' ? 'border-color:rgba(74,144,226,.2);background:#000;' : 'border-color:rgba(220,38,38,.4);background:rgba(127,29,29,.1);'">
+                                <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' – '+fmtTime(seg.end_time_secs)+')'" ></span>
+                                <span :style="seg.result==='pass'?'color:#4a90e2;':'color:#ef4444;'" x-text="seg.result==='pass'?'Valid':'TAMPERED'"></span>
                             </div>
                         </template>
                     </div>
-
-                    <button @click="reset()"
-                            class="px-8 py-3 border-2 font-mono text-sm tracking-widest"
-                            style="border-color:#4a90e2; color:#4a90e2; background-color:transparent;">
-                        Verify Another Video
-                    </button>
+                    <button @click="reset()" class="px-8 py-3 border-2 font-mono text-sm tracking-widest" style="border-color:#4a90e2; color:#4a90e2;">Verify Another Video</button>
                 </div>
 
-                <!-- ✗ MANIPULADO -->
+                <!-- TAMPERED -->
                 <div x-show="report && !report.integrity_ok" class="py-10 text-center">
-                    <div class="inline-flex items-center justify-center w-24 h-24
-                                border-2 mb-8 relative" style="border-color:#ef4444;">
-                        <div class="absolute inset-0 border-2 animate-pulse"
-                             style="border-color:rgba(239,68,68,.5);"></div>
-                        <svg class="w-12 h-12" style="color:#ef4444;"
-                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3
-                                     L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                    <div class="inline-flex items-center justify-center w-24 h-24 border-2 mb-8 relative" style="border-color:#ef4444;">
+                        <div class="absolute inset-0 border-2 animate-pulse" style="border-color:rgba(239,68,68,.5);"></div>
+                        <svg class="w-12 h-12" style="color:#ef4444;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                         </svg>
                     </div>
-                    <h3 class="text-3xl font-bold font-mono mb-3" style="color:#ef4444;">
-                        Tampering Detected
-                    </h3>
-                    <p class="font-mono text-sm mb-10" style="color:#9ca3af;"
-                       x-text="report && report.verdict"></p>
-
-                    <!-- Segmentos comprometidos -->
-                    <div class="border p-8 max-w-2xl mx-auto text-left mb-8"
-                         style="border-color:rgba(220,38,38,.3); background-color:#000000;">
-                        <h4 class="font-mono mb-4 tracking-widest text-sm"
-                            style="color:#ef4444;">Segment Analysis</h4>
+                    <h3 class="text-3xl font-bold font-mono mb-3" style="color:#ef4444;">Tampering Detected</h3>
+                    <p class="font-mono text-sm mb-10" style="color:#9ca3af;" x-text="report && report.verdict"></p>
+                    <div class="border p-8 max-w-2xl mx-auto text-left mb-8" style="border-color:rgba(220,38,38,.3); background:#000;">
+                        <h4 class="font-mono mb-4 tracking-widest text-sm" style="color:#ef4444;">Segment Analysis</h4>
                         <div class="space-y-2">
                             <template x-for="seg in (report ? report.segments : [])" :key="seg.segment_index">
                                 <div class="flex items-center justify-between p-3 border font-mono text-sm"
-                                     :style="seg.result === 'pass'
-                                        ? 'border-color:rgba(74,144,226,.2); background:#000;'
-                                        : 'border-color:rgba(220,38,38,.4); background:rgba(127,29,29,.15);'">
+                                     :style="seg.result==='pass'?'border-color:rgba(74,144,226,.2);background:#000;':'border-color:rgba(220,38,38,.4);background:rgba(127,29,29,.15);'">
                                     <div>
-                                        <span style="color:#d1d5db;"
-                                              x-text="'Segment ' + seg.segment_index + '  (' + fmtTime(seg.start_time_secs) + ' – ' + fmtTime(seg.end_time_secs) + ')'"></span>
-                                        <!-- Segundos manipulados si hay Merkle data -->
-                                        <span x-show="seg.second_results && seg.second_results.some(s => s.tampered)"
-                                              class="block text-xs mt-1" style="color:#f87171;"
-                                              x-text="'Tampered seconds: [' + seg.second_results.filter(s=>s.tampered).map(s=>s.second_index).join(', ') + ']'"></span>
+                                        <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' – '+fmtTime(seg.end_time_secs)+')'" ></span>
+                                        <span x-show="seg.second_results && seg.second_results.some(s=>s.tampered)" class="block text-xs mt-1" style="color:#f87171;" x-text="'Tampered seconds: ['+seg.second_results.filter(s=>s.tampered).map(s=>s.second_index).join(', ')+']'"></span>
                                     </div>
-                                    <span :style="seg.result === 'pass' ? 'color:#4a90e2;' : 'color:#ef4444;'"
-                                          x-text="seg.result === 'pass' ? 'Valid' : 'TAMPERED'"></span>
+                                    <span :style="seg.result==='pass'?'color:#4a90e2;':'color:#ef4444;'" x-text="seg.result==='pass'?'Valid':'TAMPERED'"></span>
                                 </div>
                             </template>
                         </div>
-                        <div class="mt-6 p-4 border"
-                             style="background-color:rgba(127,29,29,.08); border-color:rgba(220,38,38,.3);">
-                            <p class="text-xs font-mono" style="color:#9ca3af;">
-                                &#9888; This video cannot be used as forensic evidence due to detected integrity violations.
-                            </p>
+                        <div class="mt-6 p-4 border" style="background:rgba(127,29,29,.08); border-color:rgba(220,38,38,.3);">
+                            <p class="text-xs font-mono" style="color:#9ca3af;">⚠ This video cannot be used as forensic evidence due to detected integrity violations.</p>
                         </div>
                     </div>
-
-                    <!-- Resumen numérico -->
-                    <p class="font-mono text-sm mb-8" style="color:#9ca3af;"
-                       x-text="report && report.summary && ('Passed: ' + report.summary.passed + ' · Failed: ' + report.summary.failed + ' · Missing: ' + report.summary.missing)"></p>
-
-                    <button @click="reset()"
-                            class="px-8 py-3 border-2 font-mono text-sm tracking-widest"
-                            style="border-color:#dc2626; color:#ef4444; background-color:transparent;">
-                        Verify Another Video
-                    </button>
+                    <p class="font-mono text-sm mb-8" style="color:#9ca3af;" x-text="report && report.summary && ('Passed: '+report.summary.passed+' · Failed: '+report.summary.failed+' · Missing: '+report.summary.missing)"></p>
+                    <button @click="reset()" class="px-8 py-3 border-2 font-mono text-sm tracking-widest" style="border-color:#dc2626; color:#ef4444;">Verify Another Video</button>
                 </div>
-
             </div>
         </div>
 
 
-        <!-- ═══════════════════════════════════════════════════════
-             Recent Activity Log  →  GET /api/v1/logs/activity?per_page=10
-             ═══════════════════════════════════════════════════════ -->
+        <!-- Activity Log -->
         <div class="card-bg border border-glow p-8">
             <div class="flex items-center justify-between mb-8">
                 <div class="flex items-center space-x-4">
@@ -766,41 +515,14 @@
                 </div>
                 <a href="#" class="font-mono text-xs transition-colors duration-300" style="color:#4a90e2;">View All &#8594;</a>
             </div>
-
             <div id="activity-log-list" class="space-y-2">
-                <!-- Skeleton inicial -->
-                <div class="flex items-center justify-between p-4 border animate-pulse"
-                     style="border-color:rgba(74,144,226,.1); background-color:#000000;">
-                    <div class="flex items-center space-x-4">
-                        <div class="w-8 h-8 border" style="border-color:rgba(74,144,226,.15); background-color:#0a0a0a;"></div>
-                        <div>
-                            <div class="h-3 w-48 mb-2" style="background-color:#1f2937;"></div>
-                            <div class="h-2 w-32" style="background-color:#111827;"></div>
-                        </div>
-                    </div>
-                    <div class="h-3 w-16" style="background-color:#1f2937;"></div>
+                <div class="flex items-center justify-between p-4 border animate-pulse" style="border-color:rgba(74,144,226,.1); background:#000;">
+                    <div class="flex items-center space-x-4"><div class="w-8 h-8 border" style="border-color:rgba(74,144,226,.15); background:#0a0a0a;"></div><div><div class="h-3 w-48 mb-2" style="background:#1f2937;"></div><div class="h-2 w-32" style="background:#111827;"></div></div></div>
+                    <div class="h-3 w-16" style="background:#1f2937;"></div>
                 </div>
-                <div class="flex items-center justify-between p-4 border animate-pulse"
-                     style="border-color:rgba(74,144,226,.1); background-color:#000000;">
-                    <div class="flex items-center space-x-4">
-                        <div class="w-8 h-8 border" style="border-color:rgba(74,144,226,.15); background-color:#0a0a0a;"></div>
-                        <div>
-                            <div class="h-3 w-40 mb-2" style="background-color:#1f2937;"></div>
-                            <div class="h-2 w-28" style="background-color:#111827;"></div>
-                        </div>
-                    </div>
-                    <div class="h-3 w-16" style="background-color:#1f2937;"></div>
-                </div>
-                <div class="flex items-center justify-between p-4 border animate-pulse"
-                     style="border-color:rgba(74,144,226,.1); background-color:#000000;">
-                    <div class="flex items-center space-x-4">
-                        <div class="w-8 h-8 border" style="border-color:rgba(74,144,226,.15); background-color:#0a0a0a;"></div>
-                        <div>
-                            <div class="h-3 w-44 mb-2" style="background-color:#1f2937;"></div>
-                            <div class="h-2 w-24" style="background-color:#111827;"></div>
-                        </div>
-                    </div>
-                    <div class="h-3 w-16" style="background-color:#1f2937;"></div>
+                <div class="flex items-center justify-between p-4 border animate-pulse" style="border-color:rgba(74,144,226,.1); background:#000;">
+                    <div class="flex items-center space-x-4"><div class="w-8 h-8 border" style="border-color:rgba(74,144,226,.15); background:#0a0a0a;"></div><div><div class="h-3 w-40 mb-2" style="background:#1f2937;"></div><div class="h-2 w-28" style="background:#111827;"></div></div></div>
+                    <div class="h-3 w-16" style="background:#1f2937;"></div>
                 </div>
             </div>
         </div>
@@ -809,49 +531,32 @@
 
 
     <!-- FOOTER -->
-    <footer class="border-t mt-16"
-            style="border-color:rgba(74,144,226,.2); background-color:#000000;">
+    <footer class="border-t mt-16" style="border-color:rgba(74,144,226,.2); background:#000;">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center">
-            <p class="font-mono text-xs tracking-widest mb-2" style="color:#6b7280;">
-                EVIDETH © 2026 · Forensic Video Integrity Verification System
-            </p>
-            <p class="font-mono text-xs" style="color:#4b5563;">
-                Powered by SHA-256 Hashing · ECDSA P-256 Digital Signatures · Azure Cloud
-            </p>
+            <p class="font-mono text-xs tracking-widest mb-2" style="color:#6b7280;">EVIDETH © 2026 · Forensic Video Integrity Verification System</p>
+            <p class="font-mono text-xs" style="color:#4b5563;">Powered by SHA-256 Hashing · ECDSA P-256 Digital Signatures · Azure Cloud</p>
         </div>
     </footer>
 
 
     <script>
-        // ── Stats Cards ──────────────────────────────────────────
         async function loadStats() {
             try {
                 const res = await fetch('/api/v1/stats/', { headers: Auth.authHeader() });
                 if (res.status === 401) { Auth.logout(); return; }
                 if (!res.ok) throw new Error('Stats HTTP ' + res.status);
-
-                const d  = await res.json();
-                const el = id => document.getElementById(id);
-
-                if (el('stat-verifs-total'))
-                    el('stat-verifs-total').textContent = d.verifications.total.toLocaleString('es-ES');
-                if (el('stat-cameras-online'))
-                    el('stat-cameras-online').textContent = String(d.cameras.online_now).padStart(2, '0');
-                if (el('stat-cameras-total'))
-                    el('stat-cameras-total').textContent = '/' + String(d.cameras.total).padStart(2, '0');
-                if (el('stat-threats'))
-                    el('stat-threats').textContent = String(d.verifications.fail ?? 0).padStart(3, '0');
-
+                const d = await res.json(), el = id => document.getElementById(id);
+                if (el('stat-verifs-total'))   el('stat-verifs-total').textContent   = d.verifications.total.toLocaleString('es-ES');
+                if (el('stat-cameras-online')) el('stat-cameras-online').textContent = String(d.cameras.online_now).padStart(2,'0');
+                if (el('stat-cameras-total'))  el('stat-cameras-total').textContent  = '/' + String(d.cameras.total).padStart(2,'0');
+                if (el('stat-threats'))        el('stat-threats').textContent        = String(d.verifications.fail ?? 0).padStart(3,'0');
                 const rate = d.segments.integrity_rate_pct ?? 0;
                 if (el('stat-integrity-rate'))  el('stat-integrity-rate').textContent  = rate + '%';
                 if (el('stat-integrity-badge')) el('stat-integrity-badge').textContent = rate + '%';
                 if (el('stat-integrity-bar'))   el('stat-integrity-bar').style.width   = rate + '%';
-            } catch (err) {
-                console.error('[EVIDETH] loadStats:', err);
-            }
+            } catch (err) { console.error('[EVIDETH] loadStats:', err); }
         }
 
-        // ── Activity Log ─────────────────────────────────────────
         async function loadActivityLog() {
             try {
                 const res = await fetch('/api/v1/logs/activity?per_page=10', { headers: Auth.authHeader() });
@@ -859,82 +564,35 @@
                 if (!res.ok) throw new Error('Logs HTTP ' + res.status);
                 const data = await res.json();
                 renderActivityLog(data.items ?? []);
-            } catch (err) {
-                console.error('[EVIDETH] loadActivityLog:', err);
-            }
+            } catch (err) { console.error('[EVIDETH] loadActivityLog:', err); }
         }
 
         function renderActivityLog(items) {
             const container = document.getElementById('activity-log-list');
             if (!container) return;
-
-            if (!items.length) {
-                container.innerHTML = `<div class="p-8 text-center font-mono text-sm" style="color:#6b7280;">No hay actividad reciente.</div>`;
-                return;
-            }
-
+            if (!items.length) { container.innerHTML = `<div class="p-8 text-center font-mono text-sm" style="color:#6b7280;">No hay actividad reciente.</div>`; return; }
             container.innerHTML = items.map(entry => {
                 const et = entry.event_type, detail = entry.detail || {}, cam = entry.camera_id || '—';
                 let borderColor, iconColor, iconPath, badgeText, mainText, subText;
-
                 if (et === 'verification') {
                     const r = detail.result;
-                    if (r === 'pass') {
-                        borderColor = 'rgba(74,144,226,.2)'; iconColor = '#4a90e2';
-                        iconPath = 'M5 13l4 4L19 7'; badgeText = 'Verified';
-                    } else if (r === 'fail') {
-                        borderColor = 'rgba(220,38,38,.2)'; iconColor = '#ef4444';
-                        iconPath = 'M6 18L18 6M6 6l12 12'; badgeText = 'Tampered';
-                    } else {
-                        borderColor = 'rgba(234,179,8,.2)'; iconColor = '#eab308';
-                        iconPath = 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z';
-                        badgeText = 'Error';
-                    }
+                    if (r === 'pass')       { borderColor='rgba(74,144,226,.2)';  iconColor='#4a90e2'; iconPath='M5 13l4 4L19 7'; badgeText='Verified'; }
+                    else if (r === 'fail')  { borderColor='rgba(220,38,38,.2)';   iconColor='#ef4444'; iconPath='M6 18L18 6M6 6l12 12'; badgeText='Tampered'; }
+                    else                   { borderColor='rgba(234,179,8,.2)';    iconColor='#eab308'; iconPath='M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z'; badgeText='Error'; }
                     const seg = detail.segment_index != null ? ' · Seg ' + detail.segment_index : '';
-                    mainText = 'Camera ' + cam + seg;
-                    subText  = 'Verification · ' + (entry.ip_address || 'local');
+                    mainText = 'Camera ' + cam + seg; subText = 'Verification · ' + (entry.ip_address || 'local');
                 } else if (et === 'video_started') {
-                    borderColor = 'rgba(74,144,226,.2)'; iconColor = '#5ba3f5';
-                    iconPath = 'M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z';
-                    badgeText = 'Recording'; mainText = detail.filename || ('Video · ' + cam);
-                    subText = 'Camera ' + cam + ' · Started';
+                    borderColor='rgba(74,144,226,.2)'; iconColor='#5ba3f5'; iconPath='M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z';
+                    badgeText='Recording'; mainText = detail.filename || ('Video · ' + cam); subText = 'Camera ' + cam + ' · Started';
                 } else if (et === 'video_finished') {
-                    borderColor = 'rgba(74,144,226,.2)'; iconColor = '#4a90e2';
-                    iconPath = 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z';
-                    badgeText = 'Completed';
-                    const dur = detail.duration_secs;
-                    const dStr = dur != null ? ' · ' + Math.floor(dur/60) + ':' + String(dur%60).padStart(2,'0') + ' min' : '';
+                    borderColor='rgba(74,144,226,.2)'; iconColor='#4a90e2'; iconPath='M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'; badgeText='Completed';
+                    const dur = detail.duration_secs, dStr = dur != null ? ' · ' + Math.floor(dur/60) + ':' + String(dur%60).padStart(2,'0') + ' min' : '';
                     mainText = detail.filename || ('Video · ' + cam); subText = 'Camera ' + cam + dStr;
                 } else {
-                    borderColor = 'rgba(74,144,226,.1)'; iconColor = '#6b7280';
-                    iconPath = 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4';
-                    badgeText = 'Segment';
-                    mainText = 'Segment ' + (detail.segment_index != null ? detail.segment_index : '?') + ' uploaded';
-                    subText = 'Camera ' + cam;
+                    borderColor='rgba(74,144,226,.1)'; iconColor='#6b7280'; iconPath='M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4'; badgeText='Segment';
+                    mainText = 'Segment ' + (detail.segment_index != null ? detail.segment_index : '?') + ' uploaded'; subText = 'Camera ' + cam;
                 }
-
-                return `
-                    <div class="flex items-center justify-between p-4 border transition-all duration-300"
-                         style="border-color:${borderColor}; background-color:#000000;">
-                        <div class="flex items-center space-x-4">
-                            <div class="w-8 h-8 border flex items-center justify-center flex-shrink-0"
-                                 style="border-color:${iconColor}44;">
-                                <svg class="w-4 h-4" style="color:${iconColor};"
-                                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round"
-                                          stroke-width="2" d="${iconPath}"/>
-                                </svg>
-                            </div>
-                            <div class="min-w-0">
-                                <p class="font-mono text-sm truncate" style="color:#e5e7eb;">${mainText}</p>
-                                <p class="font-mono text-xs" style="color:#6b7280;">${subText}</p>
-                            </div>
-                        </div>
-                        <div class="text-right flex-shrink-0 ml-4">
-                            <span class="font-mono text-xs" style="color:${iconColor};">${badgeText}</span>
-                            <p class="font-mono text-xs mt-1" style="color:#6b7280;">${fmtRelative(entry.timestamp)}</p>
-                        </div>
-                    </div>`;
+                return `<div class="flex items-center justify-between p-4 border transition-all duration-300" style="border-color:${borderColor}; background:#000;"><div class="flex items-center space-x-4"><div class="w-8 h-8 border flex items-center justify-center flex-shrink-0" style="border-color:${iconColor}44;"><svg class="w-4 h-4" style="color:${iconColor};" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${iconPath}"/></svg></div><div class="min-w-0"><p class="font-mono text-sm truncate" style="color:#e5e7eb;">${mainText}</p><p class="font-mono text-xs" style="color:#6b7280;">${subText}</p></div></div><div class="text-right flex-shrink-0 ml-4"><span class="font-mono text-xs" style="color:${iconColor};">${badgeText}</span><p class="font-mono text-xs mt-1" style="color:#6b7280;">${fmtRelative(entry.timestamp)}</p></div></div>`;
             }).join('');
         }
 
@@ -954,71 +612,40 @@
     </script>
 
 
-    <!-- PARTICLE SCRIPT -->
     <script>
         (function () {
-            const COUNT  = 150;
-            const field  = document.getElementById('particleField');
-            const items  = [];
-            let   mouseX = window.innerWidth  / 2;
-            let   mouseY = window.innerHeight / 2;
-
+            const COUNT = 150, field = document.getElementById('particleField'), items = [];
+            let mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2;
             for (let i = 0; i < COUNT; i++) {
-                const el      = document.createElement('div');
-                el.className  = 'particle';
-                const size    = Math.random() * 4 + 1;
-                const x       = Math.random() * window.innerWidth;
-                const y       = Math.random() * window.innerHeight;
-                const opacity = Math.random() * 0.4 + 0.15;
-                const vx      = (Math.random() - 0.5) * 0.3;
-                const vy      = (Math.random() - 0.5) * 0.3;
-                el.style.cssText =
-                    'width:'   + size    + 'px;' +
-                    'height:'  + size    + 'px;' +
-                    'left:'    + x       + 'px;' +
-                    'top:'     + y       + 'px;' +
-                    'opacity:' + opacity + ';';
+                const el = document.createElement('div'); el.className = 'particle';
+                const size = Math.random() * 4 + 1, x = Math.random() * window.innerWidth,
+                      y = Math.random() * window.innerHeight, opacity = Math.random() * 0.4 + 0.15,
+                      vx = (Math.random() - 0.5) * 0.3, vy = (Math.random() - 0.5) * 0.3;
+                el.style.cssText = 'width:'+size+'px;height:'+size+'px;left:'+x+'px;top:'+y+'px;opacity:'+opacity+';';
                 field.appendChild(el);
                 items.push({ el, x, y, baseX: x, baseY: y, vx, vy, opacity });
             }
-
-            document.addEventListener('mousemove', function (e) {
-                mouseX = e.clientX; mouseY = e.clientY;
-            });
-
+            document.addEventListener('mousemove', e => { mouseX = e.clientX; mouseY = e.clientY; });
             (function animate() {
-                items.forEach(function (p) {
-                    var dx = mouseX - p.x, dy = mouseY - p.y;
-                    var dist = Math.sqrt(dx*dx + dy*dy), MAX = 200;
+                items.forEach(p => {
+                    const dx = mouseX-p.x, dy = mouseY-p.y, dist = Math.sqrt(dx*dx+dy*dy), MAX = 200;
                     if (dist < MAX) {
-                        var force = (MAX - dist) / MAX, angle = Math.atan2(dy, dx);
-                        p.x -= Math.cos(angle) * force * 3;
-                        p.y -= Math.sin(angle) * force * 3;
-                        p.el.style.opacity   = String(Math.min(p.opacity + force * 0.3, 0.8));
-                        p.el.style.transform = 'scale(' + (1 + force * 0.5) + ')';
+                        const force = (MAX-dist)/MAX, angle = Math.atan2(dy,dx);
+                        p.x -= Math.cos(angle)*force*3; p.y -= Math.sin(angle)*force*3;
+                        p.el.style.opacity = String(Math.min(p.opacity+force*0.3, 0.8));
+                        p.el.style.transform = 'scale('+(1+force*0.5)+')';
                     } else {
-                        p.x += (p.baseX - p.x) * 0.01;
-                        p.y += (p.baseY - p.y) * 0.01;
-                        p.el.style.opacity   = String(p.opacity);
-                        p.el.style.transform = 'scale(1)';
+                        p.x += (p.baseX-p.x)*0.01; p.y += (p.baseY-p.y)*0.01;
+                        p.el.style.opacity = String(p.opacity); p.el.style.transform = 'scale(1)';
                     }
                     p.x += p.vx; p.y += p.vy;
-                    if (p.x < -10)                     p.x = window.innerWidth  + 10;
-                    if (p.x > window.innerWidth  + 10) p.x = -10;
-                    if (p.y < -10)                     p.y = window.innerHeight + 10;
-                    if (p.y > window.innerHeight + 10) p.y = -10;
-                    p.el.style.left = p.x + 'px';
-                    p.el.style.top  = p.y + 'px';
+                    if (p.x < -10) p.x = window.innerWidth+10; if (p.x > window.innerWidth+10) p.x = -10;
+                    if (p.y < -10) p.y = window.innerHeight+10; if (p.y > window.innerHeight+10) p.y = -10;
+                    p.el.style.left = p.x+'px'; p.el.style.top = p.y+'px';
                 });
                 requestAnimationFrame(animate);
             })();
-
-            window.addEventListener('resize', function () {
-                items.forEach(function (p) {
-                    p.baseX = Math.random() * window.innerWidth;
-                    p.baseY = Math.random() * window.innerHeight;
-                });
-            });
+            window.addEventListener('resize', () => items.forEach(p => { p.baseX = Math.random()*window.innerWidth; p.baseY = Math.random()*window.innerHeight; }));
         })();
     </script>
 
