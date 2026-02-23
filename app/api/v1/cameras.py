@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, timezone
 from app.db.session import get_db
-from app.db.models import Camera, Segment, Video, SegmentStatus, VideoStatus
+from app.db.models import Camera, Segment, Video, SegmentStatus, VideoStatus, UserRole
 from app.core.security import generate_api_key, hash_api_key
 from app.core.dependencies import require_admin, require_analyst, get_current_camera
 from pydantic import BaseModel, field_validator
@@ -37,11 +37,13 @@ class CameraCreate(BaseModel):
 
 
 class CameraResponse(BaseModel):
-    camera_id: str
-    name:      str
-    location:  Optional[str]
-    is_active: bool
-    api_key:   Optional[str] = None      # Solo se devuelve al crear
+    camera_id:  str
+    name:       str
+    location:   Optional[str]
+    is_active:  bool
+    owner_id:   Optional[str] = None
+    owner_name: Optional[str] = None
+    api_key:    Optional[str] = None      # Solo se devuelve al crear
 
     model_config = {"from_attributes": True}
 
@@ -56,6 +58,7 @@ class CameraDetailResponse(BaseModel):
     last_seen:   Optional[datetime]
     created_at:  Optional[datetime]
     owner_id:    Optional[str]
+    owner_name:  Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -142,6 +145,37 @@ class VideoResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ── Helper: serializar Camera → CameraResponse con owner_name ──
+
+def _to_camera_response(camera: Camera, api_key: Optional[str] = None) -> CameraResponse:
+    """Convierte un ORM Camera en CameraResponse incluyendo el nombre del propietario."""
+    return CameraResponse(
+        camera_id=camera.camera_id,
+        name=camera.name,
+        location=camera.location,
+        is_active=camera.is_active,
+        owner_id=camera.owner_id,
+        owner_name=camera.owner.full_name if camera.owner else None,
+        api_key=api_key,
+    )
+
+
+def _to_camera_detail(camera: Camera) -> CameraDetailResponse:
+    """Convierte un ORM Camera en CameraDetailResponse incluyendo el nombre del propietario."""
+    return CameraDetailResponse(
+        id=camera.id,
+        camera_id=camera.camera_id,
+        name=camera.name,
+        location=camera.location,
+        description=camera.description,
+        is_active=camera.is_active,
+        last_seen=camera.last_seen,
+        created_at=camera.created_at,
+        owner_id=camera.owner_id,
+        owner_name=camera.owner.full_name if camera.owner else None,
+    )
+
+
 # ── 1. Registrar cámara (solo Admin) ─────────────────
 
 @router.post(
@@ -171,13 +205,7 @@ def register_camera(
     db.add(camera)
     db.commit()
     db.refresh(camera)
-    return CameraResponse(
-        camera_id=camera.camera_id,
-        name=camera.name,
-        location=camera.location,
-        is_active=camera.is_active,
-        api_key=raw_key
-    )
+    return _to_camera_response(camera, api_key=raw_key)
 
 
 # ── 2. Listar cámaras con filtros + paginación (Analyst+) ──
@@ -186,14 +214,15 @@ def register_camera(
     "/",
     summary="Listar cámaras",
     description="""
-Devuelve las cámaras del sistema con filtros y paginación.
+Devuelve las cámaras accesibles por el usuario autenticado:
+
+- **Admin**: ve todas las cámaras del sistema.
+- **Analyst / Viewer**: solo ve las cámaras que le pertenecen (`owner_id == current_user.id`).
 
 **Filtros:**
 - `location`: busca coincidencia parcial en el campo ubicación (case-insensitive)
 - `is_active`: `true` (por defecto) solo activas, `false` solo inactivas
 - `page` / `per_page`: paginación
-
-Requiere rol **Analyst** o **Admin**.
     """
 )
 def list_cameras(
@@ -205,6 +234,11 @@ def list_cameras(
     current_user              = Depends(require_analyst)
 ):
     query = db.query(Camera)
+
+    # ── Control de acceso por propietario ─────────────
+    # Admin ve todo; cualquier otro rol solo ve sus cámaras.
+    if current_user.role != UserRole.ADMIN:
+        query = query.filter(Camera.owner_id == str(current_user.id))
 
     if is_active is not None:
         query = query.filter(Camera.is_active == is_active)
@@ -220,8 +254,7 @@ def list_cameras(
         "page":     page,
         "per_page": per_page,
         "pages":    (total + per_page - 1) // per_page,
-        # FIX: serializar ORM objects → Pydantic para que FastAPI pueda encodificarlos a JSON
-        "items":    [CameraResponse.model_validate(c) for c in cameras],
+        "items":    [_to_camera_response(c) for c in cameras],
     }
 
 
@@ -240,6 +273,10 @@ def camera_status(
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
         raise HTTPException(status_code=404, detail="Cámara no encontrada")
+
+    # Analyst solo puede consultar el estado de sus propias cámaras
+    if current_user.role != UserRole.ADMIN and camera.owner_id != str(current_user.id):
+        raise HTTPException(status_code=403, detail="No tienes acceso a esta cámara")
 
     active_video = db.query(Video).filter(
         Video.camera_id == camera.id,
@@ -407,11 +444,7 @@ def finish_video(
     summary="Listar videos de una cámara",
     description="""
 Devuelve los videos de una cámara con filtros y paginación.
-
-**Filtros:**
-- `status`: estado del video (`recording`, `completed`, `corrupted`, `archived`)
-- `date_from` / `date_to`: rango de fechas de inicio de grabación (ISO 8601)
-- `page` / `per_page`: paginación
+Respeta el control de acceso: Analyst solo puede ver videos de sus propias cámaras.
     """
 )
 def list_videos(
@@ -427,6 +460,10 @@ def list_videos(
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
         raise HTTPException(status_code=404, detail="Cámara no encontrada")
+
+    # Analyst solo puede listar videos de sus propias cámaras
+    if current_user.role != UserRole.ADMIN and camera.owner_id != str(current_user.id):
+        raise HTTPException(status_code=403, detail="No tienes acceso a esta cámara")
 
     query = db.query(Video).filter(Video.camera_id == camera.id)
 
@@ -449,7 +486,6 @@ def list_videos(
         "page":     page,
         "per_page": per_page,
         "pages":    (total + per_page - 1) // per_page,
-        # FIX: serializar ORM objects → Pydantic para que FastAPI pueda encodificarlos a JSON
         "items":    [VideoResponse.model_validate(v) for v in videos],
     }
 
@@ -460,7 +496,7 @@ def list_videos(
     "/{camera_id}",
     response_model=CameraDetailResponse,
     summary="Obtener cámara por ID",
-    description="Devuelve los datos completos de una cámara. Requiere rol Analyst o Admin."
+    description="Devuelve los datos completos de una cámara. Analyst solo puede consultar sus propias cámaras."
 )
 def get_camera(
     camera_id: str,
@@ -470,7 +506,12 @@ def get_camera(
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
         raise HTTPException(status_code=404, detail="Cámara no encontrada")
-    return camera
+
+    # Analyst solo puede consultar sus propias cámaras
+    if current_user.role != UserRole.ADMIN and camera.owner_id != str(current_user.id):
+        raise HTTPException(status_code=403, detail="No tienes acceso a esta cámara")
+
+    return _to_camera_detail(camera)
 
 
 # ── 10. Actualizar cámara (Admin) ─────────────────────
@@ -497,7 +538,7 @@ def update_camera(
 
     db.commit()
     db.refresh(camera)
-    return camera
+    return _to_camera_detail(camera)
 
 
 # ── 11. Desactivar cámara (Admin) ───────────────────
