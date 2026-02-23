@@ -152,6 +152,7 @@
 
     init() {
         if (typeof Auth !== 'undefined') Auth.requireAuth();
+        loadStats();
     },
 
     startUpload() {
@@ -194,7 +195,6 @@
 
                 <div class="flex items-center space-x-4 group cursor-pointer">
                     <div class="relative animate-float">
-                        <!-- FIX: ruta corregida de ../../LOGO/Buho.png a ../../assets/images/Buho.png -->
                         <img src="../../assets/images/Buho.png" alt="EVIDETH Logo"
                              class="w-20 h-20 logo-glow object-contain">
                     </div>
@@ -268,9 +268,14 @@
         </div>
 
 
-        <!-- Stats Grid -->
+        <!-- ═══════════════════════════════════════════════════════
+             Stats Grid  →  GET /api/v1/stats/
+             IDs: stat-verifs-total | stat-cameras-online | stat-cameras-total
+                  stat-threats | stat-integrity-rate | stat-integrity-badge | stat-integrity-bar
+             ═══════════════════════════════════════════════════════ -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-12">
 
+            <!-- Card 1: Verifications total -->
             <div class="card-bg border border-glow p-6 group">
                 <div class="flex items-start justify-between mb-4">
                     <div class="w-10 h-10 border flex items-center justify-center"
@@ -285,11 +290,14 @@
                 </div>
                 <h3 class="text-xs font-mono mb-2 tracking-widest uppercase"
                     style="color:#9ca3af;">Verifications</h3>
-                <p class="text-4xl font-bold font-mono" style="color:#4a90e2;">1,247</p>
+                <p class="text-4xl font-bold font-mono"
+                   id="stat-verifs-total"
+                   style="color:#4a90e2;">—</p>
                 <div class="mt-3 h-px"
                      style="background:linear-gradient(to right, #4a90e2, transparent);"></div>
             </div>
 
+            <!-- Card 2: Cameras Online / Total -->
             <div class="card-bg border border-glow p-6 group">
                 <div class="flex items-start justify-between mb-4">
                     <div class="w-10 h-10 border flex items-center justify-center"
@@ -306,12 +314,14 @@
                 <h3 class="text-xs font-mono mb-2 tracking-widest uppercase"
                     style="color:#9ca3af;">Cameras Online</h3>
                 <p class="text-4xl font-bold font-mono" style="color:#4a90e2;">
-                    08<span class="text-xl" style="color:#6b7280;">/10</span>
+                    <span id="stat-cameras-online">—</span><span id="stat-cameras-total"
+                          class="text-xl" style="color:#6b7280;">/—</span>
                 </p>
                 <div class="mt-3 h-px"
                      style="background:linear-gradient(to right, #4a90e2, transparent);"></div>
             </div>
 
+            <!-- Card 3: Threats Detected (verifications.fail) -->
             <div class="card-bg border p-6 group"
                  style="border-color:rgba(220,38,38,.3);">
                 <div class="flex items-start justify-between mb-4">
@@ -327,11 +337,14 @@
                 </div>
                 <h3 class="text-xs font-mono mb-2 tracking-widest uppercase"
                     style="color:#9ca3af;">Threats Detected</h3>
-                <p class="text-4xl font-bold font-mono" style="color:#ef4444;">023</p>
+                <p class="text-4xl font-bold font-mono"
+                   id="stat-threats"
+                   style="color:#ef4444;">—</p>
                 <div class="mt-3 h-px"
                      style="background:linear-gradient(to right, rgba(220,38,38,.4), transparent);"></div>
             </div>
 
+            <!-- Card 4: Integrity Rate (segments.integrity_rate_pct) -->
             <div class="card-bg border border-glow p-6 group">
                 <div class="flex items-start justify-between mb-4">
                     <div class="w-10 h-10 border flex items-center justify-center"
@@ -339,19 +352,21 @@
                         <svg class="w-5 h-5" style="color:#4a90e2;"
                              fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/>
+                                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
                         </svg>
                     </div>
-                    <span class="text-xs font-mono" style="color:#6b7280;">78%</span>
+                    <span id="stat-integrity-badge"
+                          class="text-xs font-mono" style="color:#6b7280;">—</span>
                 </div>
                 <h3 class="text-xs font-mono mb-2 tracking-widest uppercase"
-                    style="color:#9ca3af;">Storage Used</h3>
+                    style="color:#9ca3af;">Integrity Rate</h3>
                 <p class="text-4xl font-bold font-mono" style="color:#4a90e2;">
-                    24.8<span class="text-xl" style="color:#6b7280;">GB</span>
+                    <span id="stat-integrity-rate">—</span>
                 </p>
                 <div class="mt-3 h-1" style="background-color:#1f2937;">
-                    <div class="h-full transition-all duration-1000"
-                         style="width:78%; background-color:#4a90e2;"></div>
+                    <div id="stat-integrity-bar"
+                         class="h-full transition-all duration-1000"
+                         style="width:0%; background-color:#4a90e2;"></div>
                 </div>
             </div>
 
@@ -666,6 +681,75 @@
             </p>
         </div>
     </footer>
+
+
+    <!-- ═══════════════════════════════════════════════════════
+         ELEMENTO 1 CONECTADO: Stats Cards → GET /api/v1/stats/
+         ═══════════════════════════════════════════════════════ -->
+    <script>
+        /**
+         * loadStats()
+         * Llama a GET /api/v1/stats/ con el JWT del usuario autenticado
+         * y actualiza los 4 stat cards del dashboard.
+         *
+         * Mapeo de campos:
+         *   stat-verifs-total     ← data.verifications.total
+         *   stat-cameras-online   ← data.cameras.online_now
+         *   stat-cameras-total    ← data.cameras.total
+         *   stat-threats          ← data.verifications.fail
+         *   stat-integrity-rate   ← data.segments.integrity_rate_pct
+         *   stat-integrity-badge  ← data.segments.integrity_rate_pct
+         *   stat-integrity-bar    ← data.segments.integrity_rate_pct (width %)
+         */
+        async function loadStats() {
+            try {
+                const res = await fetch('/api/v1/stats/', {
+                    headers: Auth.authHeader()
+                });
+
+                if (res.status === 401) { Auth.logout(); return; }
+                if (!res.ok) throw new Error('Stats HTTP ' + res.status);
+
+                const d  = await res.json();
+                const el = id => document.getElementById(id);
+
+                // Card 1 – Verificaciones totales
+                if (el('stat-verifs-total'))
+                    el('stat-verifs-total').textContent =
+                        d.verifications.total.toLocaleString('es-ES');
+
+                // Card 2 – Cámaras online / total
+                if (el('stat-cameras-online'))
+                    el('stat-cameras-online').textContent =
+                        String(d.cameras.online_now).padStart(2, '0');
+                if (el('stat-cameras-total'))
+                    el('stat-cameras-total').textContent =
+                        '/' + String(d.cameras.total).padStart(2, '0');
+
+                // Card 3 – Amenazas (verificaciones con result = fail)
+                if (el('stat-threats'))
+                    el('stat-threats').textContent =
+                        String(d.verifications.fail ?? 0).padStart(3, '0');
+
+                // Card 4 – Tasa de integridad de segmentos
+                const rate = d.segments.integrity_rate_pct ?? 0;
+                if (el('stat-integrity-rate'))
+                    el('stat-integrity-rate').textContent  = rate + '%';
+                if (el('stat-integrity-badge'))
+                    el('stat-integrity-badge').textContent = rate + '%';
+                if (el('stat-integrity-bar'))
+                    el('stat-integrity-bar').style.width   = rate + '%';
+
+            } catch (err) {
+                console.error('[EVIDETH] loadStats:', err);
+            }
+        }
+
+        // Refresco automático cada 60 s (se ejecuta aunque no haya actividad)
+        document.addEventListener('DOMContentLoaded', () => {
+            setInterval(loadStats, 60_000);
+        });
+    </script>
 
 
     <!-- PARTICLE SCRIPT -->
