@@ -124,15 +124,21 @@ class Segment(Base):
 
     id              = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     segment_index   = Column(Integer, nullable=False)      # Nº de segmento (0, 1, 2...)
-    duration_secs   = Column(Integer, default=30)          # Duración (siempre 30s en EVIDETH)
+    duration_secs   = Column(Integer, default=30)          # Duración (siempre 30 s en EVIDETH)
     start_time_secs = Column(Integer, nullable=False)      # Segundo de inicio en el video
     end_time_secs   = Column(Integer, nullable=False)      # Segundo de fin en el video
     file_size_bytes = Column(Integer)
 
-    # Criptografía — núcleo de EVIDETH
-    sha256_hash     = Column(String(64), nullable=False)   # Hash SHA-256 del segmento
+    # ── Criptografía Nivel 1: hash del segmento completo (30 s) ───────────────
+    sha256_hash     = Column(String(64), nullable=False)   # SHA-256 del segmento completo
     ecdsa_signature = Column(Text)                         # Firma ECDSA P-256 en base64
     public_key_id   = Column(String(255))                  # ID de clave en Azure Key Vault
+
+    # ── Criptografía Nivel 2: árbol Merkle de hashes por segundo ──────────────
+    # Permite localizar exactamente qué segundo(s) fueron manipulados.
+    # Ref: Nakamoto (2008) Bitcoin Whitepaper §7 — Merkle branch SPV
+    merkle_root     = Column(String(64))                   # Raíz del árbol Merkle (nullable)
+    second_hashes   = Column(Text)                         # JSON: ["h0", "h1", ..., "h29"]
 
     blob_url        = Column(String(1000))                 # URL en Azure Blob Storage
     status          = Column(Enum(SegmentStatus), default=SegmentStatus.PENDING, nullable=False)
