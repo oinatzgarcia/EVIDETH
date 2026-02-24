@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVIDETH - Activity Logs</title>
+
+    <link rel="icon" type="image/png" href="../../assets/images/Buho.png" sizes="59x59">
+    <script src="../../assets/js/auth.js"></script>
+    <script src="../../assets/js/profile-menu.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: { 'evideth': { 'blue': '#4a90e2', 'blue-bright': '#5ba3f5', 'blue-dark': '#2c5f8d' } },
+                    fontFamily: { 'sans': ['Rajdhani', 'system-ui', 'sans-serif'], 'mono': ['Space Mono', 'monospace'] },
+                    animation: { 'pulse-subtle': 'pulseSubtle 3s ease-in-out infinite', 'float': 'float 6s ease-in-out infinite' },
+                    keyframes: {
+                        pulseSubtle: { '0%, 100%': { opacity: '0.6' }, '50%': { opacity: '1' } },
+                        float: { '0%, 100%': { transform: 'translateY(0px)' }, '50%': { transform: 'translateY(-10px)' } }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Rajdhani', sans-serif; background: #000000; color: #ffffff; overflow-x: hidden; }
+        .particle-field { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; overflow: hidden; background: #000000; }
+        .particle { position: absolute; background: radial-gradient(circle, rgba(74,144,226,.8) 0%, rgba(91,163,245,.4) 50%, transparent 100%); border-radius: 50%; pointer-events: none; transition: all 0.3s ease-out; }
+        .subtle-grid { background-image: linear-gradient(rgba(74,144,226,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(74,144,226,.05) 1px, transparent 1px); background-size: 60px 60px; background-color: #000000; }
+        .card-bg { background-color: #0a0a0a; }
+        .text-glow { text-shadow: 0 0 10px rgba(74,144,226,.6), 0 0 20px rgba(74,144,226,.4); }
+        .logo-glow { filter: drop-shadow(0 0 8px rgba(74,144,226,.4)); transition: all 0.5s ease; }
+        .logo-glow:hover { filter: drop-shadow(0 0 15px rgba(74,144,226,.7)); }
+        .border-glow { border: 1px solid rgba(74,144,226,.25); transition: all 0.3s ease; }
+        .border-glow:hover { border-color: rgba(74,144,226,.6); box-shadow: 0 0 15px rgba(74,144,226,.2); }
+        ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: #000000; }
+        ::-webkit-scrollbar-thumb { background: #4a90e2; border-radius: 4px; } ::-webkit-scrollbar-thumb:hover { background: #5ba3f5; }
+        .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
+        @keyframes pulseSubtle { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+        .log-row { transition: background 0.15s ease; cursor: pointer; }
+        .log-row:hover { background: rgba(74,144,226,.04); }
+        .skeleton { background: linear-gradient(90deg, #111 25%, #1a1a1a 50%, #111 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        .detail-panel { border-top: 1px solid rgba(74,144,226,.12); background: #050505; }
+        .hash-text { font-family: 'Space Mono', monospace; font-size: 10px; color: #4b5563; word-break: break-all; }
+        .hash-text.ok { color: #4a90e2; } .hash-text.fail { color: #ef4444; }
+        select option { background: #0a0a0a; color: #e5e7eb; }
+    </style>
+</head>
+
+<body class="subtle-grid" x-data="logsApp()" x-init="init()">
+
+    <div class="particle-field" id="particleField"></div>
+
+    <!-- HEADER -->
+    <header class="relative border-b" style="border-color:#2c5f8d; background-color:#000000;">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-20">
+
+                <div class="flex items-center space-x-4 group cursor-pointer">
+                    <div class="relative animate-float">
+                        <img src="../../assets/images/Buho.png" alt="EVIDETH Logo" class="w-20 h-20 logo-glow object-contain">
+                    </div>
+                    <div>
+                        <h1 class="text-3xl font-bold tracking-[0.3em] text-glow font-mono" style="color:#4a90e2;">EVIDETH</h1>
+                        <p class="text-[10px] tracking-[0.2em] uppercase font-mono" style="color:#6b7280;">Forensic System v2.0</p>
+                    </div>
+                </div>
+
+                <nav class="hidden md:flex items-center space-x-8 font-mono text-sm">
+                    <a href="../dashboard/dashboard.html" class="transition-colors duration-300" style="color:#6b7280;"
+                       onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Dashboard</a>
+                    <a href="../cameras/cameras.html" class="transition-colors duration-300" style="color:#6b7280;"
+                       onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Cameras</a>
+                    <a href="#" class="font-semibold" style="color:#4a90e2;">Logs</a>
+                    <a href="#" class="transition-colors duration-300" style="color:#6b7280;"
+                       onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Settings</a>
+                </nav>
+
+                <div class="flex items-center space-x-4">
+                    <div class="hidden lg:flex items-center space-x-2 px-4 py-2 border" style="border-color:#2c5f8d; background:#000;">
+                        <div class="relative w-2 h-2">
+                            <div class="absolute w-2 h-2 rounded-full pulse-dot" style="background-color:#4a90e2;"></div>
+                        </div>
+                        <span class="text-xs font-mono" style="color:#4a90e2;">System Online</span>
+                    </div>
+
+                    <div class="relative" x-data="profileMenu()" @keydown.escape.window="open = false">
+                        <button @click="open = !open"
+                                class="flex items-center space-x-2 px-3 py-2 border transition-all duration-200 cursor-pointer"
+                                style="border-color:#2c5f8d; background:#000;"
+                                onmouseover="this.style.borderColor='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'">
+                            <div class="w-8 h-8 flex items-center justify-center border text-xs font-mono font-bold flex-shrink-0"
+                                 style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);"
+                                 x-text="initials()"></div>
+                            <div class="hidden lg:block text-left leading-tight">
+                                <p class="text-xs font-mono font-semibold truncate max-w-[130px]" style="color:#e5e7eb;" x-text="fullName()"></p>
+                                <p class="text-[10px] font-mono uppercase tracking-widest"
+                                   :style="isAdmin ? 'color:#f59e0b;' : 'color:#6b7280;'"
+                                   x-text="role()"></p>
+                            </div>
+                            <svg class="w-3 h-3 transition-transform duration-200 flex-shrink-0" :class="open ? 'rotate-180' : ''"
+                                 style="color:#6b7280;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        <div x-show="open" @click.outside="open = false"
+                             x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95"
+                             x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-100"
+                             x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
+                             class="absolute right-0 mt-2 w-64 border z-50"
+                             style="background:#0a0a0a; border-color:#2c5f8d; top:100%; transform-origin:top right;">
+                            <div class="px-4 py-4 border-b" style="border-color:rgba(74,144,226,.15);">
+                                <div class="flex items-center space-x-3">
+                                    <div class="w-10 h-10 flex items-center justify-center border text-sm font-mono font-bold"
+                                         style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);" x-text="initials()"></div>
+                                    <div class="min-w-0">
+                                        <p class="font-mono text-sm font-semibold truncate" style="color:#e5e7eb;" x-text="fullName()"></p>
+                                        <p class="font-mono text-xs truncate" style="color:#6b7280;" x-text="email()"></p>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <span class="font-mono text-[10px] px-2 py-0.5 border uppercase tracking-widest"
+                                          :style="isAdmin ? 'border-color:rgba(245,158,11,.35); color:#f59e0b; background:rgba(245,158,11,.05);' : 'border-color:rgba(74,144,226,.3); color:#4a90e2; background:rgba(74,144,226,.05);'"
+                                          x-text="role()"></span>
+                                </div>
+                            </div>
+                            <div class="py-1">
+                                <button @click="logout()"
+                                        class="w-full px-4 py-3 text-left font-mono text-xs flex items-center space-x-3 transition-colors duration-150"
+                                        style="color:#ef4444;"
+                                        onmouseover="this.style.background='rgba(239,68,68,.07)'" onmouseout="this.style.background=''">
+                                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                                    </svg>
+                                    <span>Cerrar sesión</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+
+    <!-- MAIN -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+
+        <!-- Title -->
+        <div class="mb-10 text-center">
+            <div class="flex items-center justify-center space-x-2 font-mono text-sm mb-2" style="color:#5ba3f5;">
+                <span class="w-12 h-px" style="background:linear-gradient(to right, transparent, #4a90e2);"></span>
+                <span class="tracking-widest text-xs">Forensic Audit Trail</span>
+                <span class="w-12 h-px" style="background:linear-gradient(to left, transparent, #4a90e2);"></span>
+            </div>
+            <h2 class="text-5xl font-bold mb-4 tracking-wider" style="color:#ffffff;">
+                Activity<br/><span class="text-glow" style="color:#4a90e2;">Event Log</span>
+            </h2>
+            <p class="font-mono text-sm tracking-wide" style="color:#9ca3af;">Immutable record of all system events · Cryptographic audit trail</p>
+        </div>
+
+        <!-- Summary counters -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="card-bg border border-glow p-5">
+                <p class="text-xs font-mono tracking-widest uppercase mb-2" style="color:#9ca3af;">Total Events</p>
+                <p class="text-3xl font-bold font-mono" style="color:#4a90e2;" x-text="loading ? '—' : total.toLocaleString('es-ES')"></p>
+            </div>
+            <div class="card-bg border p-5" style="border-color:rgba(74,144,226,.3);">
+                <p class="text-xs font-mono tracking-widest uppercase mb-2" style="color:#9ca3af;">Verifications</p>
+                <p class="text-3xl font-bold font-mono" style="color:#4a90e2;" x-text="loading ? '—' : counts.verification"></p>
+            </div>
+            <div class="card-bg border p-5" style="border-color:rgba(220,38,38,.25);">
+                <p class="text-xs font-mono tracking-widest uppercase mb-2" style="color:#9ca3af;">Tampered</p>
+                <p class="text-3xl font-bold font-mono" style="color:#ef4444;" x-text="loading ? '—' : counts.tampered"></p>
+            </div>
+            <div class="card-bg border p-5" style="border-color:rgba(91,163,245,.25);">
+                <p class="text-xs font-mono tracking-widest uppercase mb-2" style="color:#9ca3af;">Recordings</p>
+                <p class="text-3xl font-bold font-mono" style="color:#5ba3f5;" x-text="loading ? '—' : counts.recording"></p>
+            </div>
+        </div>
+
+        <!-- Filters toolbar -->
+        <div class="card-bg border border-glow p-4 mb-6">
+            <div class="flex flex-wrap items-center gap-3">
+
+                <!-- Event type -->
+                <select x-model="filter.event_type" @change="applyFilters()"
+                        class="bg-black border px-3 py-2 font-mono text-xs focus:outline-none cursor-pointer"
+                        style="border-color:#2c5f8d; color:#9ca3af;">
+                    <option value="">All events</option>
+                    <option value="verification">Verification</option>
+                    <option value="video_started">Recording started</option>
+                    <option value="video_finished">Recording finished</option>
+                    <option value="segment_uploaded">Segment uploaded</option>
+                </select>
+
+                <!-- Result filter (verification only) -->
+                <select x-model="filter.result" @change="applyFilters()"
+                        class="bg-black border px-3 py-2 font-mono text-xs focus:outline-none cursor-pointer"
+                        style="border-color:#2c5f8d; color:#9ca3af;">
+                    <option value="">All results</option>
+                    <option value="pass">Pass ✓</option>
+                    <option value="fail">Fail ✗ (Tampered)</option>
+                    <option value="error">Error</option>
+                </select>
+
+                <!-- Camera ID search -->
+                <input type="text" x-model="filter.camera_id" @input.debounce.400ms="applyFilters()"
+                       placeholder="Camera ID..." class="bg-black border px-3 py-2 font-mono text-xs focus:outline-none"
+                       style="border-color:#2c5f8d; color:#e5e7eb; width:180px;"
+                       onfocus="this.style.borderColor='#4a90e2'" onblur="this.style.borderColor='#2c5f8d'" />
+
+                <!-- Date from -->
+                <input type="date" x-model="filter.date_from" @change="applyFilters()"
+                       class="bg-black border px-3 py-2 font-mono text-xs focus:outline-none cursor-pointer"
+                       style="border-color:#2c5f8d; color:#9ca3af; colorscheme:dark;"
+                       onfocus="this.style.borderColor='#4a90e2'" onblur="this.style.borderColor='#2c5f8d'" />
+                <span class="font-mono text-xs" style="color:#4b5563;">→</span>
+                <input type="date" x-model="filter.date_to" @change="applyFilters()"
+                       class="bg-black border px-3 py-2 font-mono text-xs focus:outline-none cursor-pointer"
+                       style="border-color:#2c5f8d; color:#9ca3af; colorscheme:dark;"
+                       onfocus="this.style.borderColor='#4a90e2'" onblur="this.style.borderColor='#2c5f8d'" />
+
+                <!-- Clear + Refresh -->
+                <button @click="clearFilters()" class="px-3 py-2 border font-mono text-xs transition-all duration-200"
+                        style="border-color:#2c5f8d; color:#6b7280;"
+                        onmouseover="this.style.borderColor='#4a90e2'; this.style.color='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'; this.style.color='#6b7280'">
+                    Clear
+                </button>
+                <button @click="loadLogs()" :disabled="loading"
+                        class="flex items-center space-x-1.5 px-3 py-2 border font-mono text-xs transition-all duration-200 ml-auto"
+                        style="border-color:#2c5f8d; color:#4a90e2;"
+                        onmouseover="this.style.borderColor='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'">
+                    <svg class="w-3 h-3" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    <span x-text="loading ? 'Loading...' : 'Refresh'"></span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Error -->
+        <div x-show="error" x-transition class="card-bg border p-6 text-center mb-6" style="border-color:rgba(239,68,68,.3);">
+            <p class="font-mono text-sm" style="color:#ef4444;" x-text="error"></p>
+            <button @click="loadLogs()" class="mt-3 px-5 py-2 border font-mono text-xs" style="border-color:#ef4444; color:#ef4444;">Retry</button>
+        </div>
+
+        <!-- Log table -->
+        <div class="card-bg border border-glow overflow-hidden">
+
+            <!-- Table header -->
+            <div class="grid font-mono text-xs tracking-widest uppercase px-5 py-3 border-b"
+                 style="grid-template-columns:140px 90px 110px 1fr 100px 80px; border-color:rgba(74,144,226,.15); color:#4b5563;">
+                <span>Timestamp</span>
+                <span>Event</span>
+                <span>Camera</span>
+                <span>Detail</span>
+                <span>IP Address</span>
+                <span class="text-right">Result</span>
+            </div>
+
+            <!-- Skeleton -->
+            <template x-if="loading">
+                <div>
+                    <template x-for="i in 8" :key="i">
+                        <div class="grid px-5 py-4 border-b" style="grid-template-columns:140px 90px 110px 1fr 100px 80px; border-color:rgba(74,144,226,.07);">
+                            <div class="skeleton h-3 w-28 rounded"></div>
+                            <div class="skeleton h-3 w-16 rounded"></div>
+                            <div class="skeleton h-3 w-20 rounded"></div>
+                            <div class="skeleton h-3 w-48 rounded"></div>
+                            <div class="skeleton h-3 w-24 rounded"></div>
+                            <div class="skeleton h-3 w-12 rounded ml-auto"></div>
+                        </div>
+                    </template>
+                </div>
+            </template>
+
+            <!-- Empty -->
+            <div x-show="!loading && !error && items.length === 0" class="py-20 text-center">
+                <svg class="w-14 h-14 mx-auto mb-3" style="color:#1f2937;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <p class="font-mono text-sm" style="color:#4b5563;">No events match the current filters</p>
+            </div>
+
+            <!-- Rows -->
+            <template x-if="!loading">
+                <div>
+                    <template x-for="(entry, idx) in items" :key="idx">
+                        <div>
+                            <!-- Main row -->
+                            <div class="log-row grid items-center px-5 py-3.5 border-b"
+                                 style="grid-template-columns:140px 90px 110px 1fr 100px 80px; border-color:rgba(74,144,226,.07);"
+                                 @click="toggleDetail(idx)">
+
+                                <!-- Timestamp -->
+                                <div>
+                                    <p class="font-mono text-xs" style="color:#d1d5db;" x-text="fmtDate(entry.timestamp)"></p>
+                                    <p class="font-mono text-[10px] mt-0.5" style="color:#4b5563;" x-text="fmtRelative(entry.timestamp)"></p>
+                                </div>
+
+                                <!-- Event badge -->
+                                <span class="inline-block font-mono text-[10px] px-2 py-0.5 border tracking-widest w-fit"
+                                      :style="eventBadgeStyle(entry.event_type)"
+                                      x-text="eventLabel(entry.event_type)"></span>
+
+                                <!-- Camera -->
+                                <span class="font-mono text-xs" style="color:#4a90e2;" x-text="entry.camera_id || '—'"></span>
+
+                                <!-- Detail summary -->
+                                <span class="font-mono text-xs truncate pr-4" style="color:#9ca3af;" x-text="entrySummary(entry)"></span>
+
+                                <!-- IP -->
+                                <span class="font-mono text-xs" style="color:#4b5563;" x-text="entry.ip_address || '—'"></span>
+
+                                <!-- Result badge -->
+                                <div class="flex justify-end">
+                                    <span class="font-mono text-[10px] px-2 py-0.5 border"
+                                          :style="resultBadgeStyle(entry)"
+                                          x-text="resultLabel(entry)"></span>
+                                </div>
+                            </div>
+
+                            <!-- Expanded detail panel -->
+                            <div class="detail-panel px-8 py-5" x-show="openIdx === idx" x-transition>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-4">
+
+                                    <!-- Left: common fields -->
+                                    <div class="space-y-3">
+                                        <div>
+                                            <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Event type</p>
+                                            <p class="font-mono text-xs" style="color:#d1d5db;" x-text="entry.event_type"></p>
+                                        </div>
+                                        <div>
+                                            <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Timestamp (UTC)</p>
+                                            <p class="font-mono text-xs" style="color:#d1d5db;" x-text="entry.timestamp"></p>
+                                        </div>
+                                        <div x-show="entry.ip_address">
+                                            <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Source IP</p>
+                                            <p class="font-mono text-xs" style="color:#d1d5db;" x-text="entry.ip_address"></p>
+                                        </div>
+                                        <div x-show="entry.user_id">
+                                            <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">User ID</p>
+                                            <p class="font-mono text-xs" style="color:#d1d5db;" x-text="entry.user_id"></p>
+                                        </div>
+                                        <div x-show="entry.detail && entry.detail.video_id">
+                                            <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Video ID</p>
+                                            <p class="hash-text" x-text="entry.detail && entry.detail.video_id"></p>
+                                        </div>
+                                    </div>
+
+                                    <!-- Right: event-specific fields -->
+                                    <div class="space-y-3">
+                                        <!-- Verification detail -->
+                                        <template x-if="entry.event_type === 'verification'">
+                                            <div class="space-y-3">
+                                                <div>
+                                                    <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Verdict</p>
+                                                    <p class="font-mono text-xs font-bold" :style="entry.detail && entry.detail.result === 'pass' ? 'color:#4a90e2;' : 'color:#ef4444;'"
+                                                       x-text="entry.detail && entry.detail.verdict ? entry.detail.verdict : (entry.detail && entry.detail.result === 'pass' ? 'VERIFIED' : 'TAMPERED')"></p>
+                                                </div>
+                                                <div x-show="entry.detail && entry.detail.segment_index != null">
+                                                    <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Segment</p>
+                                                    <p class="font-mono text-xs" style="color:#d1d5db;" x-text="'#' + (entry.detail && entry.detail.segment_index)"></p>
+                                                </div>
+                                                <div x-show="entry.detail && entry.detail.passed != null">
+                                                    <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Segments passed / failed</p>
+                                                    <p class="font-mono text-xs" style="color:#d1d5db;"
+                                                       x-text="entry.detail && (entry.detail.passed + ' ✓  /  ' + entry.detail.failed + ' ✗')"></p>
+                                                </div>
+                                                <div x-show="entry.detail && entry.detail.sha256_hash">
+                                                    <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">SHA-256</p>
+                                                    <p class="hash-text" :class="entry.detail && entry.detail.result === 'pass' ? 'ok' : 'fail'"
+                                                       x-text="entry.detail && entry.detail.sha256_hash"></p>
+                                                </div>
+                                            </div>
+                                        </template>
+
+                                        <!-- Video started / finished detail -->
+                                        <template x-if="entry.event_type === 'video_started' || entry.event_type === 'video_finished'">
+                                            <div class="space-y-3">
+                                                <div x-show="entry.detail && entry.detail.filename">
+                                                    <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Filename</p>
+                                                    <p class="font-mono text-xs" style="color:#d1d5db;" x-text="entry.detail && entry.detail.filename"></p>
+                                                </div>
+                                                <div x-show="entry.detail && entry.detail.duration_secs != null">
+                                                    <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Duration</p>
+                                                    <p class="font-mono text-xs" style="color:#d1d5db;" x-text="fmtDuration(entry.detail && entry.detail.duration_secs)"></p>
+                                                </div>
+                                                <div x-show="entry.detail && entry.detail.total_segments != null">
+                                                    <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Total segments</p>
+                                                    <p class="font-mono text-xs" style="color:#d1d5db;" x-text="entry.detail && entry.detail.total_segments"></p>
+                                                </div>
+                                            </div>
+                                        </template>
+
+                                        <!-- Segment detail -->
+                                        <template x-if="entry.event_type === 'segment_uploaded'">
+                                            <div class="space-y-3">
+                                                <div x-show="entry.detail && entry.detail.segment_index != null">
+                                                    <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Segment index</p>
+                                                    <p class="font-mono text-xs" style="color:#d1d5db;" x-text="'#' + (entry.detail && entry.detail.segment_index)"></p>
+                                                </div>
+                                                <div x-show="entry.detail && entry.detail.sha256_hash">
+                                                    <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">SHA-256 hash</p>
+                                                    <p class="hash-text ok" x-text="entry.detail && entry.detail.sha256_hash"></p>
+                                                </div>
+                                                <div x-show="entry.detail && entry.detail.has_signature != null">
+                                                    <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">ECDSA Signed</p>
+                                                    <p class="font-mono text-xs" :style="entry.detail && entry.detail.has_signature ? 'color:#4a90e2;' : 'color:#f59e0b;'"
+                                                       x-text="entry.detail && entry.detail.has_signature ? 'Yes ✓' : 'Pending'"></p>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </template>
+        </div>
+
+        <!-- Pagination -->
+        <div x-show="!loading && total > 0" class="flex items-center justify-between mt-6">
+            <p class="font-mono text-xs" style="color:#4b5563;"
+               x-text="'Showing ' + ((page-1)*perPage+1) + '–' + Math.min(page*perPage, total) + ' of ' + total.toLocaleString('es-ES') + ' events'"></p>
+
+            <div class="flex items-center space-x-2">
+                <button @click="prevPage()" :disabled="page === 1 || loading"
+                        class="px-4 py-2 border font-mono text-xs transition-all duration-200"
+                        :style="page === 1 ? 'border-color:#1f2937; color:#374151; cursor:not-allowed;' : 'border-color:#2c5f8d; color:#4a90e2; cursor:pointer;'"
+                        onmouseover="if(this.style.cursor!=='not-allowed') this.style.borderColor='#4a90e2'"
+                        onmouseout="if(this.style.cursor!=='not-allowed') this.style.borderColor='#2c5f8d'">
+                    ← Prev
+                </button>
+                <span class="font-mono text-xs px-3 py-2 border" style="border-color:#1f2937; color:#6b7280;"
+                      x-text="'Page ' + page + ' / ' + totalPages"></span>
+                <button @click="nextPage()" :disabled="page >= totalPages || loading"
+                        class="px-4 py-2 border font-mono text-xs transition-all duration-200"
+                        :style="page >= totalPages ? 'border-color:#1f2937; color:#374151; cursor:not-allowed;' : 'border-color:#2c5f8d; color:#4a90e2; cursor:pointer;'"
+                        onmouseover="if(this.style.cursor!=='not-allowed') this.style.borderColor='#4a90e2'"
+                        onmouseout="if(this.style.cursor!=='not-allowed') this.style.borderColor='#2c5f8d'">
+                    Next →
+                </button>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="border-t mt-16" style="border-color:rgba(74,144,226,.2); background:#000;">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center">
+            <p class="font-mono text-xs tracking-widest mb-2" style="color:#6b7280;">EVIDETH © 2026 · Forensic Video Integrity Verification System</p>
+            <p class="font-mono text-xs" style="color:#4b5563;">Powered by SHA-256 Hashing · ECDSA P-256 Digital Signatures · Azure Cloud</p>
+        </div>
+    </footer>
+
+
+    <script>
+    function logsApp() {
+        return {
+            items:    [],
+            total:    0,
+            page:     1,
+            perPage:  50,
+            loading:  true,
+            error:    null,
+            openIdx:  null,
+            counts:   { verification: 0, tampered: 0, recording: 0 },
+            filter: {
+                event_type: '',
+                result:     '',
+                camera_id:  '',
+                date_from:  '',
+                date_to:    ''
+            },
+
+            get totalPages() {
+                return Math.max(1, Math.ceil(this.total / this.perPage));
+            },
+
+            init() {
+                if (typeof Auth !== 'undefined') Auth.requireAuth();
+                this.loadLogs();
+                setInterval(() => this.loadLogs(), 30_000);
+            },
+
+            buildURL() {
+                const p = new URLSearchParams();
+                p.set('per_page', this.perPage);
+                p.set('page',     this.page);
+                if (this.filter.event_type) p.set('event_type', this.filter.event_type);
+                if (this.filter.result)     p.set('result',     this.filter.result);
+                if (this.filter.camera_id)  p.set('camera_id',  this.filter.camera_id.trim());
+                if (this.filter.date_from)  p.set('date_from',  this.filter.date_from);
+                if (this.filter.date_to)    p.set('date_to',    this.filter.date_to);
+                return '/api/v1/logs/activity?' + p.toString();
+            },
+
+            async loadLogs() {
+                this.loading = true; this.error = null; this.openIdx = null;
+                try {
+                    const res = await fetch(this.buildURL(), { headers: Auth.authHeader() });
+                    if (res.status === 401) { Auth.logout(); return; }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    const data   = await res.json();
+                    this.items   = data.items   ?? [];
+                    this.total   = data.total   ?? 0;
+                    this.counts  = data.counts  ?? { verification: 0, tampered: 0, recording: 0 };
+                } catch(err) {
+                    this.error = 'Error loading logs: ' + err.message;
+                } finally {
+                    this.loading = false;
+                }
+            },
+
+            applyFilters() { this.page = 1; this.loadLogs(); },
+            clearFilters() {
+                this.filter = { event_type: '', result: '', camera_id: '', date_from: '', date_to: '' };
+                this.page   = 1;
+                this.loadLogs();
+            },
+            prevPage() { if (this.page > 1) { this.page--; this.loadLogs(); } },
+            nextPage() { if (this.page < this.totalPages) { this.page++; this.loadLogs(); } },
+            toggleDetail(idx) { this.openIdx = this.openIdx === idx ? null : idx; },
+
+            // ── Formatters ──────────────────────────────────
+            fmtDate(iso) {
+                if (!iso) return '—';
+                const d = new Date(iso);
+                return d.toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'2-digit' })
+                    + ' ' + d.toLocaleTimeString('es-ES', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+            },
+            fmtRelative(iso) {
+                if (!iso) return '—';
+                const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+                if (diff < 60)    return 'just now';
+                if (diff < 3600)  return Math.floor(diff / 60) + ' min ago';
+                if (diff < 86400) return Math.floor(diff / 3600) + ' h ago';
+                return Math.floor(diff / 86400) + ' d ago';
+            },
+            fmtDuration(secs) {
+                if (secs == null) return '—';
+                const m = Math.floor(secs / 60), s = secs % 60;
+                return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0') + ' min';
+            },
+
+            // ── Badge helpers ────────────────────────────────
+            eventLabel(et) {
+                return { verification:'VERIFY', video_started:'REC START', video_finished:'REC END', segment_uploaded:'SEGMENT' }[et] ?? et.toUpperCase();
+            },
+            eventBadgeStyle(et) {
+                const map = {
+                    verification:     'border-color:rgba(74,144,226,.4); color:#4a90e2; background:rgba(74,144,226,.07);',
+                    video_started:    'border-color:rgba(239,68,68,.4); color:#f87171; background:rgba(239,68,68,.07);',
+                    video_finished:   'border-color:rgba(91,163,245,.3); color:#5ba3f5; background:rgba(91,163,245,.07);',
+                    segment_uploaded: 'border-color:rgba(107,114,128,.4); color:#9ca3af; background:rgba(107,114,128,.07);',
+                };
+                return map[et] ?? 'border-color:rgba(74,144,226,.2); color:#6b7280;';
+            },
+            resultLabel(entry) {
+                if (entry.event_type !== 'verification') return '—';
+                const r = entry.detail && entry.detail.result;
+                return r === 'pass' ? 'PASS' : r === 'fail' ? 'FAIL' : r ? r.toUpperCase() : '—';
+            },
+            resultBadgeStyle(entry) {
+                if (entry.event_type !== 'verification') return 'border-color:rgba(74,144,226,.05); color:#374151;';
+                const r = entry.detail && entry.detail.result;
+                if (r === 'pass') return 'border-color:rgba(74,144,226,.4); color:#4a90e2; background:rgba(74,144,226,.07);';
+                if (r === 'fail') return 'border-color:rgba(220,38,38,.4); color:#ef4444; background:rgba(127,29,29,.1);';
+                return 'border-color:rgba(234,179,8,.3); color:#eab308;';
+            },
+            entrySummary(entry) {
+                const d = entry.detail || {};
+                switch (entry.event_type) {
+                    case 'verification':     return d.verdict ? d.verdict : (d.result === 'pass' ? 'Integrity verified' : 'Tampering detected');
+                    case 'video_started':    return d.filename ? 'Started: ' + d.filename : 'Recording started';
+                    case 'video_finished':   return d.filename ? 'Finished: ' + d.filename + (d.duration_secs ? ' · ' + this.fmtDuration(d.duration_secs) : '') : 'Recording finished';
+                    case 'segment_uploaded': return 'Segment #' + (d.segment_index ?? '?') + (d.sha256_hash ? ' · ' + d.sha256_hash.slice(0,16) + '...' : '');
+                    default:                 return JSON.stringify(d).slice(0, 80);
+                }
+            },
+        };
+    }
+    </script>
+
+
+    <script>
+        (function () {
+            const COUNT = 150, field = document.getElementById('particleField'), items = [];
+            let mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2;
+            for (let i = 0; i < COUNT; i++) {
+                const el = document.createElement('div'); el.className = 'particle';
+                const size = Math.random() * 4 + 1, x = Math.random() * window.innerWidth,
+                      y = Math.random() * window.innerHeight, opacity = Math.random() * 0.4 + 0.15,
+                      vx = (Math.random() - 0.5) * 0.3, vy = (Math.random() - 0.5) * 0.3;
+                el.style.cssText = 'width:'+size+'px;height:'+size+'px;left:'+x+'px;top:'+y+'px;opacity:'+opacity+';';
+                field.appendChild(el); items.push({ el, x, y, baseX: x, baseY: y, vx, vy, opacity });
+            }
+            document.addEventListener('mousemove', e => { mouseX = e.clientX; mouseY = e.clientY; });
+            (function animate() {
+                items.forEach(p => {
+                    const dx = mouseX-p.x, dy = mouseY-p.y, dist = Math.sqrt(dx*dx+dy*dy), MAX = 200;
+                    if (dist < MAX) {
+                        const force = (MAX-dist)/MAX, angle = Math.atan2(dy,dx);
+                        p.x -= Math.cos(angle)*force*3; p.y -= Math.sin(angle)*force*3;
+                        p.el.style.opacity = String(Math.min(p.opacity+force*0.3, 0.8));
+                        p.el.style.transform = 'scale('+(1+force*0.5)+')';
+                    } else {
+                        p.x += (p.baseX-p.x)*0.01; p.y += (p.baseY-p.y)*0.01;
+                        p.el.style.opacity = String(p.opacity); p.el.style.transform = 'scale(1)';
+                    }
+                    p.x += p.vx; p.y += p.vy;
+                    if (p.x < -10) p.x = window.innerWidth+10; if (p.x > window.innerWidth+10) p.x = -10;
+                    if (p.y < -10) p.y = window.innerHeight+10; if (p.y > window.innerHeight+10) p.y = -10;
+                    p.el.style.left = p.x+'px'; p.el.style.top = p.y+'px';
+                });
+                requestAnimationFrame(animate);
+            })();
+            window.addEventListener('resize', () => items.forEach(p => { p.baseX = Math.random()*window.innerWidth; p.baseY = Math.random()*window.innerHeight; }));
+        })();
+    </script>
+
+</body>
+</html>
