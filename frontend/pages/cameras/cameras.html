@@ -55,12 +55,214 @@
         .skeleton { background: linear-gradient(90deg, #111 25%, #1a1a1a 50%, #111 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
         @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
         .owner-badge { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border: 1px solid rgba(91,163,245,.3); background: rgba(74,144,226,.06); font-family: 'Space Mono', monospace; font-size: 10px; color: #5ba3f5; letter-spacing: .05em; }
+        .form-input { width: 100%; background: #000; border: 1px solid #2c5f8d; padding: 10px 14px; font-family: 'Space Mono', monospace; font-size: 12px; color: #e5e7eb; outline: none; transition: border-color 0.2s; }
+        .form-input:focus { border-color: #4a90e2; }
+        .form-input.error { border-color: rgba(239,68,68,.6); }
+        .form-label { display: block; font-family: 'Space Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: #6b7280; margin-bottom: 6px; }
+        .form-error { font-family: 'Space Mono', monospace; font-size: 10px; color: #ef4444; margin-top: 4px; }
+        .api-key-box { font-family: 'Space Mono', monospace; font-size: 11px; color: #4a90e2; background: #000; border: 1px solid rgba(74,144,226,.4); padding: 14px 16px; word-break: break-all; letter-spacing: 0.05em; line-height: 1.6; }
+        select option { background: #0a0a0a; color: #e5e7eb; }
     </style>
 </head>
 
 <body class="subtle-grid" x-data="camerasApp()" x-init="init()">
 
     <div class="particle-field" id="particleField"></div>
+
+
+    <!-- ═══════════════════════════════════════════════════════
+         MODAL: REGISTER CAMERA
+    ═══════════════════════════════════════════════════════ -->
+    <div x-show="showRegisterModal"
+         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+         class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         style="background:rgba(0,0,0,0.88);"
+         @keydown.escape.window="if(registerStep===1) closeRegisterModal()">
+
+        <!-- ── STEP 1: Registration form ── -->
+        <div x-show="registerStep === 1"
+             x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+             class="w-full max-w-lg card-bg border relative"
+             style="border-color:#2c5f8d;">
+
+            <!-- Top accent line -->
+            <div class="h-px w-full" style="background:linear-gradient(90deg, transparent, #4a90e2, transparent);"></div>
+
+            <!-- Header -->
+            <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b" style="border-color:rgba(74,144,226,.15);">
+                <div>
+                    <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4a90e2;">Admin · Provisioning</p>
+                    <h3 class="font-mono text-xl font-bold" style="color:#ffffff;">Register New Camera</h3>
+                </div>
+                <button @click="closeRegisterModal()" class="w-8 h-8 flex items-center justify-center border transition-colors" style="border-color:#2c5f8d; color:#6b7280;"
+                        onmouseover="this.style.borderColor='#4a90e2'; this.style.color='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'; this.style.color='#6b7280'">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Form body -->
+            <div class="px-6 py-5 space-y-5">
+
+                <!-- Camera ID -->
+                <div>
+                    <label class="form-label">Camera ID <span style="color:#ef4444;">*</span></label>
+                    <input type="text" x-model="form.camera_id" @input="validateCameraId()"
+                           class="form-input" :class="formErrors.camera_id ? 'error' : ''"
+                           placeholder="e.g. CAM-LOBBY-01" maxlength="100" />
+                    <p x-show="formErrors.camera_id" class="form-error" x-text="formErrors.camera_id"></p>
+                    <p class="font-mono text-[10px] mt-1" style="color:#4b5563;">Letters, numbers, hyphens and underscores · 3–100 chars</p>
+                </div>
+
+                <!-- Name -->
+                <div>
+                    <label class="form-label">Display Name <span style="color:#ef4444;">*</span></label>
+                    <input type="text" x-model="form.name" @input="formErrors.name = form.name.trim() ? '' : 'Name is required'"
+                           class="form-input" :class="formErrors.name ? 'error' : ''"
+                           placeholder="e.g. Main Lobby Camera" maxlength="200" />
+                    <p x-show="formErrors.name" class="form-error" x-text="formErrors.name"></p>
+                </div>
+
+                <!-- Location -->
+                <div>
+                    <label class="form-label">Location <span class="font-mono" style="color:#4b5563;">(optional)</span></label>
+                    <input type="text" x-model="form.location"
+                           class="form-input" placeholder="e.g. Floor 1 · East Wing" maxlength="200" />
+                </div>
+
+                <!-- Description -->
+                <div>
+                    <label class="form-label">Description <span class="font-mono" style="color:#4b5563;">(optional)</span></label>
+                    <textarea x-model="form.description" rows="2"
+                              class="form-input resize-none" placeholder="Additional notes about this camera..."
+                              maxlength="500" style="display:block;"></textarea>
+                </div>
+
+                <!-- API error -->
+                <div x-show="registerError" class="border px-4 py-3" style="border-color:rgba(239,68,68,.35); background:rgba(127,29,29,.1);">
+                    <p class="font-mono text-xs" style="color:#ef4444;" x-text="registerError"></p>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="flex items-center justify-between px-6 pb-6 pt-2">
+                <button @click="closeRegisterModal()" class="px-5 py-2.5 border font-mono text-xs tracking-widest transition-colors"
+                        style="border-color:#1f2937; color:#6b7280;"
+                        onmouseover="this.style.borderColor='#4a90e2'; this.style.color='#4a90e2'" onmouseout="this.style.borderColor='#1f2937'; this.style.color='#6b7280'">
+                    Cancel
+                </button>
+                <button @click="submitRegister()" :disabled="registerLoading"
+                        class="flex items-center space-x-2 px-6 py-2.5 border font-mono text-xs tracking-widest transition-all"
+                        style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.06);"
+                        onmouseover="this.style.background='rgba(74,144,226,.12)'" onmouseout="this.style.background='rgba(74,144,226,.06)'">
+                    <svg x-show="registerLoading" class="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    <span x-text="registerLoading ? 'Registering...' : 'Register Camera →'"></span>
+                </button>
+            </div>
+        </div>
+
+
+        <!-- ── STEP 2: API Key reveal (one-time) ── -->
+        <div x-show="registerStep === 2"
+             x-transition:enter="transition ease-out duration-250" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+             class="w-full max-w-lg card-bg border relative"
+             style="border-color:#4a90e2;">
+
+            <!-- Top accent line (brighter for attention) -->
+            <div class="h-px w-full" style="background:linear-gradient(90deg, transparent, #5ba3f5 30%, #4a90e2 70%, transparent);"></div>
+
+            <!-- Warning header -->
+            <div class="px-6 pt-6 pb-4 border-b" style="border-color:rgba(74,144,226,.2);">
+                <div class="flex items-start space-x-3">
+                    <div class="w-8 h-8 flex-shrink-0 flex items-center justify-center border mt-0.5" style="border-color:rgba(245,158,11,.4); background:rgba(245,158,11,.06);">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:#f59e0b;">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <p class="font-mono text-xs tracking-widest uppercase mb-1" style="color:#f59e0b;">Security Notice</p>
+                        <h3 class="font-mono text-xl font-bold" style="color:#ffffff;">Save This API Key Now</h3>
+                        <p class="font-mono text-xs mt-1" style="color:#9ca3af;">This key is shown <strong style="color:#f59e0b;">only once</strong>. It cannot be recovered after closing this dialog.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Camera info summary -->
+            <div class="px-6 pt-4 pb-3">
+                <div class="flex items-center space-x-4 mb-4">
+                    <div>
+                        <p class="font-mono text-[10px] tracking-widest uppercase" style="color:#4b5563;">Camera registered</p>
+                        <p class="font-mono text-base font-bold mt-0.5" style="color:#4a90e2;" x-text="newCamera && newCamera.camera_id"></p>
+                        <p class="font-mono text-xs" style="color:#9ca3af;" x-text="newCamera && newCamera.name"></p>
+                    </div>
+                </div>
+
+                <!-- API Key box -->
+                <p class="form-label mb-2">API Key (X-API-Key)</p>
+                <div class="relative">
+                    <div class="api-key-box" x-text="newCamera && newCamera.api_key"></div>
+                    <button @click="copyApiKey()"
+                            class="absolute top-2 right-2 flex items-center space-x-1.5 px-3 py-1.5 border font-mono text-[10px] tracking-widest transition-all"
+                            :style="copied ? 'border-color:rgba(74,144,226,.6); color:#4a90e2; background:rgba(74,144,226,.1);' : 'border-color:#2c5f8d; color:#6b7280; background:#000;'"
+                            onmouseover="this.style.borderColor='#4a90e2'" onmouseout="if(!this.getAttribute('data-copied')) this.style.borderColor='#2c5f8d'">
+                        <svg x-show="!copied" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                        </svg>
+                        <svg x-show="copied" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                        <span x-text="copied ? 'Copied!' : 'Copy'"></span>
+                    </button>
+                </div>
+
+                <!-- Usage hint -->
+                <div class="mt-3 border px-4 py-3" style="border-color:rgba(74,144,226,.12); background:rgba(74,144,226,.03);">
+                    <p class="font-mono text-[10px] tracking-widest uppercase mb-1.5" style="color:#4b5563;">Configure the device with</p>
+                    <p class="font-mono text-[10px]" style="color:#9ca3af;">HTTP Header: <span style="color:#4a90e2;">X-API-Key: &lt;key&gt;</span></p>
+                    <p class="font-mono text-[10px] mt-1" style="color:#4b5563;">Endpoints: POST /api/v1/cameras/heartbeat · /videos · /segments</p>
+                </div>
+            </div>
+
+            <!-- Checkbox gate -->
+            <div class="px-6 pb-2">
+                <label class="flex items-start space-x-3 cursor-pointer group">
+                    <div class="relative flex-shrink-0 mt-0.5">
+                        <input type="checkbox" x-model="apiKeySaved" class="sr-only peer" />
+                        <div class="w-4 h-4 border transition-all peer-checked:border-blue-500"
+                             :style="apiKeySaved ? 'border-color:#4a90e2; background:rgba(74,144,226,.2);' : 'border-color:#374151;'"
+                             style="display:flex; align-items:center; justify-content:center;">
+                            <svg x-show="apiKeySaved" class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:#4a90e2;">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                    </div>
+                    <span class="font-mono text-xs leading-tight" style="color:#9ca3af;">
+                        I have copied and saved the API Key in a secure location.
+                        I understand it will <span style="color:#f59e0b;">never be shown again</span>.
+                    </span>
+                </label>
+            </div>
+
+            <!-- Footer -->
+            <div class="px-6 pb-6 pt-4">
+                <button @click="closeAfterRegister()"
+                        :disabled="!apiKeySaved"
+                        class="w-full py-3 border font-mono text-sm tracking-widest transition-all duration-200"
+                        :style="apiKeySaved
+                            ? 'border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.06); cursor:pointer;'
+                            : 'border-color:#1f2937; color:#374151; cursor:not-allowed;'">
+                    <span x-text="apiKeySaved ? 'Done — Close' : 'Check the box above to close'"></span>
+                </button>
+            </div>
+        </div>
+
+    </div>
+    <!-- END MODAL -->
+
 
     <!-- HEADER -->
     <header class="relative border-b" style="border-color:#2c5f8d; background-color:#000000;">
@@ -83,7 +285,7 @@
                     <a href="../dashboard/dashboard.html" class="transition-colors duration-300" style="color:#6b7280;"
                        onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Dashboard</a>
                     <a href="#" class="font-semibold" style="color:#4a90e2;">Cameras</a>
-                    <a href="#" class="transition-colors duration-300" style="color:#6b7280;"
+                    <a href="../logs/logs.html" class="transition-colors duration-300" style="color:#6b7280;"
                        onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Logs</a>
                     <a href="#" class="transition-colors duration-300" style="color:#6b7280;"
                        onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Settings</a>
@@ -91,7 +293,6 @@
 
                 <!-- Right: System Online + Profile Dropdown -->
                 <div class="flex items-center space-x-4">
-
                     <div class="hidden lg:flex items-center space-x-2 px-4 py-2 border" style="border-color:#2c5f8d; background:#000;">
                         <div class="relative w-2 h-2">
                             <div class="absolute w-2 h-2 rounded-full pulse-dot" style="background-color:#4a90e2;"></div>
@@ -99,48 +300,34 @@
                         <span class="text-xs font-mono" style="color:#4a90e2;">System Online</span>
                     </div>
 
-                    <!-- Profile dropdown (componente reutilizable) -->
                     <div class="relative" x-data="profileMenu()" @keydown.escape.window="open = false">
-
-                        <!-- Trigger -->
                         <button @click="open = !open"
                                 class="flex items-center space-x-2 px-3 py-2 border transition-all duration-200 cursor-pointer"
                                 style="border-color:#2c5f8d; background:#000;"
                                 onmouseover="this.style.borderColor='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'">
                             <div class="w-8 h-8 flex items-center justify-center border text-xs font-mono font-bold flex-shrink-0"
-                                 style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);"
-                                 x-text="initials()"></div>
+                                 style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);" x-text="initials()"></div>
                             <div class="hidden lg:block text-left leading-tight">
                                 <p class="text-xs font-mono font-semibold truncate max-w-[130px]" style="color:#e5e7eb;" x-text="fullName()"></p>
                                 <p class="text-[10px] font-mono uppercase tracking-widest"
-                                   :style="isAdmin ? 'color:#f59e0b;' : 'color:#6b7280;'"
-                                   x-text="role()"></p>
+                                   :style="isAdmin ? 'color:#f59e0b;' : 'color:#6b7280;'" x-text="role()"></p>
                             </div>
-                            <svg class="w-3 h-3 transition-transform duration-200 flex-shrink-0"
-                                 :class="open ? 'rotate-180' : ''"
+                            <svg class="w-3 h-3 transition-transform duration-200 flex-shrink-0" :class="open ? 'rotate-180' : ''"
                                  style="color:#6b7280;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                             </svg>
                         </button>
 
-                        <!-- Dropdown panel -->
-                        <div x-show="open"
-                             @click.outside="open = false"
-                             x-transition:enter="transition ease-out duration-150"
-                             x-transition:enter-start="opacity-0 scale-95"
-                             x-transition:enter-end="opacity-100 scale-100"
-                             x-transition:leave="transition ease-in duration-100"
-                             x-transition:leave-start="opacity-100 scale-100"
-                             x-transition:leave-end="opacity-0 scale-95"
-                             class="absolute right-0 mt-2 w-64 border z-50"
+                        <div x-show="open" @click.outside="open = false"
+                             x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95"
+                             x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-100"
+                             x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
+                             class="absolute right-0 mt-2 w-64 border z-40"
                              style="background:#0a0a0a; border-color:#2c5f8d; top:100%; transform-origin:top right;">
-
-                            <!-- User info -->
                             <div class="px-4 py-4 border-b" style="border-color:rgba(74,144,226,.15);">
                                 <div class="flex items-center space-x-3">
-                                    <div class="w-10 h-10 flex items-center justify-center border text-sm font-mono font-bold flex-shrink-0"
-                                         style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);"
-                                         x-text="initials()"></div>
+                                    <div class="w-10 h-10 flex items-center justify-center border text-sm font-mono font-bold"
+                                         style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);" x-text="initials()"></div>
                                     <div class="min-w-0">
                                         <p class="font-mono text-sm font-semibold truncate" style="color:#e5e7eb;" x-text="fullName()"></p>
                                         <p class="font-mono text-xs truncate" style="color:#6b7280;" x-text="email()"></p>
@@ -148,32 +335,23 @@
                                 </div>
                                 <div class="mt-3">
                                     <span class="font-mono text-[10px] px-2 py-0.5 border uppercase tracking-widest"
-                                          :style="isAdmin
-                                            ? 'border-color:rgba(245,158,11,.35); color:#f59e0b; background:rgba(245,158,11,.05);'
-                                            : 'border-color:rgba(74,144,226,.3); color:#4a90e2; background:rgba(74,144,226,.05);'"
+                                          :style="isAdmin ? 'border-color:rgba(245,158,11,.35); color:#f59e0b; background:rgba(245,158,11,.05);' : 'border-color:rgba(74,144,226,.3); color:#4a90e2; background:rgba(74,144,226,.05);'"
                                           x-text="role()"></span>
                                 </div>
                             </div>
-
-                            <!-- Logout -->
                             <div class="py-1">
                                 <button @click="logout()"
                                         class="w-full px-4 py-3 text-left font-mono text-xs flex items-center space-x-3 transition-colors duration-150"
                                         style="color:#ef4444;"
-                                        onmouseover="this.style.background='rgba(239,68,68,.07)';"
-                                        onmouseout="this.style.background='';">
+                                        onmouseover="this.style.background='rgba(239,68,68,.07)'" onmouseout="this.style.background=''">
                                     <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
                                     </svg>
                                     <span>Cerrar sesión</span>
                                 </button>
                             </div>
-
                         </div>
                     </div>
-                    <!-- End profile dropdown -->
-
                 </div>
             </div>
         </div>
@@ -234,15 +412,30 @@
                     <option value="alert">Integrity alert</option>
                 </select>
             </div>
-            <button @click="loadCameras()"
-                    class="flex items-center space-x-2 px-4 py-2 border font-mono text-xs tracking-widest transition-all duration-300"
-                    style="border-color:#2c5f8d; color:#4a90e2;" :disabled="loading"
-                    onmouseover="this.style.borderColor='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'">
-                <svg class="w-4 h-4" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                </svg>
-                <span x-text="loading ? 'Loading...' : 'Refresh'"></span>
-            </button>
+            <div class="flex items-center space-x-3">
+                <!-- Register Camera button (Admin only) -->
+                <template x-if="isAdmin">
+                    <button @click="openRegisterModal()"
+                            class="flex items-center space-x-2 px-4 py-2 border font-mono text-xs tracking-widest transition-all duration-200"
+                            style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.05);"
+                            onmouseover="this.style.background='rgba(74,144,226,.12)'" onmouseout="this.style.background='rgba(74,144,226,.05)'">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                        </svg>
+                        <span>Register Camera</span>
+                    </button>
+                </template>
+                <!-- Refresh -->
+                <button @click="loadCameras()" :disabled="loading"
+                        class="flex items-center space-x-2 px-4 py-2 border font-mono text-xs tracking-widest transition-all duration-300"
+                        style="border-color:#2c5f8d; color:#4a90e2;"
+                        onmouseover="this.style.borderColor='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'">
+                    <svg class="w-4 h-4" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    <span x-text="loading ? 'Loading...' : 'Refresh'"></span>
+                </button>
+            </div>
         </div>
 
         <!-- Error -->
@@ -271,6 +464,11 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
             </svg>
             <p class="font-mono text-sm" style="color:#6b7280;">No cameras found</p>
+            <template x-if="isAdmin">
+                <button @click="openRegisterModal()" class="mt-4 px-6 py-2 border font-mono text-xs" style="border-color:#2c5f8d; color:#4a90e2;">
+                    + Register first camera
+                </button>
+            </template>
         </div>
 
         <!-- Camera grid -->
@@ -376,9 +574,38 @@
                     <!-- Row 7: Footer -->
                     <div class="flex items-center justify-between pt-3 border-t" style="border-color:rgba(74,144,226,.1);">
                         <span class="font-mono text-xs" style="color:#4b5563;" x-text="'ID: ' + cam.camera_id"></span>
-                        <span class="font-mono text-xs px-2 py-0.5 border"
-                              :style="cam.is_active ? 'border-color:rgba(74,144,226,.3); color:#4a90e2;' : 'border-color:rgba(107,114,128,.3); color:#6b7280;'"
-                              x-text="cam.is_active ? 'Active' : 'Inactive'"></span>
+                        <div class="flex items-center space-x-2">
+
+                            <!-- Deactivate controls (Admin + active cameras only) -->
+                            <template x-if="isAdmin && cam.is_active">
+                                <div class="flex items-center space-x-1.5">
+                                    <!-- Normal state -->
+                                    <span x-show="confirmDeactivate !== cam.camera_id">
+                                        <button @click.stop="confirmDeactivate = cam.camera_id"
+                                                class="font-mono text-[10px] px-2 py-0.5 border transition-colors"
+                                                style="border-color:rgba(239,68,68,.2); color:#6b7280;"
+                                                onmouseover="this.style.color='#ef4444'; this.style.borderColor='rgba(239,68,68,.5)'"
+                                                onmouseout="this.style.color='#6b7280'; this.style.borderColor='rgba(239,68,68,.2)'">
+                                            Deactivate
+                                        </button>
+                                    </span>
+                                    <!-- Confirm state -->
+                                    <span x-show="confirmDeactivate === cam.camera_id" class="flex items-center space-x-1">
+                                        <span class="font-mono text-[10px]" style="color:#ef4444;">Sure?</span>
+                                        <button @click.stop="deactivateCamera(cam.camera_id)"
+                                                class="font-mono text-[10px] px-1.5 py-0.5 border"
+                                                style="border-color:#ef4444; color:#ef4444;">Yes</button>
+                                        <button @click.stop="confirmDeactivate = null"
+                                                class="font-mono text-[10px] px-1.5 py-0.5 border"
+                                                style="border-color:#374151; color:#6b7280;">No</button>
+                                    </span>
+                                </div>
+                            </template>
+
+                            <span class="font-mono text-xs px-2 py-0.5 border"
+                                  :style="cam.is_active ? 'border-color:rgba(74,144,226,.3); color:#4a90e2;' : 'border-color:rgba(107,114,128,.3); color:#6b7280;'"
+                                  x-text="cam.is_active ? 'Active' : 'Inactive'"></span>
+                        </div>
                     </div>
 
                 </div>
@@ -405,6 +632,7 @@
     <script>
     function camerasApp() {
         return {
+            // ── Camera list state ───────────────────────────────
             cameras:      [],
             total:        0,
             loading:      true,
@@ -412,7 +640,20 @@
             search:       '',
             filterStatus: 'all',
             isAdmin:      false,
+            confirmDeactivate: null,
 
+            // ── Register modal state ───────────────────────────
+            showRegisterModal: false,
+            registerStep:      1,
+            registerLoading:   false,
+            registerError:     null,
+            newCamera:         null,
+            apiKeySaved:       false,
+            copied:            false,
+            form: { camera_id: '', name: '', location: '', description: '' },
+            formErrors: { camera_id: '', name: '' },
+
+            // ── Init ────────────────────────────────────────
             init() {
                 if (typeof Auth !== 'undefined') Auth.requireAuth();
                 const user   = Auth.getUser();
@@ -421,6 +662,7 @@
                 setInterval(() => this.loadCameras(), 30_000);
             },
 
+            // ── Load cameras ────────────────────────────────
             async loadCameras() {
                 this.loading = true; this.error = null;
                 try {
@@ -444,6 +686,119 @@
                 }
             },
 
+            // ── Register modal methods ────────────────────────
+            openRegisterModal() {
+                this.form         = { camera_id: '', name: '', location: '', description: '' };
+                this.formErrors   = { camera_id: '', name: '' };
+                this.registerError = null;
+                this.registerStep  = 1;
+                this.newCamera     = null;
+                this.apiKeySaved   = false;
+                this.copied        = false;
+                this.showRegisterModal = true;
+                document.body.style.overflow = 'hidden';
+            },
+            closeRegisterModal() {
+                if (this.registerStep === 2) return; // blocked until checkbox
+                this.showRegisterModal = false;
+                document.body.style.overflow = '';
+            },
+            closeAfterRegister() {
+                this.showRegisterModal = false;
+                document.body.style.overflow = '';
+                this.loadCameras(); // refresh grid to show new camera
+            },
+
+            // ── Validation ──────────────────────────────────
+            validateCameraId() {
+                const v = this.form.camera_id;
+                if (!v) { this.formErrors.camera_id = 'Camera ID is required'; return false; }
+                if (!/^[A-Za-z0-9_-]{3,100}$/.test(v)) {
+                    this.formErrors.camera_id = 'Only letters, numbers, - and _ (3–100 chars)';
+                    return false;
+                }
+                this.formErrors.camera_id = ''; return true;
+            },
+            validateForm() {
+                const idOk   = this.validateCameraId();
+                const nameOk = !!this.form.name.trim();
+                if (!nameOk) this.formErrors.name = 'Name is required';
+                return idOk && nameOk;
+            },
+
+            // ── Submit registration ────────────────────────────
+            async submitRegister() {
+                if (!this.validateForm()) return;
+                this.registerLoading = true;
+                this.registerError   = null;
+                try {
+                    const body = {
+                        camera_id:   this.form.camera_id.trim(),
+                        name:        this.form.name.trim(),
+                        location:    this.form.location.trim() || null,
+                        description: this.form.description.trim() || null,
+                    };
+                    const res = await fetch('/api/v1/cameras/', {
+                        method:  'POST',
+                        headers: { 'Content-Type': 'application/json', ...Auth.authHeader() },
+                        body:    JSON.stringify(body),
+                    });
+                    if (res.status === 401) { Auth.logout(); return; }
+                    if (res.status === 400) {
+                        const data = await res.json();
+                        this.registerError = data.detail || 'Camera ID already registered';
+                        return;
+                    }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    this.newCamera    = await res.json();
+                    this.registerStep = 2;
+                } catch (err) {
+                    this.registerError = 'Error registering camera: ' + err.message;
+                } finally {
+                    this.registerLoading = false;
+                }
+            },
+
+            // ── Copy API key to clipboard ──────────────────────
+            async copyApiKey() {
+                const key = this.newCamera && this.newCamera.api_key;
+                if (!key) return;
+                try {
+                    await navigator.clipboard.writeText(key);
+                } catch {
+                    // Fallback for older browsers
+                    const el = document.createElement('textarea');
+                    el.value = key; el.style.position = 'fixed'; el.style.opacity = '0';
+                    document.body.appendChild(el); el.select();
+                    document.execCommand('copy'); document.body.removeChild(el);
+                }
+                this.copied = true;
+                setTimeout(() => { this.copied = false; }, 2500);
+            },
+
+            // ── Deactivate camera ──────────────────────────────
+            async deactivateCamera(cameraId) {
+                this.confirmDeactivate = null;
+                try {
+                    const res = await fetch(`/api/v1/cameras/${cameraId}`, {
+                        method:  'DELETE',
+                        headers: Auth.authHeader(),
+                    });
+                    if (res.status === 401) { Auth.logout(); return; }
+                    if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        alert('Error: ' + (data.detail || 'HTTP ' + res.status));
+                        return;
+                    }
+                    // Optimistic update: mark camera as inactive locally
+                    const cam = this.cameras.find(c => c.camera_id === cameraId);
+                    if (cam) cam.is_active = false;
+                } catch (err) {
+                    alert('Error deactivating camera: ' + err.message);
+                }
+            },
+
+            // ── Filtering ────────────────────────────────────
             get filteredCameras() {
                 return this.cameras.filter(cam => {
                     if (this.search) {
@@ -462,6 +817,7 @@
                 });
             },
 
+            // ── Card helpers ──────────────────────────────────
             accentColor(cam) {
                 if (!cam.status) return '#6b7280';
                 if (cam.status.stats && cam.status.stats.invalid_segments > 0) return '#ef4444';
