@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EVIDETH · Verification</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <link rel="stylesheet" href="../../assets/css/main.css" />
+  <link rel="stylesheet" href="verification.css" />
+</head>
+<body>
+  <div x-data="verificationApp()" x-init="init()">
+
+    <!-- ── Navigation ── -->
+    <nav class="nav">
+      <div class="nav-brand">
+        <span class="nav-logo">&#11041;</span>
+        <span class="nav-title">EVIDETH</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="../dashboard/dashboard.html">Dashboard</a></li>
+        <li><a href="../cameras/cameras.html">Cameras</a></li>
+        <li><a href="../logs/logs.html">Logs</a></li>
+        <li><a href="verification.html" class="active">Verification</a></li>
+      </ul>
+      <div class="nav-user">
+        <span x-text="userName" class="nav-username"></span>
+        <button @click="logout()" class="btn-logout">Logout</button>
+      </div>
+    </nav>
+
+    <main class="main-content">
+
+      <!-- ── Page Header ── -->
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Integrity Verification</h1>
+          <p class="page-subtitle">Upload a video file to verify its cryptographic integrity against stored hashes</p>
+        </div>
+      </div>
+
+      <!-- ── Upload + Result Grid ── -->
+      <div class="verification-grid">
+
+        <!-- LEFT: Upload Form -->
+        <section class="panel upload-panel">
+          <h2 class="panel-title">New Verification</h2>
+
+          <!-- 1. Camera -->
+          <div class="form-group">
+            <label class="form-label">1. Select Camera</label>
+            <select class="form-select" x-model="selectedCameraId" @change="loadVideos()" :disabled="uploading">
+              <option value="">&#8212; Choose a camera &#8212;</option>
+              <template x-for="cam in cameras" :key="cam.camera_id">
+                <option :value="cam.camera_id" x-text="`${cam.camera_id}  ·  ${cam.name}`"></option>
+              </template>
+            </select>
+          </div>
+
+          <!-- 2. Video -->
+          <div class="form-group" x-show="selectedCameraId" x-cloak>
+            <label class="form-label">2. Select Recorded Video</label>
+            <select class="form-select" x-model="selectedVideoId" :disabled="uploading || videosLoading">
+              <option value="" x-text="videosLoading ? 'Loading videos\u2026' : videos.length === 0 ? 'No completed videos found' : '\u2014 Choose a video \u2014'"></option>
+              <template x-for="v in videos" :key="v.id">
+                <option :value="v.id" x-text="`${v.filename}  ·  ${formatDate(v.started_at)}`"></option>
+              </template>
+            </select>
+          </div>
+
+          <!-- 3. File Drop -->
+          <div class="form-group" x-show="selectedVideoId" x-cloak>
+            <label class="form-label">3. Upload Video File</label>
+            <div
+              class="drop-zone"
+              :class="{ 'drag-over': dragOver, 'file-selected': uploadFile }"
+              @dragover.prevent="dragOver = true"
+              @dragleave.prevent="dragOver = false"
+              @drop.prevent="handleDrop($event)"
+              @click="$refs.fileInput.click()"
+            >
+              <template x-if="!uploadFile">
+                <div class="drop-zone-empty">
+                  <span class="drop-icon">&#128193;</span>
+                  <span class="drop-text">Drag &amp; drop or <strong>browse</strong></span>
+                  <span class="drop-hint">.mp4 &middot; .avi &middot; .mkv &middot; .mov</span>
+                </div>
+              </template>
+              <template x-if="uploadFile">
+                <div class="drop-zone-file">
+                  <span class="file-icon">&#127909;</span>
+                  <div class="file-info">
+                    <span class="file-name" x-text="uploadFile.name"></span>
+                    <span class="file-size" x-text="formatSize(uploadFile.size)"></span>
+                  </div>
+                  <button class="btn-remove-file" @click.stop="uploadFile = null; result = null" :disabled="uploading">&#10005;</button>
+                </div>
+              </template>
+            </div>
+            <input type="file" x-ref="fileInput" accept=".mp4,.avi,.mkv,.mov" class="hidden" @change="handleFileSelect($event)" />
+          </div>
+
+          <!-- Progress -->
+          <div class="progress-wrap" x-show="uploading" x-cloak>
+            <div class="progress-label">
+              <span x-text="uploadProgress < 100 ? 'Uploading file\u2026' : 'Analysing integrity\u2026'"></span>
+              <span x-text="uploadProgress < 100 ? uploadProgress + '%' : ''"></span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" :style="`width: ${uploadProgress}%`"></div>
+            </div>
+          </div>
+
+          <!-- Error -->
+          <div class="alert alert-error" x-show="uploadError" x-text="uploadError" x-cloak></div>
+
+          <!-- Submit -->
+          <button
+            class="btn-primary btn-full"
+            :disabled="!canVerify || uploading"
+            @click="runVerification()"
+            x-show="selectedVideoId"
+            x-cloak
+          >
+            <span x-show="!uploading">&#128269;&nbsp; Verify Integrity</span>
+            <span x-show="uploading" x-cloak>Verifying&hellip;</span>
+          </button>
+        </section>
+
+        <!-- RIGHT: Result -->
+        <section class="panel result-panel" x-show="result" x-cloak>
+
+          <!-- Verdict -->
+          <div class="verdict-badge" :class="result && result.integrity_ok ? 'verdict-pass' : 'verdict-fail'">
+            <span class="verdict-icon" x-text="result && result.integrity_ok ? '\u2705' : '\u274C'"></span>
+            <div>
+              <div class="verdict-text" x-text="result && result.verdict"></div>
+              <div class="verdict-sub" x-text="result && result.camera_id"></div>
+            </div>
+          </div>
+
+          <!-- Stats -->
+          <div class="stats-row">
+            <div class="stat-box">
+              <span class="stat-value" x-text="(result && result.summary && result.summary.total_segments) || (result && result.segments && result.segments.length) || 0"></span>
+              <span class="stat-label">Segments</span>
+            </div>
+            <div class="stat-box stat-pass">
+              <span class="stat-value" x-text="(result && result.summary && result.summary.passed) || (result && result.segments ? result.segments.filter(s => s.result === 'pass').length : 0)"></span>
+              <span class="stat-label">Passed</span>
+            </div>
+            <div class="stat-box stat-fail">
+              <span class="stat-value" x-text="(result && result.summary && (result.summary.failed || 0) + (result.summary.errors || 0)) || (result && result.segments ? result.segments.filter(s => s.result !== 'pass').length : 0)"></span>
+              <span class="stat-label">Failed</span>
+            </div>
+          </div>
+
+          <!-- Segment Table -->
+          <div class="table-wrap">
+            <table class="seg-table">
+              <thead>
+                <tr>
+                  <th>Seg</th>
+                  <th>Time range</th>
+                  <th>SHA-256</th>
+                  <th>ECDSA</th>
+                  <th>Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="seg in (result && result.segments) || []" :key="seg.segment_index">
+                  <tr :class="seg.result !== 'pass' ? 'row-fail' : ''">
+                    <td x-text="seg.segment_index + 1"></td>
+                    <td x-text="formatTimeRange(seg.start_time_secs, seg.end_time_secs)"></td>
+                    <td>
+                      <span class="badge" :class="seg.hash_match ? 'badge-pass' : 'badge-fail'" x-text="seg.hash_match ? '\u2713 Match' : '\u2717 Mismatch'"></span>
+                    </td>
+                    <td>
+                      <template x-if="seg.signature_valid !== null && seg.signature_valid !== undefined">
+                        <span class="badge" :class="seg.signature_valid ? 'badge-pass' : 'badge-fail'" x-text="seg.signature_valid ? '\u2713 Valid' : '\u2717 Invalid'"></span>
+                      </template>
+                      <template x-if="seg.signature_valid === null || seg.signature_valid === undefined">
+                        <span class="text-muted">&#8212;</span>
+                      </template>
+                    </td>
+                    <td>
+                      <span class="badge"
+                        :class="seg.result === 'pass' ? 'badge-pass' : seg.result === 'error' ? 'badge-warn' : 'badge-fail'"
+                        x-text="seg.result ? seg.result.toUpperCase() : ''"
+                      ></span>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="result-meta">
+            <span>Verified: <strong x-text="formatDate(result && result.verified_at)"></strong></span>
+          </div>
+        </section>
+      </div>
+
+      <!-- ── Recent Verifications ── -->
+      <section class="panel recent-panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Recent Verifications</h2>
+          <button class="btn-icon" @click="loadRecent()" title="Refresh">&#8635;</button>
+        </div>
+
+        <div class="loading-spinner" x-show="recentLoading" x-cloak>Loading&hellip;</div>
+
+        <div class="empty-state" x-show="!recentLoading && recentVerifications.length === 0">
+          <span class="empty-icon">&#128269;</span>
+          <p>No verifications yet. Upload a video above to get started.</p>
+        </div>
+
+        <div class="table-wrap" x-show="!recentLoading && recentVerifications.length > 0" x-cloak>
+          <table class="recent-table">
+            <thead>
+              <tr>
+                <th>Camera</th>
+                <th>Segment ID</th>
+                <th>SHA-256</th>
+                <th>ECDSA</th>
+                <th>Result</th>
+                <th>Verified at</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="v in recentVerifications" :key="v.id">
+                <tr>
+                  <td x-text="v.camera_id || '\u2014'"></td>
+                  <td><span class="mono text-muted" x-text="v.segment_id ? v.segment_id.slice(0, 8) + '\u2026' : '\u2014'"></span></td>
+                  <td>
+                    <span class="badge" :class="v.hash_match ? 'badge-pass' : 'badge-fail'" x-text="v.hash_match ? '\u2713' : '\u2717'"></span>
+                  </td>
+                  <td>
+                    <template x-if="v.signature_valid !== null && v.signature_valid !== undefined">
+                      <span class="badge" :class="v.signature_valid ? 'badge-pass' : 'badge-fail'" x-text="v.signature_valid ? '\u2713' : '\u2717'"></span>
+                    </template>
+                    <template x-if="v.signature_valid === null || v.signature_valid === undefined">
+                      <span class="text-muted">&#8212;</span>
+                    </template>
+                  </td>
+                  <td>
+                    <span class="badge"
+                      :class="v.result === 'pass' ? 'badge-pass' : v.result === 'error' ? 'badge-warn' : 'badge-fail'"
+                      x-text="v.result ? v.result.toUpperCase() : ''"
+                    ></span>
+                  </td>
+                  <td x-text="formatDate(v.verified_at)"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script>
+    const API_BASE = '/api/v1';
+
+    function getToken() {
+      return localStorage.getItem('access_token');
+    }
+
+    function verificationApp() {
+      return {
+        userName: '',
+
+        // Form
+        cameras: [],
+        selectedCameraId: '',
+        videos: [],
+        videosLoading: false,
+        selectedVideoId: '',
+        uploadFile: null,
+        dragOver: false,
+
+        // Upload state
+        uploading: false,
+        uploadProgress: 0,
+        uploadError: null,
+
+        // Result
+        result: null,
+
+        // Recent list
+        recentVerifications: [],
+        recentLoading: true,
+
+        get canVerify() {
+          return this.selectedCameraId && this.selectedVideoId && this.uploadFile && !this.uploading;
+        },
+
+        async init() {
+          if (!getToken()) {
+            window.location.href = '../../index.html';
+            return;
+          }
+          await Promise.all([this.loadUserInfo(), this.loadCameras(), this.loadRecent()]);
+        },
+
+        async loadUserInfo() {
+          try {
+            const res = await fetch(`${API_BASE}/auth/me`, {
+              headers: { 'Authorization': `Bearer ${getToken()}` }
+            });
+            if (res.status === 401) { window.location.href = '../../index.html'; return; }
+            const data = await res.json();
+            this.userName = data.full_name || data.email || 'User';
+          } catch { /* silent */ }
+        },
+
+        async loadCameras() {
+          try {
+            const res = await fetch(`${API_BASE}/cameras/?per_page=100`, {
+              headers: { 'Authorization': `Bearer ${getToken()}` }
+            });
+            const data = await res.json();
+            this.cameras = data.items || [];
+          } catch { /* silent */ }
+        },
+
+        async loadVideos() {
+          this.selectedVideoId = '';
+          this.videos = [];
+          this.result = null;
+          this.uploadError = null;
+          if (!this.selectedCameraId) return;
+          this.videosLoading = true;
+          try {
+            const res = await fetch(
+              `${API_BASE}/cameras/${this.selectedCameraId}/videos?status=completed&per_page=100`,
+              { headers: { 'Authorization': `Bearer ${getToken()}` } }
+            );
+            const data = await res.json();
+            this.videos = data.items || [];
+          } catch { /* silent */ }
+          this.videosLoading = false;
+        },
+
+        handleDrop(e) {
+          this.dragOver = false;
+          const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+          if (file) this.setFile(file);
+        },
+
+        handleFileSelect(e) {
+          const file = e.target.files && e.target.files[0];
+          if (file) this.setFile(file);
+          e.target.value = '';
+        },
+
+        setFile(file) {
+          const allowed = ['.mp4', '.avi', '.mkv', '.mov'];
+          const ext = '.' + file.name.split('.').pop().toLowerCase();
+          if (!allowed.includes(ext)) {
+            this.uploadError = `Format not allowed: ${ext}. Accepted: ${allowed.join(', ')}`;
+            return;
+          }
+          this.uploadFile = file;
+          this.uploadError = null;
+          this.result = null;
+        },
+
+        async runVerification() {
+          if (!this.canVerify) return;
+          this.uploading = true;
+          this.uploadProgress = 0;
+          this.uploadError = null;
+          this.result = null;
+
+          try {
+            const formData = new FormData();
+            formData.append('video', this.uploadFile);
+            formData.append('camera_id', this.selectedCameraId);
+            formData.append('video_db_id', this.selectedVideoId);
+
+            const report = await new Promise((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+
+              xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                  this.uploadProgress = Math.round((e.loaded / e.total) * 90);
+                }
+              };
+
+              xhr.onload = () => {
+                this.uploadProgress = 100;
+                try {
+                  const body = JSON.parse(xhr.responseText);
+                  if (xhr.status === 200) resolve(body);
+                  else reject((body && body.detail) || `Error ${xhr.status}`);
+                } catch {
+                  reject(`Error ${xhr.status}`);
+                }
+              };
+
+              xhr.onerror   = () => reject('Network error \u2014 check your connection');
+              xhr.ontimeout = () => reject('Request timed out (5 min limit)');
+
+              xhr.open('POST', `${API_BASE}/verification/upload`);
+              xhr.setRequestHeader('Authorization', `Bearer ${getToken()}`);
+              xhr.timeout = 300000;
+              xhr.send(formData);
+            });
+
+            this.result = report;
+            await this.loadRecent();
+
+          } catch (err) {
+            this.uploadError = (typeof err === 'string') ? err : 'Unexpected error during verification';
+          } finally {
+            this.uploading = false;
+          }
+        },
+
+        async loadRecent() {
+          this.recentLoading = true;
+          try {
+            const res = await fetch(`${API_BASE}/verification/?per_page=10`, {
+              headers: { 'Authorization': `Bearer ${getToken()}` }
+            });
+            const data = await res.json();
+            this.recentVerifications = data.items || [];
+          } catch { /* silent */ }
+          this.recentLoading = false;
+        },
+
+        logout() {
+          localStorage.removeItem('access_token');
+          window.location.href = '../../index.html';
+        },
+
+        formatDate(iso) {
+          if (!iso) return '\u2014';
+          return new Date(iso).toLocaleString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+          });
+        },
+
+        formatTimeRange(start, end) {
+          if (start == null) return '\u2014';
+          const fmt = (s) => {
+            const m = Math.floor(s / 60);
+            const sec = String(s % 60).padStart(2, '0');
+            return `${m}:${sec}`;
+          };
+          return `${fmt(start)} \u2013 ${fmt(end != null ? end : start + 30)}`;
+        },
+
+        formatSize(bytes) {
+          if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+          return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        },
+      };
+    }
+  </script>
+</body>
+</html>
