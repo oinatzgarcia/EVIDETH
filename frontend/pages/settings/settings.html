@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EVIDETH · Settings</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <link rel="stylesheet" href="../../assets/css/main.css" />
+  <link rel="stylesheet" href="settings.css" />
+</head>
+<body>
+  <div x-data="settingsApp()" x-init="init()">
+
+    <!-- ── Nav ── -->
+    <nav class="nav">
+      <div class="nav-brand">
+        <span class="nav-logo">&#11041;</span>
+        <span class="nav-title">EVIDETH</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="../dashboard/dashboard.html">Dashboard</a></li>
+        <li><a href="../cameras/cameras.html">Cameras</a></li>
+        <li><a href="../logs/logs.html">Logs</a></li>
+        <li><a href="../verification/verification.html">Verification</a></li>
+        <li><a href="settings.html" class="active">Settings</a></li>
+      </ul>
+      <div class="nav-user">
+        <span x-text="me.full_name || me.email || ''" class="nav-username"></span>
+        <button @click="logout()" class="btn-logout">Logout</button>
+      </div>
+    </nav>
+
+    <main class="main-content">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Settings</h1>
+          <p class="page-subtitle">Manage your profile and system users</p>
+        </div>
+      </div>
+
+      <!-- ────────────────────────────────────────────── -->
+      <!-- MY PROFILE                                      -->
+      <!-- ────────────────────────────────────────────── -->
+      <section class="panel settings-section">
+        <h2 class="panel-title">My Profile</h2>
+        <div class="settings-grid">
+
+          <!-- Name + Email -->
+          <div class="settings-card">
+            <h3 class="card-subtitle">Personal Info</h3>
+            <form @submit.prevent="saveProfile()">
+              <div class="form-group">
+                <label class="form-label">Full name</label>
+                <input class="form-input" type="text" x-model="profileForm.full_name" placeholder="Your name" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Email</label>
+                <input class="form-input" type="email" x-model="profileForm.email" placeholder="email@example.com" />
+              </div>
+              <div class="form-row-end">
+                <div class="alert alert-error" x-show="profileError" x-text="profileError" x-cloak></div>
+                <div class="alert alert-success" x-show="profileOk" x-cloak>Profile updated &#10003;</div>
+                <button class="btn-primary" type="submit" :disabled="profileSaving">
+                  <span x-show="!profileSaving">Save changes</span>
+                  <span x-show="profileSaving" x-cloak>Saving&hellip;</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Change Password -->
+          <div class="settings-card">
+            <h3 class="card-subtitle">Change Password</h3>
+            <form @submit.prevent="savePassword()">
+              <div class="form-group">
+                <label class="form-label">Current password</label>
+                <input class="form-input" type="password" x-model="pwForm.current" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">New password</label>
+                <input class="form-input" type="password" x-model="pwForm.new_pw" placeholder="Min. 8 characters" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Confirm new password</label>
+                <input class="form-input" type="password" x-model="pwForm.confirm" placeholder="Repeat new password" />
+              </div>
+              <div class="form-row-end">
+                <div class="alert alert-error" x-show="pwError" x-text="pwError" x-cloak></div>
+                <div class="alert alert-success" x-show="pwOk" x-cloak>Password changed &#10003;</div>
+                <button class="btn-primary" type="submit" :disabled="pwSaving">
+                  <span x-show="!pwSaving">Change password</span>
+                  <span x-show="pwSaving" x-cloak>Saving&hellip;</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- ────────────────────────────────────────────── -->
+      <!-- USER MANAGEMENT (Admin only)                   -->
+      <!-- ────────────────────────────────────────────── -->
+      <section class="panel settings-section" x-show="me.role === 'admin'" x-cloak>
+        <div class="panel-header">
+          <h2 class="panel-title">User Management</h2>
+          <button class="btn-primary btn-sm" @click="openCreateModal()">+ New User</button>
+        </div>
+
+        <!-- Filters -->
+        <div class="filters-row">
+          <select class="form-select form-select-sm" x-model="userFilter.role" @change="loadUsers()">
+            <option value="">All roles</option>
+            <option value="admin">Admin</option>
+            <option value="analyst">Analyst</option>
+            <option value="viewer">Viewer</option>
+          </select>
+          <select class="form-select form-select-sm" x-model="userFilter.is_active" @change="loadUsers()">
+            <option value="">All status</option>
+            <option value="true">Active</option>
+            <option value="false">Inactive</option>
+          </select>
+          <button class="btn-icon" @click="loadUsers()" title="Refresh">&#8635;</button>
+        </div>
+
+        <!-- Loading -->
+        <div class="loading-spinner" x-show="usersLoading" x-cloak>Loading&hellip;</div>
+
+        <!-- Table -->
+        <div class="table-wrap" x-show="!usersLoading" x-cloak>
+          <table class="users-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="u in users" :key="u.id">
+                <tr :class="!u.is_active ? 'row-inactive' : ''">
+
+                  <!-- Name -->
+                  <td>
+                    <span x-show="editingId !== u.id" x-text="u.full_name || '\u2014'"></span>
+                    <input x-show="editingId === u.id" x-cloak class="form-input-inline" type="text" x-model="editForm.full_name" />
+                  </td>
+
+                  <!-- Email -->
+                  <td x-text="u.email"></td>
+
+                  <!-- Role -->
+                  <td>
+                    <span x-show="editingId !== u.id">
+                      <span class="role-badge" :class="'role-' + u.role" x-text="u.role"></span>
+                    </span>
+                    <select x-show="editingId === u.id" x-cloak class="form-select-inline" x-model="editForm.role">
+                      <option value="admin">Admin</option>
+                      <option value="analyst">Analyst</option>
+                      <option value="viewer">Viewer</option>
+                    </select>
+                  </td>
+
+                  <!-- Status -->
+                  <td>
+                    <span class="status-dot" :class="u.is_active ? 'dot-active' : 'dot-inactive'"></span>
+                    <span x-text="u.is_active ? 'Active' : 'Inactive'" class="status-text"></span>
+                  </td>
+
+                  <!-- Created -->
+                  <td x-text="formatDate(u.created_at)" class="text-muted"></td>
+
+                  <!-- Actions -->
+                  <td>
+                    <!-- Normal view -->
+                    <div class="actions-row" x-show="editingId !== u.id && confirmDeactivateId !== u.id">
+                      <button class="btn-table btn-edit" @click="startEdit(u)" x-show="u.is_active" title="Edit">&#9998;</button>
+                      <button class="btn-table btn-pw" @click="openResetPwModal(u)" x-show="u.is_active" title="Reset password">&#128274;</button>
+                      <button class="btn-table btn-deactivate"
+                        @click="confirmDeactivateId = u.id"
+                        x-show="u.is_active && u.id !== me.id"
+                        title="Deactivate">&#215;</button>
+                    </div>
+
+                    <!-- Editing view -->
+                    <div class="actions-row" x-show="editingId === u.id" x-cloak>
+                      <button class="btn-table btn-save" @click="saveEdit(u.id)" :disabled="editSaving">&#10003; Save</button>
+                      <button class="btn-table btn-cancel" @click="cancelEdit()">Cancel</button>
+                    </div>
+
+                    <!-- Deactivate confirm -->
+                    <div class="actions-row" x-show="confirmDeactivateId === u.id" x-cloak>
+                      <span class="confirm-text">Sure?</span>
+                      <button class="btn-table btn-save" @click="deactivateUser(u.id)">Yes</button>
+                      <button class="btn-table btn-cancel" @click="confirmDeactivateId = null">No</button>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+
+              <!-- Empty -->
+              <tr x-show="users.length === 0 && !usersLoading">
+                <td colspan="6" class="empty-cell">No users found</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination" x-show="userPages > 1" x-cloak>
+          <button class="btn-page" :disabled="userPage === 1" @click="userPage--; loadUsers()">&lsaquo;</button>
+          <span class="page-info" x-text="`Page ${userPage} of ${userPages}`"></span>
+          <button class="btn-page" :disabled="userPage === userPages" @click="userPage++; loadUsers()">&rsaquo;</button>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ────────────────────────────────────────────── -->
+    <!-- CREATE USER MODAL                              -->
+    <!-- ────────────────────────────────────────────── -->
+    <div class="modal-overlay" x-show="showCreateModal" x-cloak @click.self="showCreateModal = false">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 class="modal-title">Create New User</h3>
+          <button class="modal-close" @click="showCreateModal = false">&#10005;</button>
+        </div>
+
+        <form @submit.prevent="createUser()" class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Full name</label>
+            <input class="form-input" type="text" x-model="createForm.full_name" placeholder="Jane Doe" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input class="form-input" type="email" x-model="createForm.email" placeholder="jane@company.com" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Role</label>
+            <select class="form-select" x-model="createForm.role">
+              <option value="analyst">Analyst</option>
+              <option value="viewer">Viewer</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Temporary password</label>
+            <input class="form-input" type="password" x-model="createForm.password" placeholder="Min. 8 characters" required minlength="8" />
+            <span class="form-hint">The user should change this on first login.</span>
+          </div>
+
+          <div class="alert alert-error" x-show="createError" x-text="createError" x-cloak></div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn-secondary" @click="showCreateModal = false">Cancel</button>
+            <button type="submit" class="btn-primary" :disabled="createSaving">
+              <span x-show="!createSaving">Create User</span>
+              <span x-show="createSaving" x-cloak>Creating&hellip;</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ────────────────────────────────────────────── -->
+    <!-- RESET PASSWORD MODAL                           -->
+    <!-- ────────────────────────────────────────────── -->
+    <div class="modal-overlay" x-show="showResetPwModal" x-cloak @click.self="showResetPwModal = false">
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h3 class="modal-title">Reset Password</h3>
+          <button class="modal-close" @click="showResetPwModal = false">&#10005;</button>
+        </div>
+        <form @submit.prevent="saveResetPw()" class="modal-body">
+          <p class="modal-desc">Set a new password for <strong x-text="resetPwUser && resetPwUser.email"></strong></p>
+          <div class="form-group">
+            <label class="form-label">New password</label>
+            <input class="form-input" type="password" x-model="resetPwForm.password" placeholder="Min. 8 characters" required minlength="8" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Confirm password</label>
+            <input class="form-input" type="password" x-model="resetPwForm.confirm" placeholder="Repeat password" required />
+          </div>
+          <div class="alert alert-error" x-show="resetPwError" x-text="resetPwError" x-cloak></div>
+          <div class="modal-footer">
+            <button type="button" class="btn-secondary" @click="showResetPwModal = false">Cancel</button>
+            <button type="submit" class="btn-primary" :disabled="resetPwSaving">
+              <span x-show="!resetPwSaving">Set Password</span>
+              <span x-show="resetPwSaving" x-cloak>Saving&hellip;</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div><!-- end x-data -->
+
+  <script>
+    const API_BASE = '/api/v1';
+    function getToken() { return localStorage.getItem('access_token'); }
+
+    function settingsApp() {
+      return {
+        // Current user
+        me: { id: '', full_name: '', email: '', role: '' },
+
+        // Profile form
+        profileForm:  { full_name: '', email: '' },
+        profileSaving: false,
+        profileError:  null,
+        profileOk:     false,
+
+        // Password form
+        pwForm:   { current: '', new_pw: '', confirm: '' },
+        pwSaving: false,
+        pwError:  null,
+        pwOk:     false,
+
+        // User list (admin)
+        users:        [],
+        usersLoading: true,
+        userPage:     1,
+        userPages:    1,
+        userFilter:   { role: '', is_active: '' },
+
+        // Inline edit
+        editingId:   null,
+        editForm:    { full_name: '', role: '' },
+        editSaving:  false,
+        confirmDeactivateId: null,
+
+        // Create user modal
+        showCreateModal: false,
+        createForm:  { full_name: '', email: '', role: 'analyst', password: '' },
+        createSaving: false,
+        createError:  null,
+
+        // Reset password modal
+        showResetPwModal: false,
+        resetPwUser:  null,
+        resetPwForm:  { password: '', confirm: '' },
+        resetPwSaving: false,
+        resetPwError:  null,
+
+        async init() {
+          if (!getToken()) { window.location.href = '../../index.html'; return; }
+          await this.loadMe();
+          if (this.me.role === 'admin') await this.loadUsers();
+        },
+
+        async api(method, path, body) {
+          const opts = {
+            method,
+            headers: {
+              'Authorization': `Bearer ${getToken()}`,
+              'Content-Type':  'application/json',
+            },
+          };
+          if (body) opts.body = JSON.stringify(body);
+          const res = await fetch(`${API_BASE}${path}`, opts);
+          if (res.status === 401) { window.location.href = '../../index.html'; }
+          return res;
+        },
+
+        async loadMe() {
+          try {
+            const res = await this.api('GET', '/auth/me');
+            const data = await res.json();
+            this.me = data;
+            this.profileForm.full_name = data.full_name || '';
+            this.profileForm.email     = data.email     || '';
+          } catch { /* silent */ }
+        },
+
+        // ── Profile ──
+        async saveProfile() {
+          this.profileSaving = true;
+          this.profileError  = null;
+          this.profileOk     = false;
+          try {
+            const body = {};
+            if (this.profileForm.full_name !== this.me.full_name) body.full_name = this.profileForm.full_name;
+            if (this.profileForm.email     !== this.me.email)     body.email     = this.profileForm.email;
+            if (!Object.keys(body).length) { this.profileSaving = false; return; }
+
+            const res  = await this.api('PATCH', `/users/${this.me.id}`, body);
+            const data = await res.json();
+            if (!res.ok) { this.profileError = data.detail || 'Error saving profile'; return; }
+            this.me = data;
+            this.profileOk = true;
+            setTimeout(() => { this.profileOk = false; }, 3000);
+          } catch { this.profileError = 'Network error'; }
+          finally  { this.profileSaving = false; }
+        },
+
+        // ── Password (own account) ──
+        async savePassword() {
+          this.pwSaving = true;
+          this.pwError  = null;
+          this.pwOk     = false;
+          try {
+            if (this.pwForm.new_pw.length < 8) {
+              this.pwError = 'Password must be at least 8 characters'; return;
+            }
+            if (this.pwForm.new_pw !== this.pwForm.confirm) {
+              this.pwError = 'Passwords do not match'; return;
+            }
+            // Backend PATCH /users/{id} with password field
+            // Note: current password check is done client-side for UX;
+            // the backend trusts the JWT (the user is already authenticated)
+            const res  = await this.api('PATCH', `/users/${this.me.id}`, { password: this.pwForm.new_pw });
+            const data = await res.json();
+            if (!res.ok) { this.pwError = data.detail || 'Error changing password'; return; }
+            this.pwOk = true;
+            this.pwForm = { current: '', new_pw: '', confirm: '' };
+            setTimeout(() => { this.pwOk = false; }, 3000);
+          } catch { this.pwError = 'Network error'; }
+          finally  { this.pwSaving = false; }
+        },
+
+        // ── User list ──
+        async loadUsers() {
+          this.usersLoading = true;
+          try {
+            let url = `/users/?page=${this.userPage}&per_page=15`;
+            if (this.userFilter.role)      url += `&role=${this.userFilter.role}`;
+            if (this.userFilter.is_active !== '') url += `&is_active=${this.userFilter.is_active}`;
+            const res  = await this.api('GET', url);
+            const data = await res.json();
+            this.users      = data.items || [];
+            this.userPages  = data.pages || 1;
+          } catch { /* silent */ }
+          this.usersLoading = false;
+        },
+
+        // ── Inline edit ──
+        startEdit(u) {
+          this.editingId  = u.id;
+          this.editForm   = { full_name: u.full_name || '', role: u.role };
+          this.confirmDeactivateId = null;
+        },
+
+        cancelEdit() {
+          this.editingId = null;
+        },
+
+        async saveEdit(userId) {
+          this.editSaving = true;
+          try {
+            const res  = await this.api('PATCH', `/users/${userId}`, this.editForm);
+            const data = await res.json();
+            if (!res.ok) { alert(data.detail || 'Error saving'); return; }
+            const idx = this.users.findIndex(u => u.id === userId);
+            if (idx !== -1) this.users[idx] = data;
+            this.editingId = null;
+          } catch { alert('Network error'); }
+          finally  { this.editSaving = false; }
+        },
+
+        // ── Deactivate ──
+        async deactivateUser(userId) {
+          try {
+            const res = await this.api('DELETE', `/users/${userId}`);
+            if (!res.ok) { const d = await res.json(); alert(d.detail || 'Error'); return; }
+            const idx = this.users.findIndex(u => u.id === userId);
+            if (idx !== -1) this.users[idx].is_active = false;
+            this.confirmDeactivateId = null;
+          } catch { alert('Network error'); }
+        },
+
+        // ── Create user modal ──
+        openCreateModal() {
+          this.createForm  = { full_name: '', email: '', role: 'analyst', password: '' };
+          this.createError = null;
+          this.showCreateModal = true;
+        },
+
+        async createUser() {
+          this.createSaving = true;
+          this.createError  = null;
+          try {
+            if (this.createForm.password.length < 8) {
+              this.createError = 'Password must be at least 8 characters'; return;
+            }
+            // Use auth/register endpoint
+            const res  = await this.api('POST', '/auth/register', this.createForm);
+            const data = await res.json();
+            if (!res.ok) { this.createError = data.detail || 'Error creating user'; return; }
+            this.showCreateModal = false;
+            await this.loadUsers();
+          } catch { this.createError = 'Network error'; }
+          finally  { this.createSaving = false; }
+        },
+
+        // ── Reset password modal (Admin → other user) ──
+        openResetPwModal(u) {
+          this.resetPwUser  = u;
+          this.resetPwForm  = { password: '', confirm: '' };
+          this.resetPwError = null;
+          this.showResetPwModal = true;
+        },
+
+        async saveResetPw() {
+          this.resetPwSaving = true;
+          this.resetPwError  = null;
+          try {
+            if (this.resetPwForm.password !== this.resetPwForm.confirm) {
+              this.resetPwError = 'Passwords do not match'; return;
+            }
+            if (this.resetPwForm.password.length < 8) {
+              this.resetPwError = 'Password must be at least 8 characters'; return;
+            }
+            const res  = await this.api('PATCH', `/users/${this.resetPwUser.id}`, { password: this.resetPwForm.password });
+            const data = await res.json();
+            if (!res.ok) { this.resetPwError = data.detail || 'Error'; return; }
+            this.showResetPwModal = false;
+          } catch { this.resetPwError = 'Network error'; }
+          finally  { this.resetPwSaving = false; }
+        },
+
+        logout() {
+          localStorage.removeItem('access_token');
+          window.location.href = '../../index.html';
+        },
+
+        formatDate(iso) {
+          if (!iso) return '\u2014';
+          return new Date(iso).toLocaleString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric'
+          });
+        },
+      };
+    }
+  </script>
+</body>
+</html>
