@@ -84,8 +84,6 @@
                        onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Cameras</a>
                     <a href="../logs/logs.html" class="transition-colors duration-300" style="color:#6b7280;"
                        onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Logs</a>
-                    <a href="../verification/verification.html" class="transition-colors duration-300" style="color:#6b7280;"
-                       onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Verification</a>
                     <a href="settings.html" class="font-semibold" style="color:#4a90e2;">Settings</a>
                 </nav>
 
@@ -298,7 +296,6 @@
 
                         <!-- Actions -->
                         <div class="flex items-center justify-end gap-2 flex-wrap">
-                            <!-- Normal -->
                             <template x-if="editingId !== u.id && confirmDeactivateId !== u.id">
                                 <div class="flex gap-2">
                                     <button x-show="u.is_active" @click="startEdit(u)"
@@ -315,7 +312,6 @@
                                             onmouseover="this.style.background='rgba(239,68,68,.07)'" onmouseout="this.style.background=''">Disable</button>
                                 </div>
                             </template>
-                            <!-- Editing -->
                             <template x-if="editingId === u.id">
                                 <div class="flex gap-2">
                                     <button @click="saveEdit(u.id)" :disabled="editSaving"
@@ -326,7 +322,6 @@
                                             style="border-color:#2c5f8d; color:#6b7280;">Cancel</button>
                                 </div>
                             </template>
-                            <!-- Confirm deactivate -->
                             <template x-if="confirmDeactivateId === u.id">
                                 <div class="flex items-center gap-2">
                                     <span class="font-mono text-[10px]" style="color:#f59e0b;">Sure?</span>
