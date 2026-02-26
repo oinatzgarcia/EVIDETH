@@ -159,9 +159,9 @@
                     <a href="#" class="font-semibold" style="color:#4a90e2;">Dashboard</a>
                     <a href="../cameras/cameras.html" class="transition-colors duration-300" style="color:#6b7280;"
                        onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Cameras</a>
-                    <a href="#" class="transition-colors duration-300" style="color:#6b7280;"
+                    <a href="../logs/logs.html" class="transition-colors duration-300" style="color:#6b7280;"
                        onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Logs</a>
-                    <a href="#" class="transition-colors duration-300" style="color:#6b7280;"
+                    <a href="../settings/settings.html" class="transition-colors duration-300" style="color:#6b7280;"
                        onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Settings</a>
                 </nav>
 
@@ -463,7 +463,7 @@
                         <template x-for="seg in (report ? report.segments : [])" :key="seg.segment_index">
                             <div class="flex items-center justify-between p-3 border font-mono text-sm"
                                  :style="seg.result==='pass' ? 'border-color:rgba(74,144,226,.2);background:#000;' : 'border-color:rgba(220,38,38,.4);background:rgba(127,29,29,.1);'">
-                                <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' – '+fmtTime(seg.end_time_secs)+')'" ></span>
+                                <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' – '+fmtTime(seg.end_time_secs)+')'"></span>
                                 <span :style="seg.result==='pass'?'color:#4a90e2;':'color:#ef4444;'" x-text="seg.result==='pass'?'Valid':'TAMPERED'"></span>
                             </div>
                         </template>
@@ -488,7 +488,7 @@
                                 <div class="flex items-center justify-between p-3 border font-mono text-sm"
                                      :style="seg.result==='pass'?'border-color:rgba(74,144,226,.2);background:#000;':'border-color:rgba(220,38,38,.4);background:rgba(127,29,29,.15);'">
                                     <div>
-                                        <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' – '+fmtTime(seg.end_time_secs)+')'" ></span>
+                                        <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' – '+fmtTime(seg.end_time_secs)+')'"></span>
                                         <span x-show="seg.second_results && seg.second_results.some(s=>s.tampered)" class="block text-xs mt-1" style="color:#f87171;" x-text="'Tampered seconds: ['+seg.second_results.filter(s=>s.tampered).map(s=>s.second_index).join(', ')+']'"></span>
                                     </div>
                                     <span :style="seg.result==='pass'?'color:#4a90e2;':'color:#ef4444;'" x-text="seg.result==='pass'?'Valid':'TAMPERED'"></span>
@@ -513,7 +513,8 @@
                     <div class="w-1 h-12" style="background-color:#4a90e2;"></div>
                     <h2 class="text-2xl font-bold tracking-wide font-mono" style="color:#4a90e2;">Recent Activity Log</h2>
                 </div>
-                <a href="#" class="font-mono text-xs transition-colors duration-300" style="color:#4a90e2;">View All &#8594;</a>
+                <a href="../logs/logs.html" class="font-mono text-xs transition-colors duration-300" style="color:#4a90e2;"
+                   onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">View All &#8594;</a>
             </div>
             <div id="activity-log-list" class="space-y-2">
                 <div class="flex items-center justify-between p-4 border animate-pulse" style="border-color:rgba(74,144,226,.1); background:#000;">
