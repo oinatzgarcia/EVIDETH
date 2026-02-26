@@ -1,474 +1,626 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es" class="dark">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>EVIDETH · Settings</title>
-  <!-- auth.js MUST load before Alpine so Auth global is available -->
-  <script src="../../assets/js/auth.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
-  <link rel="stylesheet" href="../../assets/css/main.css" />
-  <link rel="stylesheet" href="settings.css" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVIDETH - Settings</title>
+
+    <link rel="icon" type="image/png" href="../../assets/images/Buho.png" sizes="59x59">
+    <script src="../../assets/js/auth.js"></script>
+    <script src="../../assets/js/profile-menu.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: { 'evideth': { 'blue': '#4a90e2', 'blue-bright': '#5ba3f5', 'blue-dark': '#2c5f8d' } },
+                    fontFamily: { 'sans': ['Rajdhani', 'system-ui', 'sans-serif'], 'mono': ['Space Mono', 'monospace'] },
+                    animation: { 'float': 'float 6s ease-in-out infinite' },
+                    keyframes: { float: { '0%, 100%': { transform: 'translateY(0px)' }, '50%': { transform: 'translateY(-10px)' } } }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Rajdhani', sans-serif; background: #000000; color: #ffffff; overflow-x: hidden; }
+        .particle-field { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; overflow: hidden; background: #000000; }
+        .particle { position: absolute; background: radial-gradient(circle, rgba(74,144,226,.8) 0%, rgba(91,163,245,.4) 50%, transparent 100%); border-radius: 50%; pointer-events: none; }
+        .subtle-grid { background-image: linear-gradient(rgba(74,144,226,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(74,144,226,.05) 1px, transparent 1px); background-size: 60px 60px; background-color: #000000; }
+        .card-bg { background-color: #0a0a0a; }
+        .text-glow { text-shadow: 0 0 10px rgba(74,144,226,.6), 0 0 20px rgba(74,144,226,.4); }
+        .logo-glow { filter: drop-shadow(0 0 8px rgba(74,144,226,.4)); transition: all 0.5s ease; }
+        .logo-glow:hover { filter: drop-shadow(0 0 15px rgba(74,144,226,.7)); }
+        .border-glow { border: 1px solid rgba(74,144,226,.25); transition: all 0.3s ease; }
+        .border-glow:hover { border-color: rgba(74,144,226,.6); box-shadow: 0 0 15px rgba(74,144,226,.2); }
+        ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: #000000; }
+        ::-webkit-scrollbar-thumb { background: #4a90e2; border-radius: 4px; }
+        .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
+        @keyframes pulseSubtle { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+        [x-cloak] { display: none !important; }
+        input[type="text"], input[type="email"], input[type="password"] {
+            background: #000; border: 1px solid #2c5f8d; color: #e5e7eb;
+            font-family: 'Space Mono', monospace; font-size: 12px;
+            padding: 8px 12px; width: 100%; outline: none; transition: border-color 0.2s;
+        }
+        input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus { border-color: #4a90e2; }
+        input::placeholder { color: #4b5563; }
+        select { background: #000; border: 1px solid #2c5f8d; color: #9ca3af; font-family: 'Space Mono', monospace; font-size: 12px; padding: 8px 12px; outline: none; }
+        select:focus { border-color: #4a90e2; }
+        select option { background: #0a0a0a; color: #e5e7eb; }
+    </style>
 </head>
-<body>
-  <div x-data="settingsApp()" x-init="init()">
 
-    <!-- ── Nav ── -->
-    <nav class="nav">
-      <div class="nav-brand">
-        <span class="nav-logo">&#11041;</span>
-        <span class="nav-title">EVIDETH</span>
-      </div>
-      <ul class="nav-links">
-        <li><a href="../dashboard/dashboard.html">Dashboard</a></li>
-        <li><a href="../cameras/cameras.html">Cameras</a></li>
-        <li><a href="../logs/logs.html">Logs</a></li>
-        <li><a href="../verification/verification.html">Verification</a></li>
-        <li><a href="settings.html" class="active">Settings</a></li>
-      </ul>
-      <div class="nav-user">
-        <span x-text="me.full_name || me.email || ''" class="nav-username"></span>
-        <button @click="logout()" class="btn-logout">Logout</button>
-      </div>
-    </nav>
+<body class="subtle-grid" x-data="settingsApp()" x-init="init()">
 
-    <main class="main-content">
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">Settings</h1>
-          <p class="page-subtitle">Manage your profile and system users</p>
-        </div>
-      </div>
+    <div class="particle-field" id="particleField"></div>
 
-      <!-- MY PROFILE -->
-      <section class="panel settings-section">
-        <h2 class="panel-title">My Profile</h2>
-        <div class="settings-grid">
+    <!-- HEADER -->
+    <header class="relative border-b" style="border-color:#2c5f8d; background-color:#000000;">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-20">
 
-          <!-- Name + Email -->
-          <div class="settings-card">
-            <h3 class="card-subtitle">Personal Info</h3>
-            <form @submit.prevent="saveProfile()">
-              <div class="form-group">
-                <label class="form-label">Full name</label>
-                <input class="form-input" type="text" x-model="profileForm.full_name" placeholder="Your name" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Email</label>
-                <input class="form-input" type="email" x-model="profileForm.email" placeholder="email@example.com" />
-              </div>
-              <div class="form-row-end">
-                <div class="alert alert-error" x-show="profileError" x-text="profileError" x-cloak></div>
-                <div class="alert alert-success" x-show="profileOk" x-cloak>Profile updated &#10003;</div>
-                <button class="btn-primary" type="submit" :disabled="profileSaving">
-                  <span x-show="!profileSaving">Save changes</span>
-                  <span x-show="profileSaving" x-cloak>Saving&hellip;</span>
-                </button>
-              </div>
-            </form>
-          </div>
-
-          <!-- Change Password -->
-          <div class="settings-card">
-            <h3 class="card-subtitle">Change Password</h3>
-            <form @submit.prevent="savePassword()">
-              <div class="form-group">
-                <label class="form-label">Current password</label>
-                <input class="form-input" type="password" x-model="pwForm.current" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">New password</label>
-                <input class="form-input" type="password" x-model="pwForm.new_pw" placeholder="Min. 8 characters" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Confirm new password</label>
-                <input class="form-input" type="password" x-model="pwForm.confirm" placeholder="Repeat new password" />
-              </div>
-              <div class="form-row-end">
-                <div class="alert alert-error" x-show="pwError" x-text="pwError" x-cloak></div>
-                <div class="alert alert-success" x-show="pwOk" x-cloak>Password changed &#10003;</div>
-                <button class="btn-primary" type="submit" :disabled="pwSaving">
-                  <span x-show="!pwSaving">Change password</span>
-                  <span x-show="pwSaving" x-cloak>Saving&hellip;</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </section>
-
-      <!-- USER MANAGEMENT (Admin only) -->
-      <section class="panel settings-section" x-show="me.role === 'admin'" x-cloak>
-        <div class="panel-header">
-          <h2 class="panel-title">User Management</h2>
-          <button class="btn-primary btn-sm" @click="openCreateModal()">+ New User</button>
-        </div>
-
-        <!-- Filters -->
-        <div class="filters-row">
-          <select class="form-select form-select-sm" x-model="userFilter.role" @change="loadUsers()">
-            <option value="">All roles</option>
-            <option value="admin">Admin</option>
-            <option value="analyst">Analyst</option>
-            <option value="viewer">Viewer</option>
-          </select>
-          <select class="form-select form-select-sm" x-model="userFilter.is_active" @change="loadUsers()">
-            <option value="">All status</option>
-            <option value="true">Active</option>
-            <option value="false">Inactive</option>
-          </select>
-          <button class="btn-icon" @click="loadUsers()" title="Refresh">&#8635;</button>
-        </div>
-
-        <div class="loading-spinner" x-show="usersLoading" x-cloak>Loading&hellip;</div>
-
-        <div class="table-wrap" x-show="!usersLoading" x-cloak>
-          <table class="users-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template x-for="u in users" :key="u.id">
-                <tr :class="!u.is_active ? 'row-inactive' : ''">
-                  <td>
-                    <span x-show="editingId !== u.id" x-text="u.full_name || '\u2014'"></span>
-                    <input x-show="editingId === u.id" x-cloak class="form-input-inline" type="text" x-model="editForm.full_name" />
-                  </td>
-                  <td x-text="u.email"></td>
-                  <td>
-                    <span x-show="editingId !== u.id">
-                      <span class="role-badge" :class="'role-' + u.role" x-text="u.role"></span>
-                    </span>
-                    <select x-show="editingId === u.id" x-cloak class="form-select-inline" x-model="editForm.role">
-                      <option value="admin">Admin</option>
-                      <option value="analyst">Analyst</option>
-                      <option value="viewer">Viewer</option>
-                    </select>
-                  </td>
-                  <td>
-                    <span class="status-dot" :class="u.is_active ? 'dot-active' : 'dot-inactive'"></span>
-                    <span x-text="u.is_active ? 'Active' : 'Inactive'" class="status-text"></span>
-                  </td>
-                  <td x-text="formatDate(u.created_at)" class="text-muted"></td>
-                  <td>
-                    <div class="actions-row" x-show="editingId !== u.id && confirmDeactivateId !== u.id">
-                      <button class="btn-table btn-edit" @click="startEdit(u)" x-show="u.is_active" title="Edit">&#9998;</button>
-                      <button class="btn-table btn-pw" @click="openResetPwModal(u)" x-show="u.is_active" title="Reset password">&#128274;</button>
-                      <button class="btn-table btn-deactivate"
-                        @click="confirmDeactivateId = u.id"
-                        x-show="u.is_active && u.id !== me.id"
-                        title="Deactivate">&#215;</button>
+                <div class="flex items-center space-x-4">
+                    <div class="relative animate-float">
+                        <img src="../../assets/images/Buho.png" alt="EVIDETH Logo" class="w-20 h-20 logo-glow object-contain">
                     </div>
-                    <div class="actions-row" x-show="editingId === u.id" x-cloak>
-                      <button class="btn-table btn-save" @click="saveEdit(u.id)" :disabled="editSaving">&#10003; Save</button>
-                      <button class="btn-table btn-cancel" @click="cancelEdit()">Cancel</button>
+                    <div>
+                        <h1 class="text-3xl font-bold tracking-[0.3em] text-glow font-mono" style="color:#4a90e2;">EVIDETH</h1>
+                        <p class="text-[10px] tracking-[0.2em] uppercase font-mono" style="color:#6b7280;">Forensic System v2.0</p>
                     </div>
-                    <div class="actions-row" x-show="confirmDeactivateId === u.id" x-cloak>
-                      <span class="confirm-text">Sure?</span>
-                      <button class="btn-table btn-save" @click="deactivateUser(u.id)">Yes</button>
-                      <button class="btn-table btn-cancel" @click="confirmDeactivateId = null">No</button>
+                </div>
+
+                <nav class="hidden md:flex items-center space-x-8 font-mono text-sm">
+                    <a href="../dashboard/dashboard.html" class="transition-colors duration-300" style="color:#6b7280;"
+                       onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Dashboard</a>
+                    <a href="../cameras/cameras.html" class="transition-colors duration-300" style="color:#6b7280;"
+                       onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Cameras</a>
+                    <a href="../logs/logs.html" class="transition-colors duration-300" style="color:#6b7280;"
+                       onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Logs</a>
+                    <a href="../verification/verification.html" class="transition-colors duration-300" style="color:#6b7280;"
+                       onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Verification</a>
+                    <a href="settings.html" class="font-semibold" style="color:#4a90e2;">Settings</a>
+                </nav>
+
+                <div class="flex items-center space-x-4">
+                    <div class="hidden lg:flex items-center space-x-2 px-4 py-2 border" style="border-color:#2c5f8d; background:#000;">
+                        <div class="w-2 h-2 rounded-full pulse-dot" style="background-color:#4a90e2;"></div>
+                        <span class="text-xs font-mono" style="color:#4a90e2;">System Online</span>
                     </div>
-                  </td>
-                </tr>
-              </template>
-              <tr x-show="users.length === 0 && !usersLoading">
-                <td colspan="6" class="empty-cell">No users found</td>
-              </tr>
-            </tbody>
-          </table>
+                    <div class="relative" x-data="profileMenu()" @keydown.escape.window="open = false">
+                        <button @click="open = !open"
+                                class="flex items-center space-x-2 px-3 py-2 border transition-all duration-200 cursor-pointer"
+                                style="border-color:#2c5f8d; background:#000;"
+                                onmouseover="this.style.borderColor='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'">
+                            <div class="w-8 h-8 flex items-center justify-center border text-xs font-mono font-bold"
+                                 style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);" x-text="initials()"></div>
+                            <div class="hidden lg:block text-left leading-tight">
+                                <p class="text-xs font-mono font-semibold truncate max-w-[130px]" style="color:#e5e7eb;" x-text="fullName()"></p>
+                                <p class="text-[10px] font-mono uppercase tracking-widest" :style="isAdmin ? 'color:#f59e0b;' : 'color:#6b7280;'" x-text="role()"></p>
+                            </div>
+                            <svg class="w-3 h-3 transition-transform duration-200" :class="open ? 'rotate-180' : ''" style="color:#6b7280;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        <div x-show="open" @click.outside="open = false"
+                             x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95"
+                             x-transition:enter-end="opacity-100 scale-100"
+                             class="absolute right-0 mt-2 w-64 border z-50"
+                             style="background:#0a0a0a; border-color:#2c5f8d; top:100%; transform-origin:top right;">
+                            <div class="px-4 py-4 border-b" style="border-color:rgba(74,144,226,.15);">
+                                <div class="flex items-center space-x-3">
+                                    <div class="w-10 h-10 flex items-center justify-center border text-sm font-mono font-bold"
+                                         style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);" x-text="initials()"></div>
+                                    <div class="min-w-0">
+                                        <p class="font-mono text-sm font-semibold truncate" style="color:#e5e7eb;" x-text="fullName()"></p>
+                                        <p class="font-mono text-xs truncate" style="color:#6b7280;" x-text="email()"></p>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <span class="font-mono text-[10px] px-2 py-0.5 border uppercase tracking-widest"
+                                          :style="isAdmin ? 'border-color:rgba(245,158,11,.35); color:#f59e0b; background:rgba(245,158,11,.05);' : 'border-color:rgba(74,144,226,.3); color:#4a90e2; background:rgba(74,144,226,.05);'"
+                                          x-text="role()"></span>
+                                </div>
+                            </div>
+                            <div class="py-1">
+                                <button @click="logout()"
+                                        class="w-full px-4 py-3 text-left font-mono text-xs flex items-center space-x-3"
+                                        style="color:#ef4444;"
+                                        onmouseover="this.style.background='rgba(239,68,68,.07)'" onmouseout="this.style.background=''">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                                    </svg>
+                                    <span>Cerrar sesión</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+
+        <!-- Title -->
+        <div class="mb-10 text-center">
+            <div class="flex items-center justify-center space-x-2 font-mono text-sm mb-2" style="color:#5ba3f5;">
+                <span class="w-12 h-px" style="background:linear-gradient(to right, transparent, #4a90e2);"></span>
+                <span class="tracking-widest text-xs">System Configuration</span>
+                <span class="w-12 h-px" style="background:linear-gradient(to left, transparent, #4a90e2);"></span>
+            </div>
+            <h2 class="text-5xl font-bold mb-4 tracking-wider" style="color:#ffffff;">
+                System<br/><span class="text-glow" style="color:#4a90e2;">Settings</span>
+            </h2>
+            <p class="font-mono text-sm tracking-wide" style="color:#9ca3af;">Manage your profile and system users</p>
         </div>
 
-        <div class="pagination" x-show="userPages > 1" x-cloak>
-          <button class="btn-page" :disabled="userPage === 1" @click="userPage--; loadUsers()">&lsaquo;</button>
-          <span class="page-info" x-text="`Page ${userPage} of ${userPages}`"></span>
-          <button class="btn-page" :disabled="userPage === userPages" @click="userPage++; loadUsers()">&rsaquo;</button>
+        <!-- ── MY PROFILE ── -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+
+            <!-- Personal Info -->
+            <div class="card-bg border border-glow p-6">
+                <p class="font-mono text-xs tracking-widest uppercase mb-5" style="color:#4a90e2;">Personal Info</p>
+                <form @submit.prevent="saveProfile()" class="space-y-4">
+                    <div>
+                        <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">Full Name</p>
+                        <input type="text" x-model="profileForm.full_name" placeholder="Your name" />
+                    </div>
+                    <div>
+                        <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">Email</p>
+                        <input type="email" x-model="profileForm.email" placeholder="email@example.com" />
+                    </div>
+                    <div x-show="profileError" class="border px-3 py-2 font-mono text-xs" style="border-color:rgba(239,68,68,.4); color:#ef4444; background:rgba(239,68,68,.07);" x-text="profileError"></div>
+                    <div x-show="profileOk" x-cloak class="border px-3 py-2 font-mono text-xs" style="border-color:rgba(74,144,226,.4); color:#4a90e2; background:rgba(74,144,226,.07);">Profile updated ✓</div>
+                    <button type="submit" :disabled="profileSaving"
+                            class="px-5 py-2 border font-mono text-xs transition-all duration-200"
+                            style="border-color:#4a90e2; color:#4a90e2;"
+                            onmouseover="this.style.background='rgba(74,144,226,.1)'" onmouseout="this.style.background=''">
+                        <span x-show="!profileSaving">Save Changes</span>
+                        <span x-show="profileSaving" x-cloak>Saving…</span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Change Password -->
+            <div class="card-bg border border-glow p-6">
+                <p class="font-mono text-xs tracking-widest uppercase mb-5" style="color:#4a90e2;">Change Password</p>
+                <form @submit.prevent="savePassword()" class="space-y-4">
+                    <div>
+                        <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">Current Password</p>
+                        <input type="password" x-model="pwForm.current" placeholder="••••••••" />
+                    </div>
+                    <div>
+                        <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">New Password</p>
+                        <input type="password" x-model="pwForm.new_pw" placeholder="Min. 8 characters" />
+                    </div>
+                    <div>
+                        <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">Confirm New Password</p>
+                        <input type="password" x-model="pwForm.confirm" placeholder="Repeat new password" />
+                    </div>
+                    <div x-show="pwError" class="border px-3 py-2 font-mono text-xs" style="border-color:rgba(239,68,68,.4); color:#ef4444; background:rgba(239,68,68,.07);" x-text="pwError"></div>
+                    <div x-show="pwOk" x-cloak class="border px-3 py-2 font-mono text-xs" style="border-color:rgba(74,144,226,.4); color:#4a90e2; background:rgba(74,144,226,.07);">Password changed ✓</div>
+                    <button type="submit" :disabled="pwSaving"
+                            class="px-5 py-2 border font-mono text-xs transition-all duration-200"
+                            style="border-color:#4a90e2; color:#4a90e2;"
+                            onmouseover="this.style.background='rgba(74,144,226,.1)'" onmouseout="this.style.background=''">
+                        <span x-show="!pwSaving">Change Password</span>
+                        <span x-show="pwSaving" x-cloak>Saving…</span>
+                    </button>
+                </form>
+            </div>
         </div>
-      </section>
+
+        <!-- ── USER MANAGEMENT (Admin only) ── -->
+        <div x-show="me.role === 'admin'" x-cloak class="card-bg border border-glow">
+            <div class="flex items-center justify-between px-6 py-4 border-b" style="border-color:rgba(74,144,226,.15);">
+                <p class="font-mono text-xs tracking-widest uppercase" style="color:#4a90e2;">User Management</p>
+                <button @click="openCreateModal()"
+                        class="px-4 py-1.5 border font-mono text-xs transition-all duration-200"
+                        style="border-color:#4a90e2; color:#4a90e2;"
+                        onmouseover="this.style.background='rgba(74,144,226,.1)'" onmouseout="this.style.background=''">+ New User</button>
+            </div>
+
+            <!-- Filters -->
+            <div class="flex flex-wrap items-center gap-3 px-6 py-4 border-b" style="border-color:rgba(74,144,226,.08);">
+                <select x-model="userFilter.role" @change="loadUsers()" style="width:auto;">
+                    <option value="">All roles</option>
+                    <option value="admin">Admin</option>
+                    <option value="analyst">Analyst</option>
+                    <option value="viewer">Viewer</option>
+                </select>
+                <select x-model="userFilter.is_active" @change="loadUsers()" style="width:auto;">
+                    <option value="">All status</option>
+                    <option value="true">Active</option>
+                    <option value="false">Inactive</option>
+                </select>
+                <button @click="loadUsers()"
+                        class="px-3 py-2 border font-mono text-xs transition-all duration-200"
+                        style="border-color:#2c5f8d; color:#6b7280;"
+                        onmouseover="this.style.borderColor='#4a90e2'; this.style.color='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'; this.style.color='#6b7280'">↻ Refresh</button>
+            </div>
+
+            <!-- Loading -->
+            <div x-show="usersLoading" x-cloak class="px-6 py-10 text-center font-mono text-xs" style="color:#4b5563;">Loading…</div>
+
+            <!-- Table -->
+            <div x-show="!usersLoading" class="overflow-x-auto">
+                <!-- Header -->
+                <div class="grid font-mono text-xs tracking-widest uppercase px-6 py-3 border-b"
+                     style="grid-template-columns:1fr 1.5fr 90px 80px 100px 140px; border-color:rgba(74,144,226,.15); color:#4b5563;">
+                    <span>Name</span><span>Email</span><span>Role</span><span>Status</span><span>Created</span><span class="text-right">Actions</span>
+                </div>
+
+                <template x-for="u in users" :key="u.id">
+                    <div class="grid items-center px-6 py-3.5 border-b"
+                         style="grid-template-columns:1fr 1.5fr 90px 80px 100px 140px; border-color:rgba(74,144,226,.07);"
+                         :style="!u.is_active ? 'opacity:0.4;' : ''">
+
+                        <!-- Name -->
+                        <div>
+                            <span x-show="editingId !== u.id" class="font-mono text-xs" style="color:#d1d5db;" x-text="u.full_name || '—'"></span>
+                            <input x-show="editingId === u.id" x-cloak type="text" x-model="editForm.full_name" style="width:100%;" />
+                        </div>
+
+                        <!-- Email -->
+                        <span class="font-mono text-xs" style="color:#6b7280;" x-text="u.email"></span>
+
+                        <!-- Role -->
+                        <div>
+                            <span x-show="editingId !== u.id">
+                                <span class="font-mono text-[10px] px-2 py-0.5 border uppercase tracking-widest"
+                                      :style="u.role === 'admin' ? 'border-color:rgba(245,158,11,.35); color:#f59e0b; background:rgba(245,158,11,.05);' : u.role === 'analyst' ? 'border-color:rgba(74,144,226,.3); color:#4a90e2; background:rgba(74,144,226,.05);' : 'border-color:rgba(107,114,128,.3); color:#9ca3af; background:rgba(107,114,128,.05);'"
+                                      x-text="u.role"></span>
+                            </span>
+                            <select x-show="editingId === u.id" x-cloak x-model="editForm.role" style="width:auto; padding:4px 8px;">
+                                <option value="admin">admin</option>
+                                <option value="analyst">analyst</option>
+                                <option value="viewer">viewer</option>
+                            </select>
+                        </div>
+
+                        <!-- Status -->
+                        <div class="flex items-center space-x-1.5">
+                            <div class="w-1.5 h-1.5 rounded-full" :style="u.is_active ? 'background:#4a90e2;' : 'background:#4b5563;'"></div>
+                            <span class="font-mono text-xs" style="color:#6b7280;" x-text="u.is_active ? 'Active' : 'Inactive'"></span>
+                        </div>
+
+                        <!-- Created -->
+                        <span class="font-mono text-[10px]" style="color:#4b5563;" x-text="fmtDate(u.created_at)"></span>
+
+                        <!-- Actions -->
+                        <div class="flex items-center justify-end gap-2 flex-wrap">
+                            <!-- Normal -->
+                            <template x-if="editingId !== u.id && confirmDeactivateId !== u.id">
+                                <div class="flex gap-2">
+                                    <button x-show="u.is_active" @click="startEdit(u)"
+                                            class="px-2 py-1 border font-mono text-[10px] transition-all duration-150"
+                                            style="border-color:#2c5f8d; color:#4a90e2;"
+                                            onmouseover="this.style.borderColor='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'">Edit</button>
+                                    <button x-show="u.is_active" @click="openResetPwModal(u)"
+                                            class="px-2 py-1 border font-mono text-[10px] transition-all duration-150"
+                                            style="border-color:#2c5f8d; color:#6b7280;"
+                                            onmouseover="this.style.borderColor='#4a90e2'; this.style.color='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'; this.style.color='#6b7280'">Password</button>
+                                    <button x-show="u.is_active && u.id !== me.id" @click="confirmDeactivateId = u.id"
+                                            class="px-2 py-1 border font-mono text-[10px] transition-all duration-150"
+                                            style="border-color:rgba(239,68,68,.3); color:#ef4444;"
+                                            onmouseover="this.style.background='rgba(239,68,68,.07)'" onmouseout="this.style.background=''">Disable</button>
+                                </div>
+                            </template>
+                            <!-- Editing -->
+                            <template x-if="editingId === u.id">
+                                <div class="flex gap-2">
+                                    <button @click="saveEdit(u.id)" :disabled="editSaving"
+                                            class="px-2 py-1 border font-mono text-[10px]"
+                                            style="border-color:rgba(74,144,226,.4); color:#4a90e2;">✓ Save</button>
+                                    <button @click="cancelEdit()"
+                                            class="px-2 py-1 border font-mono text-[10px]"
+                                            style="border-color:#2c5f8d; color:#6b7280;">Cancel</button>
+                                </div>
+                            </template>
+                            <!-- Confirm deactivate -->
+                            <template x-if="confirmDeactivateId === u.id">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-mono text-[10px]" style="color:#f59e0b;">Sure?</span>
+                                    <button @click="deactivateUser(u.id)" class="px-2 py-1 border font-mono text-[10px]" style="border-color:rgba(239,68,68,.4); color:#ef4444;">Yes</button>
+                                    <button @click="confirmDeactivateId = null" class="px-2 py-1 border font-mono text-[10px]" style="border-color:#2c5f8d; color:#6b7280;">No</button>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Empty -->
+                <div x-show="users.length === 0 && !usersLoading" class="py-16 text-center">
+                    <p class="font-mono text-sm" style="color:#4b5563;">No users found</p>
+                </div>
+            </div>
+
+            <!-- Pagination -->
+            <div x-show="userPages > 1" x-cloak class="flex items-center justify-end gap-3 px-6 py-4 border-t" style="border-color:rgba(74,144,226,.08);">
+                <button @click="userPage--; loadUsers()" :disabled="userPage === 1"
+                        class="px-3 py-1.5 border font-mono text-xs"
+                        :style="userPage === 1 ? 'border-color:#1f2937; color:#374151;' : 'border-color:#2c5f8d; color:#4a90e2;'">← Prev</button>
+                <span class="font-mono text-xs" style="color:#6b7280;" x-text="'Page ' + userPage + ' of ' + userPages"></span>
+                <button @click="userPage++; loadUsers()" :disabled="userPage === userPages"
+                        class="px-3 py-1.5 border font-mono text-xs"
+                        :style="userPage === userPages ? 'border-color:#1f2937; color:#374151;' : 'border-color:#2c5f8d; color:#4a90e2;'">Next →</button>
+            </div>
+        </div>
 
     </main>
 
-    <!-- CREATE USER MODAL -->
-    <div class="modal-overlay" x-show="showCreateModal" x-cloak @click.self="showCreateModal = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h3 class="modal-title">Create New User</h3>
-          <button class="modal-close" @click="showCreateModal = false">&#10005;</button>
+    <!-- FOOTER -->
+    <footer class="border-t mt-16" style="border-color:rgba(74,144,226,.2); background:#000;">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center">
+            <p class="font-mono text-xs tracking-widest mb-2" style="color:#6b7280;">EVIDETH © 2026 · Forensic Video Integrity Verification System</p>
+            <p class="font-mono text-xs" style="color:#4b5563;">Powered by SHA-256 Hashing · ECDSA P-256 Digital Signatures · Azure Cloud</p>
         </div>
-        <form @submit.prevent="createUser()" class="modal-body">
-          <div class="form-group">
-            <label class="form-label">Full name</label>
-            <input class="form-input" type="text" x-model="createForm.full_name" placeholder="Jane Doe" required />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Email</label>
-            <input class="form-input" type="email" x-model="createForm.email" placeholder="jane@company.com" required />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Role</label>
-            <select class="form-select" x-model="createForm.role">
-              <option value="analyst">Analyst</option>
-              <option value="viewer">Viewer</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Temporary password</label>
-            <input class="form-input" type="password" x-model="createForm.password" placeholder="Min. 8 characters" required minlength="8" />
-            <span class="form-hint">The user should change this on first login.</span>
-          </div>
-          <div class="alert alert-error" x-show="createError" x-text="createError" x-cloak></div>
-          <div class="modal-footer">
-            <button type="button" class="btn-secondary" @click="showCreateModal = false">Cancel</button>
-            <button type="submit" class="btn-primary" :disabled="createSaving">
-              <span x-show="!createSaving">Create User</span>
-              <span x-show="createSaving" x-cloak>Creating&hellip;</span>
-            </button>
-          </div>
-        </form>
-      </div>
+    </footer>
+
+    <!-- CREATE USER MODAL -->
+    <div x-show="showCreateModal" x-cloak @click.self="showCreateModal = false"
+         class="fixed inset-0 flex items-center justify-center z-50 p-4"
+         style="background:rgba(0,0,0,0.75);">
+        <div class="card-bg border w-full max-w-md" style="border-color:#2c5f8d;">
+            <div class="flex items-center justify-between px-6 py-4 border-b" style="border-color:rgba(74,144,226,.15);">
+                <p class="font-mono text-xs tracking-widest uppercase" style="color:#4a90e2;">Create New User</p>
+                <button @click="showCreateModal = false" class="font-mono text-xs" style="color:#6b7280;">✕</button>
+            </div>
+            <form @submit.prevent="createUser()" class="p-6 space-y-4">
+                <div>
+                    <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">Full Name</p>
+                    <input type="text" x-model="createForm.full_name" placeholder="Jane Doe" required />
+                </div>
+                <div>
+                    <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">Email</p>
+                    <input type="email" x-model="createForm.email" placeholder="jane@company.com" required />
+                </div>
+                <div>
+                    <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">Role</p>
+                    <select x-model="createForm.role" style="width:100%;">
+                        <option value="analyst">Analyst</option>
+                        <option value="viewer">Viewer</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                <div>
+                    <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">Temporary Password</p>
+                    <input type="password" x-model="createForm.password" placeholder="Min. 8 characters" required minlength="8" />
+                    <p class="font-mono text-[10px] mt-1" style="color:#4b5563;">User should change this on first login.</p>
+                </div>
+                <div x-show="createError" class="border px-3 py-2 font-mono text-xs" style="border-color:rgba(239,68,68,.4); color:#ef4444; background:rgba(239,68,68,.07);" x-text="createError"></div>
+                <div class="flex justify-end gap-3 pt-2">
+                    <button type="button" @click="showCreateModal = false"
+                            class="px-4 py-2 border font-mono text-xs" style="border-color:#2c5f8d; color:#6b7280;">Cancel</button>
+                    <button type="submit" :disabled="createSaving"
+                            class="px-4 py-2 border font-mono text-xs transition-all duration-200"
+                            style="border-color:#4a90e2; color:#4a90e2;"
+                            onmouseover="this.style.background='rgba(74,144,226,.1)'" onmouseout="this.style.background=''">
+                        <span x-show="!createSaving">Create User</span>
+                        <span x-show="createSaving" x-cloak>Creating…</span>
+                    </button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <!-- RESET PASSWORD MODAL -->
-    <div class="modal-overlay" x-show="showResetPwModal" x-cloak @click.self="showResetPwModal = false">
-      <div class="modal modal-sm">
-        <div class="modal-header">
-          <h3 class="modal-title">Reset Password</h3>
-          <button class="modal-close" @click="showResetPwModal = false">&#10005;</button>
+    <div x-show="showResetPwModal" x-cloak @click.self="showResetPwModal = false"
+         class="fixed inset-0 flex items-center justify-center z-50 p-4"
+         style="background:rgba(0,0,0,0.75);">
+        <div class="card-bg border w-full max-w-sm" style="border-color:#2c5f8d;">
+            <div class="flex items-center justify-between px-6 py-4 border-b" style="border-color:rgba(74,144,226,.15);">
+                <p class="font-mono text-xs tracking-widest uppercase" style="color:#4a90e2;">Reset Password</p>
+                <button @click="showResetPwModal = false" class="font-mono text-xs" style="color:#6b7280;">✕</button>
+            </div>
+            <form @submit.prevent="saveResetPw()" class="p-6 space-y-4">
+                <p class="font-mono text-xs" style="color:#9ca3af;">Set new password for <span style="color:#e5e7eb;" x-text="resetPwUser && resetPwUser.email"></span></p>
+                <div>
+                    <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">New Password</p>
+                    <input type="password" x-model="resetPwForm.password" placeholder="Min. 8 characters" required minlength="8" />
+                </div>
+                <div>
+                    <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">Confirm Password</p>
+                    <input type="password" x-model="resetPwForm.confirm" placeholder="Repeat password" required />
+                </div>
+                <div x-show="resetPwError" class="border px-3 py-2 font-mono text-xs" style="border-color:rgba(239,68,68,.4); color:#ef4444; background:rgba(239,68,68,.07);" x-text="resetPwError"></div>
+                <div class="flex justify-end gap-3 pt-2">
+                    <button type="button" @click="showResetPwModal = false"
+                            class="px-4 py-2 border font-mono text-xs" style="border-color:#2c5f8d; color:#6b7280;">Cancel</button>
+                    <button type="submit" :disabled="resetPwSaving"
+                            class="px-4 py-2 border font-mono text-xs transition-all duration-200"
+                            style="border-color:#4a90e2; color:#4a90e2;"
+                            onmouseover="this.style.background='rgba(74,144,226,.1)'" onmouseout="this.style.background=''">
+                        <span x-show="!resetPwSaving">Set Password</span>
+                        <span x-show="resetPwSaving" x-cloak>Saving…</span>
+                    </button>
+                </div>
+            </form>
         </div>
-        <form @submit.prevent="saveResetPw()" class="modal-body">
-          <p class="modal-desc">Set a new password for <strong x-text="resetPwUser && resetPwUser.email"></strong></p>
-          <div class="form-group">
-            <label class="form-label">New password</label>
-            <input class="form-input" type="password" x-model="resetPwForm.password" placeholder="Min. 8 characters" required minlength="8" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Confirm password</label>
-            <input class="form-input" type="password" x-model="resetPwForm.confirm" placeholder="Repeat password" required />
-          </div>
-          <div class="alert alert-error" x-show="resetPwError" x-text="resetPwError" x-cloak></div>
-          <div class="modal-footer">
-            <button type="button" class="btn-secondary" @click="showResetPwModal = false">Cancel</button>
-            <button type="submit" class="btn-primary" :disabled="resetPwSaving">
-              <span x-show="!resetPwSaving">Set Password</span>
-              <span x-show="resetPwSaving" x-cloak>Saving&hellip;</span>
-            </button>
-          </div>
-        </form>
-      </div>
     </div>
 
-  </div><!-- end x-data -->
-
-  <script>
+    <script>
     const API_BASE = '/api/v1';
 
     function settingsApp() {
-      return {
-        me: { id: '', full_name: '', email: '', role: '' },
+        return {
+            me: { id: '', full_name: '', email: '', role: '' },
+            profileForm: { full_name: '', email: '' },
+            profileSaving: false, profileError: null, profileOk: false,
+            pwForm: { current: '', new_pw: '', confirm: '' },
+            pwSaving: false, pwError: null, pwOk: false,
+            users: [], usersLoading: true, userPage: 1, userPages: 1,
+            userFilter: { role: '', is_active: '' },
+            editingId: null, editForm: { full_name: '', role: '' }, editSaving: false,
+            confirmDeactivateId: null,
+            showCreateModal: false, createForm: { full_name: '', email: '', role: 'analyst', password: '' },
+            createSaving: false, createError: null,
+            showResetPwModal: false, resetPwUser: null, resetPwForm: { password: '', confirm: '' },
+            resetPwSaving: false, resetPwError: null,
 
-        profileForm:  { full_name: '', email: '' },
-        profileSaving: false,
-        profileError:  null,
-        profileOk:     false,
-
-        pwForm:   { current: '', new_pw: '', confirm: '' },
-        pwSaving: false,
-        pwError:  null,
-        pwOk:     false,
-
-        users:        [],
-        usersLoading: true,
-        userPage:     1,
-        userPages:    1,
-        userFilter:   { role: '', is_active: '' },
-
-        editingId:   null,
-        editForm:    { full_name: '', role: '' },
-        editSaving:  false,
-        confirmDeactivateId: null,
-
-        showCreateModal: false,
-        createForm:  { full_name: '', email: '', role: 'analyst', password: '' },
-        createSaving: false,
-        createError:  null,
-
-        showResetPwModal: false,
-        resetPwUser:  null,
-        resetPwForm:  { password: '', confirm: '' },
-        resetPwSaving: false,
-        resetPwError:  null,
-
-        async init() {
-          // Guard: uses Auth.js — reads evideth_token (consistent with all other pages)
-          if (typeof Auth !== 'undefined') Auth.requireAuth();
-          await this.loadMe();
-          if (this.me.role === 'admin') await this.loadUsers();
-        },
-
-        async api(method, path, body) {
-          const opts = {
-            method,
-            headers: {
-              ...Auth.authHeader(),
-              'Content-Type': 'application/json',
+            async init() {
+                if (typeof Auth !== 'undefined') Auth.requireAuth();
+                await this.loadMe();
+                if (this.me.role === 'admin') await this.loadUsers();
             },
-          };
-          if (body) opts.body = JSON.stringify(body);
-          const res = await fetch(`${API_BASE}${path}`, opts);
-          if (res.status === 401) {
-            Auth.logout({ message: 'Session expired. Please log in again.' });
-          }
-          return res;
-        },
 
-        async loadMe() {
-          try {
-            const res  = await this.api('GET', '/auth/me');
-            const data = await res.json();
-            this.me = data;
-            this.profileForm.full_name = data.full_name || '';
-            this.profileForm.email     = data.email     || '';
-          } catch { /* silent */ }
-        },
+            async api(method, path, body) {
+                const opts = { method, headers: { ...Auth.authHeader(), 'Content-Type': 'application/json' } };
+                if (body) opts.body = JSON.stringify(body);
+                const res = await fetch(`${API_BASE}${path}`, opts);
+                if (res.status === 401) Auth.logout({ message: 'Session expired.' });
+                return res;
+            },
 
-        async saveProfile() {
-          this.profileSaving = true;
-          this.profileError  = null;
-          this.profileOk     = false;
-          try {
-            const body = {};
-            if (this.profileForm.full_name !== this.me.full_name) body.full_name = this.profileForm.full_name;
-            if (this.profileForm.email     !== this.me.email)     body.email     = this.profileForm.email;
-            if (!Object.keys(body).length) { this.profileSaving = false; return; }
-            const res  = await this.api('PATCH', `/users/${this.me.id}`, body);
-            const data = await res.json();
-            if (!res.ok) { this.profileError = data.detail || 'Error saving profile'; return; }
-            this.me = data;
-            this.profileOk = true;
-            setTimeout(() => { this.profileOk = false; }, 3000);
-          } catch { this.profileError = 'Network error'; }
-          finally  { this.profileSaving = false; }
-        },
+            async loadMe() {
+                try {
+                    const res = await this.api('GET', '/auth/me');
+                    const data = await res.json();
+                    this.me = data;
+                    this.profileForm.full_name = data.full_name || '';
+                    this.profileForm.email     = data.email     || '';
+                } catch { /* silent */ }
+            },
 
-        async savePassword() {
-          this.pwSaving = true;
-          this.pwError  = null;
-          this.pwOk     = false;
-          try {
-            if (this.pwForm.new_pw.length < 8) { this.pwError = 'Password must be at least 8 characters'; return; }
-            if (this.pwForm.new_pw !== this.pwForm.confirm) { this.pwError = 'Passwords do not match'; return; }
-            const res  = await this.api('PATCH', `/users/${this.me.id}`, { password: this.pwForm.new_pw });
-            const data = await res.json();
-            if (!res.ok) { this.pwError = data.detail || 'Error changing password'; return; }
-            this.pwOk = true;
-            this.pwForm = { current: '', new_pw: '', confirm: '' };
-            setTimeout(() => { this.pwOk = false; }, 3000);
-          } catch { this.pwError = 'Network error'; }
-          finally  { this.pwSaving = false; }
-        },
+            async saveProfile() {
+                this.profileSaving = true; this.profileError = null; this.profileOk = false;
+                try {
+                    const body = {};
+                    if (this.profileForm.full_name !== this.me.full_name) body.full_name = this.profileForm.full_name;
+                    if (this.profileForm.email     !== this.me.email)     body.email     = this.profileForm.email;
+                    if (!Object.keys(body).length) { this.profileSaving = false; return; }
+                    const res  = await this.api('PATCH', `/users/${this.me.id}`, body);
+                    const data = await res.json();
+                    if (!res.ok) { this.profileError = data.detail || 'Error saving profile'; return; }
+                    this.me = data; this.profileOk = true;
+                    setTimeout(() => { this.profileOk = false; }, 3000);
+                } catch { this.profileError = 'Network error'; }
+                finally  { this.profileSaving = false; }
+            },
 
-        async loadUsers() {
-          this.usersLoading = true;
-          try {
-            let url = `/users/?page=${this.userPage}&per_page=15`;
-            if (this.userFilter.role)            url += `&role=${this.userFilter.role}`;
-            if (this.userFilter.is_active !== '') url += `&is_active=${this.userFilter.is_active}`;
-            const res  = await this.api('GET', url);
-            const data = await res.json();
-            this.users     = data.items || [];
-            this.userPages = data.pages || 1;
-          } catch { /* silent */ }
-          this.usersLoading = false;
-        },
+            async savePassword() {
+                this.pwSaving = true; this.pwError = null; this.pwOk = false;
+                try {
+                    if (this.pwForm.new_pw.length < 8) { this.pwError = 'Password must be at least 8 characters'; return; }
+                    if (this.pwForm.new_pw !== this.pwForm.confirm) { this.pwError = 'Passwords do not match'; return; }
+                    const res  = await this.api('PATCH', `/users/${this.me.id}`, { password: this.pwForm.new_pw });
+                    const data = await res.json();
+                    if (!res.ok) { this.pwError = data.detail || 'Error changing password'; return; }
+                    this.pwOk = true; this.pwForm = { current: '', new_pw: '', confirm: '' };
+                    setTimeout(() => { this.pwOk = false; }, 3000);
+                } catch { this.pwError = 'Network error'; }
+                finally  { this.pwSaving = false; }
+            },
 
-        startEdit(u) {
-          this.editingId = u.id;
-          this.editForm  = { full_name: u.full_name || '', role: u.role };
-          this.confirmDeactivateId = null;
-        },
+            async loadUsers() {
+                this.usersLoading = true;
+                try {
+                    let url = `/users/?page=${this.userPage}&per_page=15`;
+                    if (this.userFilter.role)            url += `&role=${this.userFilter.role}`;
+                    if (this.userFilter.is_active !== '') url += `&is_active=${this.userFilter.is_active}`;
+                    const res  = await this.api('GET', url);
+                    const data = await res.json();
+                    this.users     = data.items || [];
+                    this.userPages = data.pages || 1;
+                } catch { /* silent */ }
+                this.usersLoading = false;
+            },
 
-        cancelEdit() { this.editingId = null; },
+            startEdit(u) { this.editingId = u.id; this.editForm = { full_name: u.full_name || '', role: u.role }; this.confirmDeactivateId = null; },
+            cancelEdit() { this.editingId = null; },
 
-        async saveEdit(userId) {
-          this.editSaving = true;
-          try {
-            const res  = await this.api('PATCH', `/users/${userId}`, this.editForm);
-            const data = await res.json();
-            if (!res.ok) { alert(data.detail || 'Error saving'); return; }
-            const idx = this.users.findIndex(u => u.id === userId);
-            if (idx !== -1) this.users[idx] = data;
-            this.editingId = null;
-          } catch { alert('Network error'); }
-          finally  { this.editSaving = false; }
-        },
+            async saveEdit(userId) {
+                this.editSaving = true;
+                try {
+                    const res  = await this.api('PATCH', `/users/${userId}`, this.editForm);
+                    const data = await res.json();
+                    if (!res.ok) { alert(data.detail || 'Error saving'); return; }
+                    const idx = this.users.findIndex(u => u.id === userId);
+                    if (idx !== -1) this.users[idx] = data;
+                    this.editingId = null;
+                } catch { alert('Network error'); }
+                finally  { this.editSaving = false; }
+            },
 
-        async deactivateUser(userId) {
-          try {
-            const res = await this.api('DELETE', `/users/${userId}`);
-            if (!res.ok) { const d = await res.json(); alert(d.detail || 'Error'); return; }
-            const idx = this.users.findIndex(u => u.id === userId);
-            if (idx !== -1) this.users[idx].is_active = false;
-            this.confirmDeactivateId = null;
-          } catch { alert('Network error'); }
-        },
+            async deactivateUser(userId) {
+                try {
+                    const res = await this.api('DELETE', `/users/${userId}`);
+                    if (!res.ok) { const d = await res.json(); alert(d.detail || 'Error'); return; }
+                    const idx = this.users.findIndex(u => u.id === userId);
+                    if (idx !== -1) this.users[idx].is_active = false;
+                    this.confirmDeactivateId = null;
+                } catch { alert('Network error'); }
+            },
 
-        openCreateModal() {
-          this.createForm  = { full_name: '', email: '', role: 'analyst', password: '' };
-          this.createError = null;
-          this.showCreateModal = true;
-        },
+            openCreateModal() { this.createForm = { full_name: '', email: '', role: 'analyst', password: '' }; this.createError = null; this.showCreateModal = true; },
 
-        async createUser() {
-          this.createSaving = true;
-          this.createError  = null;
-          try {
-            if (this.createForm.password.length < 8) { this.createError = 'Password must be at least 8 characters'; return; }
-            const res  = await this.api('POST', '/auth/register', this.createForm);
-            const data = await res.json();
-            if (!res.ok) { this.createError = data.detail || 'Error creating user'; return; }
-            this.showCreateModal = false;
-            await this.loadUsers();
-          } catch { this.createError = 'Network error'; }
-          finally  { this.createSaving = false; }
-        },
+            async createUser() {
+                this.createSaving = true; this.createError = null;
+                try {
+                    if (this.createForm.password.length < 8) { this.createError = 'Password must be at least 8 characters'; return; }
+                    const res  = await this.api('POST', '/auth/register', this.createForm);
+                    const data = await res.json();
+                    if (!res.ok) { this.createError = data.detail || 'Error creating user'; return; }
+                    this.showCreateModal = false; await this.loadUsers();
+                } catch { this.createError = 'Network error'; }
+                finally  { this.createSaving = false; }
+            },
 
-        openResetPwModal(u) {
-          this.resetPwUser  = u;
-          this.resetPwForm  = { password: '', confirm: '' };
-          this.resetPwError = null;
-          this.showResetPwModal = true;
-        },
+            openResetPwModal(u) { this.resetPwUser = u; this.resetPwForm = { password: '', confirm: '' }; this.resetPwError = null; this.showResetPwModal = true; },
 
-        async saveResetPw() {
-          this.resetPwSaving = true;
-          this.resetPwError  = null;
-          try {
-            if (this.resetPwForm.password !== this.resetPwForm.confirm) { this.resetPwError = 'Passwords do not match'; return; }
-            if (this.resetPwForm.password.length < 8) { this.resetPwError = 'Password must be at least 8 characters'; return; }
-            const res  = await this.api('PATCH', `/users/${this.resetPwUser.id}`, { password: this.resetPwForm.password });
-            const data = await res.json();
-            if (!res.ok) { this.resetPwError = data.detail || 'Error'; return; }
-            this.showResetPwModal = false;
-          } catch { this.resetPwError = 'Network error'; }
-          finally  { this.resetPwSaving = false; }
-        },
+            async saveResetPw() {
+                this.resetPwSaving = true; this.resetPwError = null;
+                try {
+                    if (this.resetPwForm.password !== this.resetPwForm.confirm) { this.resetPwError = 'Passwords do not match'; return; }
+                    if (this.resetPwForm.password.length < 8) { this.resetPwError = 'Password must be at least 8 characters'; return; }
+                    const res  = await this.api('PATCH', `/users/${this.resetPwUser.id}`, { password: this.resetPwForm.password });
+                    const data = await res.json();
+                    if (!res.ok) { this.resetPwError = data.detail || 'Error'; return; }
+                    this.showResetPwModal = false;
+                } catch { this.resetPwError = 'Network error'; }
+                finally  { this.resetPwSaving = false; }
+            },
 
-        // Uses Auth.js logout — clears evideth_token and redirects to login
-        logout() { Auth.logout(); },
-
-        formatDate(iso) {
-          if (!iso) return '\u2014';
-          return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-        },
-      };
+            fmtDate(iso) { if (!iso) return '—'; return new Date(iso).toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'2-digit' }); },
+        };
     }
-  </script>
+    </script>
+
+    <script>
+        (function () {
+            const COUNT = 100, field = document.getElementById('particleField'), items = [];
+            let mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2;
+            for (let i = 0; i < COUNT; i++) {
+                const el = document.createElement('div'); el.className = 'particle';
+                const size = Math.random() * 4 + 1, x = Math.random() * window.innerWidth,
+                      y = Math.random() * window.innerHeight, opacity = Math.random() * 0.4 + 0.15,
+                      vx = (Math.random() - 0.5) * 0.3, vy = (Math.random() - 0.5) * 0.3;
+                el.style.cssText = 'width:'+size+'px;height:'+size+'px;left:'+x+'px;top:'+y+'px;opacity:'+opacity+';';
+                field.appendChild(el); items.push({ el, x, y, baseX: x, baseY: y, vx, vy, opacity });
+            }
+            document.addEventListener('mousemove', e => { mouseX = e.clientX; mouseY = e.clientY; });
+            (function animate() {
+                items.forEach(p => {
+                    const dx = mouseX-p.x, dy = mouseY-p.y, dist = Math.sqrt(dx*dx+dy*dy), MAX = 200;
+                    if (dist < MAX) { const force = (MAX-dist)/MAX, angle = Math.atan2(dy,dx); p.x -= Math.cos(angle)*force*3; p.y -= Math.sin(angle)*force*3; }
+                    else { p.x += (p.baseX-p.x)*0.01; p.y += (p.baseY-p.y)*0.01; }
+                    p.x += p.vx; p.y += p.vy;
+                    if (p.x < -10) p.x = window.innerWidth+10; if (p.x > window.innerWidth+10) p.x = -10;
+                    if (p.y < -10) p.y = window.innerHeight+10; if (p.y > window.innerHeight+10) p.y = -10;
+                    p.el.style.left = p.x+'px'; p.el.style.top = p.y+'px';
+                });
+                requestAnimationFrame(animate);
+            })();
+        })();
+    </script>
 </body>
 </html>
