@@ -45,14 +45,52 @@
         .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
         @keyframes pulseSubtle { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
         [x-cloak] { display: none !important; }
+
+        /* ── Inputs ── */
         input[type="text"], input[type="email"], input[type="password"] {
-            background: #000; border: 1px solid #2c5f8d; color: #e5e7eb;
-            font-family: 'Space Mono', monospace; font-size: 12px;
-            padding: 8px 12px; width: 100%; outline: none; transition: border-color 0.2s;
+            background: #000 !important;
+            border: 1px solid #2c5f8d;
+            color: #e5e7eb !important;
+            font-family: 'Space Mono', monospace;
+            font-size: 12px;
+            padding: 8px 12px;
+            width: 100%;
+            outline: none;
+            transition: border-color 0.2s;
         }
         input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus { border-color: #4a90e2; }
         input::placeholder { color: #4b5563; }
-        select { background: #000; border: 1px solid #2c5f8d; color: #9ca3af; font-family: 'Space Mono', monospace; font-size: 12px; padding: 8px 12px; outline: none; }
+
+        /* Autofill override (Chrome pone fondo amarillo) */
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        input:-webkit-autofill:active {
+            -webkit-box-shadow: 0 0 0 1000px #000 inset !important;
+            -webkit-text-fill-color: #e5e7eb !important;
+            caret-color: #e5e7eb;
+            border-color: #2c5f8d !important;
+        }
+
+        /* ── Selects ── */
+        select {
+            background: #000;
+            border: 1px solid #2c5f8d;
+            color: #9ca3af;
+            font-family: 'Space Mono', monospace;
+            font-size: 12px;
+            padding: 8px 32px 8px 12px;
+            outline: none;
+            /* quita el estilo nativo del browser */
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            /* flecha custom SVG coherente con el resto */
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234a90e2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            cursor: pointer;
+        }
         select:focus { border-color: #4a90e2; }
         select option { background: #0a0a0a; color: #e5e7eb; }
     </style>
@@ -278,7 +316,7 @@
                                       :style="u.role === 'admin' ? 'border-color:rgba(245,158,11,.35); color:#f59e0b; background:rgba(245,158,11,.05);' : u.role === 'analyst' ? 'border-color:rgba(74,144,226,.3); color:#4a90e2; background:rgba(74,144,226,.05);' : 'border-color:rgba(107,114,128,.3); color:#9ca3af; background:rgba(107,114,128,.05);'"
                                       x-text="u.role"></span>
                             </span>
-                            <select x-show="editingId === u.id" x-cloak x-model="editForm.role" style="width:auto; padding:4px 8px;">
+                            <select x-show="editingId === u.id" x-cloak x-model="editForm.role" style="width:auto; padding:4px 24px 4px 8px;">
                                 <option value="admin">admin</option>
                                 <option value="analyst">analyst</option>
                                 <option value="viewer">viewer</option>
@@ -370,14 +408,14 @@
                 <p class="font-mono text-xs tracking-widest uppercase" style="color:#4a90e2;">Create New User</p>
                 <button @click="showCreateModal = false" class="font-mono text-xs" style="color:#6b7280;">✕</button>
             </div>
-            <form @submit.prevent="createUser()" class="p-6 space-y-4">
+            <form @submit.prevent="createUser()" class="p-6 space-y-4" autocomplete="off">
                 <div>
                     <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">Full Name</p>
-                    <input type="text" x-model="createForm.full_name" placeholder="Jane Doe" required />
+                    <input type="text" x-model="createForm.full_name" placeholder="Jane Doe" autocomplete="off" required />
                 </div>
                 <div>
                     <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">Email</p>
-                    <input type="email" x-model="createForm.email" placeholder="jane@company.com" required />
+                    <input type="email" x-model="createForm.email" placeholder="jane@company.com" autocomplete="off" required />
                 </div>
                 <div>
                     <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">Role</p>
@@ -389,7 +427,7 @@
                 </div>
                 <div>
                     <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">Temporary Password</p>
-                    <input type="password" x-model="createForm.password" placeholder="Min. 8 characters" required minlength="8" />
+                    <input type="password" x-model="createForm.password" placeholder="Min. 8 characters" autocomplete="new-password" required minlength="8" />
                     <p class="font-mono text-[10px] mt-1" style="color:#4b5563;">User should change this on first login.</p>
                 </div>
                 <div x-show="createError" class="border px-3 py-2 font-mono text-xs" style="border-color:rgba(239,68,68,.4); color:#ef4444; background:rgba(239,68,68,.07);" x-text="createError"></div>
@@ -417,15 +455,15 @@
                 <p class="font-mono text-xs tracking-widest uppercase" style="color:#4a90e2;">Reset Password</p>
                 <button @click="showResetPwModal = false" class="font-mono text-xs" style="color:#6b7280;">✕</button>
             </div>
-            <form @submit.prevent="saveResetPw()" class="p-6 space-y-4">
+            <form @submit.prevent="saveResetPw()" class="p-6 space-y-4" autocomplete="off">
                 <p class="font-mono text-xs" style="color:#9ca3af;">Set new password for <span style="color:#e5e7eb;" x-text="resetPwUser && resetPwUser.email"></span></p>
                 <div>
                     <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">New Password</p>
-                    <input type="password" x-model="resetPwForm.password" placeholder="Min. 8 characters" required minlength="8" />
+                    <input type="password" x-model="resetPwForm.password" placeholder="Min. 8 characters" autocomplete="new-password" required minlength="8" />
                 </div>
                 <div>
                     <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4b5563;">Confirm Password</p>
-                    <input type="password" x-model="resetPwForm.confirm" placeholder="Repeat password" required />
+                    <input type="password" x-model="resetPwForm.confirm" placeholder="Repeat password" autocomplete="new-password" required />
                 </div>
                 <div x-show="resetPwError" class="border px-3 py-2 font-mono text-xs" style="border-color:rgba(239,68,68,.4); color:#ef4444; background:rgba(239,68,68,.07);" x-text="resetPwError"></div>
                 <div class="flex justify-end gap-3 pt-2">
