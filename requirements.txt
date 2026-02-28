@@ -27,6 +27,7 @@ Faker==40.4.0
 fastapi==0.109.2
 ffmpeg-python==0.2.0
 filelock==3.24.3
+filetype==1.2.0
 flake8==7.0.0
 future==1.0.0
 greenlet==3.3.1
@@ -74,7 +75,6 @@ pytest-asyncio==0.23.5
 pytest-cov==4.1.0
 python-dotenv==1.0.1
 python-jose==3.3.0
-python-magic==0.4.27
 python-multipart==0.0.9
 PyYAML==6.0.3
 requests==2.32.5
