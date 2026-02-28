@@ -47,7 +47,7 @@
         ::-webkit-scrollbar-thumb { background: #4a90e2; border-radius: 4px; } ::-webkit-scrollbar-thumb:hover { background: #5ba3f5; }
         .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
         @keyframes pulseSubtle { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
-        .camera-card { transition: all 0.3s ease; }
+        .camera-card { transition: all 0.3s ease; cursor: pointer; }
         .camera-card:hover { transform: translateY(-2px); }
         .camera-card.online:hover  { box-shadow: 0 0 20px rgba(74,144,226,.15); }
         .camera-card.offline:hover { box-shadow: 0 0 20px rgba(107,114,128,.1); }
@@ -62,6 +62,8 @@
         .form-error { font-family: 'Space Mono', monospace; font-size: 10px; color: #ef4444; margin-top: 4px; }
         .api-key-box { font-family: 'Space Mono', monospace; font-size: 11px; color: #4a90e2; background: #000; border: 1px solid rgba(74,144,226,.4); padding: 14px 16px; word-break: break-all; letter-spacing: 0.05em; line-height: 1.6; }
         select option { background: #0a0a0a; color: #e5e7eb; }
+        .detail-row { display: flex; justify-content: space-between; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid rgba(74,144,226,.08); }
+        .detail-row:last-child { border-bottom: none; }
     </style>
 </head>
 
@@ -85,11 +87,7 @@
              x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
              class="w-full max-w-lg card-bg border relative"
              style="border-color:#2c5f8d;">
-
-            <!-- Top accent line -->
             <div class="h-px w-full" style="background:linear-gradient(90deg, transparent, #4a90e2, transparent);"></div>
-
-            <!-- Header -->
             <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b" style="border-color:rgba(74,144,226,.15);">
                 <div>
                     <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4a90e2;">Admin · Provisioning</p>
@@ -97,91 +95,56 @@
                 </div>
                 <button @click="closeRegisterModal()" class="w-8 h-8 flex items-center justify-center border transition-colors" style="border-color:#2c5f8d; color:#6b7280;"
                         onmouseover="this.style.borderColor='#4a90e2'; this.style.color='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'; this.style.color='#6b7280'">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </div>
-
-            <!-- Form body -->
             <div class="px-6 py-5 space-y-5">
-
-                <!-- Camera ID -->
                 <div>
                     <label class="form-label">Camera ID <span style="color:#ef4444;">*</span></label>
-                    <input type="text" x-model="form.camera_id" @input="validateCameraId()"
-                           class="form-input" :class="formErrors.camera_id ? 'error' : ''"
-                           placeholder="e.g. CAM-LOBBY-01" maxlength="100" />
+                    <input type="text" x-model="form.camera_id" @input="validateCameraId()" class="form-input" :class="formErrors.camera_id ? 'error' : ''" placeholder="e.g. CAM-LOBBY-01" maxlength="100" />
                     <p x-show="formErrors.camera_id" class="form-error" x-text="formErrors.camera_id"></p>
                     <p class="font-mono text-[10px] mt-1" style="color:#4b5563;">Letters, numbers, hyphens and underscores · 3–100 chars</p>
                 </div>
-
-                <!-- Name -->
                 <div>
                     <label class="form-label">Display Name <span style="color:#ef4444;">*</span></label>
-                    <input type="text" x-model="form.name" @input="formErrors.name = form.name.trim() ? '' : 'Name is required'"
-                           class="form-input" :class="formErrors.name ? 'error' : ''"
-                           placeholder="e.g. Main Lobby Camera" maxlength="200" />
+                    <input type="text" x-model="form.name" @input="formErrors.name = form.name.trim() ? '' : 'Name is required'" class="form-input" :class="formErrors.name ? 'error' : ''" placeholder="e.g. Main Lobby Camera" maxlength="200" />
                     <p x-show="formErrors.name" class="form-error" x-text="formErrors.name"></p>
                 </div>
-
-                <!-- Location -->
                 <div>
                     <label class="form-label">Location <span class="font-mono" style="color:#4b5563;">(optional)</span></label>
-                    <input type="text" x-model="form.location"
-                           class="form-input" placeholder="e.g. Floor 1 · East Wing" maxlength="200" />
+                    <input type="text" x-model="form.location" class="form-input" placeholder="e.g. Floor 1 · East Wing" maxlength="200" />
                 </div>
-
-                <!-- Description -->
                 <div>
                     <label class="form-label">Description <span class="font-mono" style="color:#4b5563;">(optional)</span></label>
-                    <textarea x-model="form.description" rows="2"
-                              class="form-input resize-none" placeholder="Additional notes about this camera..."
-                              maxlength="500" style="display:block;"></textarea>
+                    <textarea x-model="form.description" rows="2" class="form-input resize-none" placeholder="Additional notes about this camera..." maxlength="500" style="display:block;"></textarea>
                 </div>
-
-                <!-- API error -->
                 <div x-show="registerError" class="border px-4 py-3" style="border-color:rgba(239,68,68,.35); background:rgba(127,29,29,.1);">
                     <p class="font-mono text-xs" style="color:#ef4444;" x-text="registerError"></p>
                 </div>
             </div>
-
-            <!-- Footer -->
             <div class="flex items-center justify-between px-6 pb-6 pt-2">
-                <button @click="closeRegisterModal()" class="px-5 py-2.5 border font-mono text-xs tracking-widest transition-colors"
-                        style="border-color:#1f2937; color:#6b7280;"
-                        onmouseover="this.style.borderColor='#4a90e2'; this.style.color='#4a90e2'" onmouseout="this.style.borderColor='#1f2937'; this.style.color='#6b7280'">
-                    Cancel
-                </button>
+                <button @click="closeRegisterModal()" class="px-5 py-2.5 border font-mono text-xs tracking-widest transition-colors" style="border-color:#1f2937; color:#6b7280;"
+                        onmouseover="this.style.borderColor='#4a90e2'; this.style.color='#4a90e2'" onmouseout="this.style.borderColor='#1f2937'; this.style.color='#6b7280'">Cancel</button>
                 <button @click="submitRegister()" :disabled="registerLoading"
                         class="flex items-center space-x-2 px-6 py-2.5 border font-mono text-xs tracking-widest transition-all"
                         style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.06);"
                         onmouseover="this.style.background='rgba(74,144,226,.12)'" onmouseout="this.style.background='rgba(74,144,226,.06)'">
-                    <svg x-show="registerLoading" class="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                    </svg>
+                    <svg x-show="registerLoading" class="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                     <span x-text="registerLoading ? 'Registering...' : 'Register Camera →'"></span>
                 </button>
             </div>
         </div>
-
 
         <!-- ── STEP 2: API Key reveal (one-time) ── -->
         <div x-show="registerStep === 2"
              x-transition:enter="transition ease-out duration-250" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
              class="w-full max-w-lg card-bg border relative"
              style="border-color:#4a90e2;">
-
-            <!-- Top accent line (brighter for attention) -->
             <div class="h-px w-full" style="background:linear-gradient(90deg, transparent, #5ba3f5 30%, #4a90e2 70%, transparent);"></div>
-
-            <!-- Warning header -->
             <div class="px-6 pt-6 pb-4 border-b" style="border-color:rgba(74,144,226,.2);">
                 <div class="flex items-start space-x-3">
                     <div class="w-8 h-8 flex-shrink-0 flex items-center justify-center border mt-0.5" style="border-color:rgba(245,158,11,.4); background:rgba(245,158,11,.06);">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:#f59e0b;">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-                        </svg>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:#f59e0b;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                     </div>
                     <div>
                         <p class="font-mono text-xs tracking-widest uppercase mb-1" style="color:#f59e0b;">Security Notice</p>
@@ -190,8 +153,6 @@
                     </div>
                 </div>
             </div>
-
-            <!-- Camera info summary -->
             <div class="px-6 pt-4 pb-3">
                 <div class="flex items-center space-x-4 mb-4">
                     <div>
@@ -200,8 +161,6 @@
                         <p class="font-mono text-xs" style="color:#9ca3af;" x-text="newCamera && newCamera.name"></p>
                     </div>
                 </div>
-
-                <!-- API Key box -->
                 <p class="form-label mb-2">API Key (X-API-Key)</p>
                 <div class="relative">
                     <div class="api-key-box" x-text="newCamera && newCamera.api_key"></div>
@@ -209,67 +168,295 @@
                             class="absolute top-2 right-2 flex items-center space-x-1.5 px-3 py-1.5 border font-mono text-[10px] tracking-widest transition-all"
                             :style="copied ? 'border-color:rgba(74,144,226,.6); color:#4a90e2; background:rgba(74,144,226,.1);' : 'border-color:#2c5f8d; color:#6b7280; background:#000;'"
                             onmouseover="this.style.borderColor='#4a90e2'" onmouseout="if(!this.getAttribute('data-copied')) this.style.borderColor='#2c5f8d'">
-                        <svg x-show="!copied" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                        </svg>
-                        <svg x-show="copied" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                        </svg>
+                        <svg x-show="!copied" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                        <svg x-show="copied" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                         <span x-text="copied ? 'Copied!' : 'Copy'"></span>
                     </button>
                 </div>
-
-                <!-- Usage hint -->
                 <div class="mt-3 border px-4 py-3" style="border-color:rgba(74,144,226,.12); background:rgba(74,144,226,.03);">
                     <p class="font-mono text-[10px] tracking-widest uppercase mb-1.5" style="color:#4b5563;">Configure the device with</p>
                     <p class="font-mono text-[10px]" style="color:#9ca3af;">HTTP Header: <span style="color:#4a90e2;">X-API-Key: &lt;key&gt;</span></p>
                     <p class="font-mono text-[10px] mt-1" style="color:#4b5563;">Endpoints: POST /api/v1/cameras/heartbeat · /videos · /segments</p>
                 </div>
             </div>
-
-            <!-- Checkbox gate -->
             <div class="px-6 pb-2">
                 <label class="flex items-start space-x-3 cursor-pointer group">
                     <div class="relative flex-shrink-0 mt-0.5">
                         <input type="checkbox" x-model="apiKeySaved" class="sr-only peer" />
-                        <div class="w-4 h-4 border transition-all peer-checked:border-blue-500"
-                             :style="apiKeySaved ? 'border-color:#4a90e2; background:rgba(74,144,226,.2);' : 'border-color:#374151;'"
-                             style="display:flex; align-items:center; justify-content:center;">
-                            <svg x-show="apiKeySaved" class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:#4a90e2;">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
-                            </svg>
+                        <div class="w-4 h-4 border transition-all" :style="apiKeySaved ? 'border-color:#4a90e2; background:rgba(74,144,226,.2);' : 'border-color:#374151;'" style="display:flex; align-items:center; justify-content:center;">
+                            <svg x-show="apiKeySaved" class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:#4a90e2;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
                         </div>
                     </div>
-                    <span class="font-mono text-xs leading-tight" style="color:#9ca3af;">
-                        I have copied and saved the API Key in a secure location.
-                        I understand it will <span style="color:#f59e0b;">never be shown again</span>.
-                    </span>
+                    <span class="font-mono text-xs leading-tight" style="color:#9ca3af;">I have copied and saved the API Key in a secure location. I understand it will <span style="color:#f59e0b;">never be shown again</span>.</span>
                 </label>
             </div>
-
-            <!-- Footer -->
             <div class="px-6 pb-6 pt-4">
-                <button @click="closeAfterRegister()"
-                        :disabled="!apiKeySaved"
+                <button @click="closeAfterRegister()" :disabled="!apiKeySaved"
                         class="w-full py-3 border font-mono text-sm tracking-widest transition-all duration-200"
-                        :style="apiKeySaved
-                            ? 'border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.06); cursor:pointer;'
-                            : 'border-color:#1f2937; color:#374151; cursor:not-allowed;'">
+                        :style="apiKeySaved ? 'border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.06); cursor:pointer;' : 'border-color:#1f2937; color:#374151; cursor:not-allowed;'">
                     <span x-text="apiKeySaved ? 'Done — Close' : 'Check the box above to close'"></span>
                 </button>
             </div>
         </div>
-
     </div>
-    <!-- END MODAL -->
+    <!-- END REGISTER MODAL -->
+
+
+    <!-- ═══════════════════════════════════════════════════════
+         MODAL: EDIT CAMERA
+    ═══════════════════════════════════════════════════════ -->
+    <div x-show="showEditModal"
+         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+         class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         style="background:rgba(0,0,0,0.88);"
+         @click.self="closeEditModal()"
+         @keydown.escape.window="closeEditModal()">
+
+        <div x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+             class="w-full max-w-lg card-bg border relative"
+             style="border-color:#2c5f8d;">
+            <div class="h-px w-full" style="background:linear-gradient(90deg, transparent, #4a90e2, transparent);"></div>
+
+            <!-- Header -->
+            <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b" style="border-color:rgba(74,144,226,.15);">
+                <div>
+                    <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4a90e2;">Admin · Edit Camera</p>
+                    <h3 class="font-mono text-xl font-bold" style="color:#ffffff;">Edit Camera</h3>
+                    <p class="font-mono text-xs mt-0.5" style="color:#4b5563;" x-text="editForm.camera_id"></p>
+                </div>
+                <button @click="closeEditModal()" class="w-8 h-8 flex items-center justify-center border transition-colors" style="border-color:#2c5f8d; color:#6b7280;"
+                        onmouseover="this.style.borderColor='#4a90e2'; this.style.color='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'; this.style.color='#6b7280'">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <!-- Body -->
+            <div class="px-6 py-5 space-y-5">
+                <!-- Camera ID (read-only) -->
+                <div>
+                    <label class="form-label">Camera ID</label>
+                    <div class="form-input" style="color:#4b5563; cursor:not-allowed;" x-text="editForm.camera_id"></div>
+                    <p class="font-mono text-[10px] mt-1" style="color:#4b5563;">Camera ID cannot be changed after registration.</p>
+                </div>
+
+                <!-- Name -->
+                <div>
+                    <label class="form-label">Display Name <span style="color:#ef4444;">*</span></label>
+                    <input type="text" x-model="editForm.name" @input="editErrors.name = editForm.name.trim() ? '' : 'Name is required'" class="form-input" :class="editErrors.name ? 'error' : ''" placeholder="e.g. Main Lobby Camera" maxlength="200" />
+                    <p x-show="editErrors.name" class="form-error" x-text="editErrors.name"></p>
+                </div>
+
+                <!-- Location -->
+                <div>
+                    <label class="form-label">Location <span class="font-mono" style="color:#4b5563;">(optional)</span></label>
+                    <input type="text" x-model="editForm.location" class="form-input" placeholder="e.g. Floor 1 · East Wing" maxlength="200" />
+                </div>
+
+                <!-- Description -->
+                <div>
+                    <label class="form-label">Description <span class="font-mono" style="color:#4b5563;">(optional)</span></label>
+                    <textarea x-model="editForm.description" rows="3" class="form-input resize-none" placeholder="Additional notes..." maxlength="500" style="display:block;"></textarea>
+                </div>
+
+                <!-- Success -->
+                <div x-show="editOk" x-cloak class="border px-4 py-3" style="border-color:rgba(74,144,226,.35); background:rgba(74,144,226,.06);">
+                    <p class="font-mono text-xs" style="color:#4a90e2;">&#10003; Camera updated successfully</p>
+                </div>
+
+                <!-- Error -->
+                <div x-show="editError" class="border px-4 py-3" style="border-color:rgba(239,68,68,.35); background:rgba(127,29,29,.1);">
+                    <p class="font-mono text-xs" style="color:#ef4444;" x-text="editError"></p>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="flex items-center justify-between px-6 pb-6 pt-2">
+                <button @click="closeEditModal()" class="px-5 py-2.5 border font-mono text-xs tracking-widest transition-colors" style="border-color:#1f2937; color:#6b7280;"
+                        onmouseover="this.style.borderColor='#4a90e2'; this.style.color='#4a90e2'" onmouseout="this.style.borderColor='#1f2937'; this.style.color='#6b7280'">Cancel</button>
+                <button @click="submitEdit()" :disabled="editLoading"
+                        class="flex items-center space-x-2 px-6 py-2.5 border font-mono text-xs tracking-widest transition-all"
+                        style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.06);"
+                        onmouseover="this.style.background='rgba(74,144,226,.12)'" onmouseout="this.style.background='rgba(74,144,226,.06)'">
+                    <svg x-show="editLoading" class="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    <span x-text="editLoading ? 'Saving...' : 'Save Changes'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+    <!-- END EDIT MODAL -->
+
+
+    <!-- ═══════════════════════════════════════════════════════
+         MODAL: CAMERA DETAIL
+    ═══════════════════════════════════════════════════════ -->
+    <div x-show="showDetailModal"
+         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+         class="fixed inset-0 z-40 flex items-center justify-center p-4"
+         style="background:rgba(0,0,0,0.88);"
+         @click.self="showDetailModal = false"
+         @keydown.escape.window="showDetailModal = false">
+
+        <div x-show="detailCam"
+             x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+             class="w-full max-w-2xl card-bg border relative overflow-y-auto"
+             style="border-color:#2c5f8d; max-height:90vh;">
+
+            <!-- Accent line -->
+            <div class="h-px w-full" :style="detailCam ? 'background:linear-gradient(90deg,transparent,' + accentColor(detailCam) + ',' + accentColor(detailCam) + ',transparent);' : ''"></div>
+
+            <!-- Header -->
+            <div class="flex items-start justify-between px-6 pt-6 pb-4 border-b" style="border-color:rgba(74,144,226,.15);">
+                <div class="flex-1 min-w-0 pr-4">
+                    <div class="flex items-center space-x-3 mb-2">
+                        <!-- Status badge -->
+                        <template x-if="detailCam && detailCam.status">
+                            <div class="flex items-center space-x-1.5">
+                                <div class="w-2.5 h-2.5 rounded-full" :class="detailCam.status.online ? 'pulse-dot' : ''" :style="'background-color:' + (detailCam.status.online ? '#4a90e2' : '#4b5563') + ';'"></div>
+                                <span class="font-mono text-xs tracking-widest" :style="'color:' + (detailCam && detailCam.status && detailCam.status.online ? '#4a90e2' : '#6b7280') + ';'" x-text="detailCam && detailCam.status && detailCam.status.online ? 'ONLINE' : 'OFFLINE'"></span>
+                            </div>
+                        </template>
+                        <!-- Recording badge -->
+                        <template x-if="detailCam && detailCam.status && detailCam.status.active_video">
+                            <div class="flex items-center space-x-1 px-2 py-0.5 border" style="border-color:rgba(239,68,68,.4); background:rgba(127,29,29,.15);">
+                                <div class="w-1.5 h-1.5 rounded-full animate-pulse" style="background:#ef4444;"></div>
+                                <span class="font-mono text-xs" style="color:#ef4444;">REC</span>
+                            </div>
+                        </template>
+                    </div>
+                    <p class="font-mono text-3xl font-bold" :style="detailCam ? 'color:' + accentColor(detailCam) + ';' : ''" x-text="detailCam && detailCam.camera_id"></p>
+                    <p class="font-mono text-base mt-1" style="color:#d1d5db;" x-text="detailCam && detailCam.name"></p>
+                </div>
+                <div class="flex items-center space-x-2 flex-shrink-0">
+                    <!-- Edit button in detail (admin only) -->
+                    <template x-if="isAdmin && detailCam && detailCam.is_active">
+                        <button @click.stop="openEditFromDetail()"
+                                class="flex items-center space-x-1.5 px-3 py-1.5 border font-mono text-xs transition-all"
+                                style="border-color:#2c5f8d; color:#4a90e2;"
+                                onmouseover="this.style.borderColor='#4a90e2'; this.style.background='rgba(74,144,226,.08)'" onmouseout="this.style.borderColor='#2c5f8d'; this.style.background=''">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                            <span>Edit</span>
+                        </button>
+                    </template>
+                    <button @click="showDetailModal = false" class="w-8 h-8 flex items-center justify-center border transition-colors" style="border-color:#2c5f8d; color:#6b7280;"
+                            onmouseover="this.style.borderColor='#4a90e2'; this.style.color='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'; this.style.color='#6b7280'">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Body -->
+            <div class="px-6 py-5" x-show="detailCam">
+
+                <!-- Stats row -->
+                <template x-if="detailCam && detailCam.status">
+                    <div class="grid grid-cols-3 gap-4 mb-6">
+                        <div class="border p-4 text-center" style="border-color:rgba(74,144,226,.15); background:#000;">
+                            <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#6b7280;">Total Segments</p>
+                            <p class="font-mono text-3xl font-bold" style="color:#4a90e2;" x-text="detailCam.status.stats.total_segments"></p>
+                        </div>
+                        <div class="border p-4 text-center" :style="detailCam.status.stats.invalid_segments > 0 ? 'border-color:rgba(220,38,38,.3); background:#000;' : 'border-color:rgba(74,144,226,.15); background:#000;'">
+                            <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#6b7280;">Invalid</p>
+                            <p class="font-mono text-3xl font-bold" :style="'color:' + (detailCam.status.stats.invalid_segments > 0 ? '#ef4444' : '#4a90e2') + ';'" x-text="detailCam.status.stats.invalid_segments"></p>
+                        </div>
+                        <div class="border p-4 text-center" :style="detailCam.status.stats.integrity_ok ? 'border-color:rgba(74,144,226,.15); background:#000;' : 'border-color:rgba(220,38,38,.3); background:#000;'">
+                            <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#6b7280;">Integrity</p>
+                            <p class="font-mono text-3xl font-bold" :style="'color:' + (detailCam.status.stats.integrity_ok ? '#4a90e2' : '#ef4444') + ';'" x-text="integrityRate(detailCam) + '%'"></p>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Integrity bar -->
+                <template x-if="detailCam && detailCam.status && detailCam.status.stats.total_segments > 0">
+                    <div class="mb-6">
+                        <div class="flex justify-between mb-2">
+                            <span class="font-mono text-xs tracking-widest uppercase" style="color:#6b7280;">Integrity Score</span>
+                            <span class="font-mono text-xs" :style="'color:' + (detailCam.status.stats.integrity_ok ? '#4a90e2' : '#ef4444') + ';'" x-text="integrityRate(detailCam) + '%'"></span>
+                        </div>
+                        <div class="h-2" style="background:#1f2937;">
+                            <div class="h-full transition-all duration-700" :style="'width:' + integrityRate(detailCam) + '%; background-color:' + (detailCam.status.stats.integrity_ok ? '#4a90e2' : '#ef4444') + ';'"></div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Active video -->
+                <template x-if="detailCam && detailCam.status && detailCam.status.active_video">
+                    <div class="border px-4 py-3 mb-6" style="border-color:rgba(239,68,68,.3); background:rgba(127,29,29,.08);">
+                        <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280;">Currently Recording</p>
+                        <p class="font-mono text-sm" style="color:#f87171;" x-text="detailCam.status.active_video.filename || 'unnamed'"></p>
+                    </div>
+                </template>
+
+                <!-- Camera info -->
+                <div class="border" style="border-color:rgba(74,144,226,.12);">
+                    <p class="font-mono text-[10px] tracking-widest uppercase px-4 py-3 border-b" style="color:#4a90e2; border-color:rgba(74,144,226,.12);">Camera Info</p>
+
+                    <div class="px-4">
+                        <div class="detail-row">
+                            <span class="font-mono text-[10px] tracking-widest uppercase" style="color:#4b5563;">Camera ID</span>
+                            <span class="font-mono text-xs" style="color:#4a90e2;" x-text="detailCam && detailCam.camera_id"></span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="font-mono text-[10px] tracking-widest uppercase" style="color:#4b5563;">Name</span>
+                            <span class="font-mono text-xs" style="color:#e5e7eb;" x-text="detailCam && (detailCam.name || '—')"></span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="font-mono text-[10px] tracking-widest uppercase" style="color:#4b5563;">Location</span>
+                            <span class="font-mono text-xs" style="color:#9ca3af;" x-text="detailCam && (detailCam.location || 'Not set')"></span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="font-mono text-[10px] tracking-widest uppercase" style="color:#4b5563;">Description</span>
+                            <span class="font-mono text-xs text-right max-w-xs" style="color:#9ca3af;" x-text="detailCam && (detailCam.description || 'Not set')"></span>
+                        </div>
+                        <template x-if="isAdmin && detailCam">
+                            <div class="detail-row">
+                                <span class="font-mono text-[10px] tracking-widest uppercase" style="color:#4b5563;">Owner</span>
+                                <span class="owner-badge" x-text="detailCam && (detailCam.owner_name || detailCam.owner_id || 'Unknown')"></span>
+                            </div>
+                        </template>
+                        <div class="detail-row">
+                            <span class="font-mono text-[10px] tracking-widest uppercase" style="color:#4b5563;">Status</span>
+                            <span class="font-mono text-xs px-2 py-0.5 border" :style="detailCam && detailCam.is_active ? 'border-color:rgba(74,144,226,.3); color:#4a90e2;' : 'border-color:rgba(107,114,128,.3); color:#6b7280;'" x-text="detailCam && detailCam.is_active ? 'Active' : 'Inactive'"></span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="font-mono text-[10px] tracking-widest uppercase" style="color:#4b5563;">Last Seen</span>
+                            <span class="font-mono text-xs" style="color:#6b7280;" x-text="detailCam && detailCam.status ? fmtRelative(detailCam.status.last_seen) : '—'"></span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="font-mono text-[10px] tracking-widest uppercase" style="color:#4b5563;">Registered</span>
+                            <span class="font-mono text-xs" style="color:#6b7280;" x-text="detailCam && detailCam.created_at ? new Date(detailCam.created_at).toLocaleDateString('es-ES') : '—'"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Admin actions in detail -->
+                <template x-if="isAdmin && detailCam && detailCam.is_active">
+                    <div class="mt-4 pt-4 border-t flex items-center justify-between" style="border-color:rgba(74,144,226,.1);">
+                        <span class="font-mono text-[10px] tracking-widest uppercase" style="color:#4b5563;">Danger Zone</span>
+                        <span x-show="confirmDeactivate !== detailCam.camera_id">
+                            <button @click.stop="confirmDeactivate = detailCam.camera_id"
+                                    class="font-mono text-xs px-3 py-1.5 border transition-colors"
+                                    style="border-color:rgba(239,68,68,.3); color:#6b7280;"
+                                    onmouseover="this.style.color='#ef4444'; this.style.borderColor='rgba(239,68,68,.6)'" onmouseout="this.style.color='#6b7280'; this.style.borderColor='rgba(239,68,68,.3)'">Deactivate Camera</button>
+                        </span>
+                        <span x-show="confirmDeactivate === (detailCam && detailCam.camera_id)" class="flex items-center space-x-2">
+                            <span class="font-mono text-xs" style="color:#ef4444;">Are you sure?</span>
+                            <button @click.stop="deactivateCamera(detailCam.camera_id); showDetailModal = false" class="font-mono text-xs px-3 py-1.5 border" style="border-color:#ef4444; color:#ef4444;">Yes, deactivate</button>
+                            <button @click.stop="confirmDeactivate = null" class="font-mono text-xs px-3 py-1.5 border" style="border-color:#374151; color:#6b7280;">Cancel</button>
+                        </span>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+    <!-- END DETAIL MODAL -->
 
 
     <!-- HEADER -->
     <header class="relative border-b" style="border-color:#2c5f8d; background-color:#000000;">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-20">
-
-                <!-- Logo -->
                 <div class="flex items-center space-x-4 group cursor-pointer">
                     <div class="relative animate-float">
                         <img src="../../assets/images/Buho.png" alt="EVIDETH Logo" class="w-20 h-20 logo-glow object-contain">
@@ -280,73 +467,46 @@
                     </div>
                 </div>
 
-                <!-- Nav -->
                 <nav class="hidden md:flex items-center space-x-8 font-mono text-sm">
-                    <a href="../dashboard/dashboard.html" class="transition-colors duration-300" style="color:#6b7280;"
-                       onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Dashboard</a>
-                    <a href="#" class="font-semibold" style="color:#4a90e2;">Cameras</a>
-                    <a href="../logs/logs.html" class="transition-colors duration-300" style="color:#6b7280;"
-                       onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Logs</a>
-                    <a href="#" class="transition-colors duration-300" style="color:#6b7280;"
-                       onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Settings</a>
+                    <a href="../dashboard/dashboard.html" class="transition-colors duration-300" style="color:#6b7280;" onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Dashboard</a>
+                    <a href="cameras.html" class="font-semibold" style="color:#4a90e2;">Cameras</a>
+                    <a href="../logs/logs.html" class="transition-colors duration-300" style="color:#6b7280;" onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Logs</a>
+                    <a href="../settings/settings.html" class="transition-colors duration-300" style="color:#6b7280;" onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Settings</a>
                 </nav>
 
-                <!-- Right: System Online + Profile Dropdown -->
                 <div class="flex items-center space-x-4">
                     <div class="hidden lg:flex items-center space-x-2 px-4 py-2 border" style="border-color:#2c5f8d; background:#000;">
-                        <div class="relative w-2 h-2">
-                            <div class="absolute w-2 h-2 rounded-full pulse-dot" style="background-color:#4a90e2;"></div>
-                        </div>
+                        <div class="relative w-2 h-2"><div class="absolute w-2 h-2 rounded-full pulse-dot" style="background-color:#4a90e2;"></div></div>
                         <span class="text-xs font-mono" style="color:#4a90e2;">System Online</span>
                     </div>
-
                     <div class="relative" x-data="profileMenu()" @keydown.escape.window="open = false">
-                        <button @click="open = !open"
-                                class="flex items-center space-x-2 px-3 py-2 border transition-all duration-200 cursor-pointer"
-                                style="border-color:#2c5f8d; background:#000;"
-                                onmouseover="this.style.borderColor='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'">
-                            <div class="w-8 h-8 flex items-center justify-center border text-xs font-mono font-bold flex-shrink-0"
-                                 style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);" x-text="initials()"></div>
+                        <button @click="open = !open" class="flex items-center space-x-2 px-3 py-2 border transition-all duration-200 cursor-pointer" style="border-color:#2c5f8d; background:#000;" onmouseover="this.style.borderColor='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'">
+                            <div class="w-8 h-8 flex items-center justify-center border text-xs font-mono font-bold flex-shrink-0" style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);" x-text="initials()"></div>
                             <div class="hidden lg:block text-left leading-tight">
                                 <p class="text-xs font-mono font-semibold truncate max-w-[130px]" style="color:#e5e7eb;" x-text="fullName()"></p>
-                                <p class="text-[10px] font-mono uppercase tracking-widest"
-                                   :style="isAdmin ? 'color:#f59e0b;' : 'color:#6b7280;'" x-text="role()"></p>
+                                <p class="text-[10px] font-mono uppercase tracking-widest" :style="isAdmin ? 'color:#f59e0b;' : 'color:#6b7280;'" x-text="role()"></p>
                             </div>
-                            <svg class="w-3 h-3 transition-transform duration-200 flex-shrink-0" :class="open ? 'rotate-180' : ''"
-                                 style="color:#6b7280;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                            </svg>
+                            <svg class="w-3 h-3 transition-transform duration-200 flex-shrink-0" :class="open ? 'rotate-180' : ''" style="color:#6b7280;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                         </button>
-
                         <div x-show="open" @click.outside="open = false"
-                             x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95"
-                             x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-100"
-                             x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
-                             class="absolute right-0 mt-2 w-64 border z-40"
-                             style="background:#0a0a0a; border-color:#2c5f8d; top:100%; transform-origin:top right;">
+                             x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+                             x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
+                             class="absolute right-0 mt-2 w-64 border z-40" style="background:#0a0a0a; border-color:#2c5f8d; top:100%; transform-origin:top right;">
                             <div class="px-4 py-4 border-b" style="border-color:rgba(74,144,226,.15);">
                                 <div class="flex items-center space-x-3">
-                                    <div class="w-10 h-10 flex items-center justify-center border text-sm font-mono font-bold"
-                                         style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);" x-text="initials()"></div>
+                                    <div class="w-10 h-10 flex items-center justify-center border text-sm font-mono font-bold" style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);" x-text="initials()"></div>
                                     <div class="min-w-0">
                                         <p class="font-mono text-sm font-semibold truncate" style="color:#e5e7eb;" x-text="fullName()"></p>
                                         <p class="font-mono text-xs truncate" style="color:#6b7280;" x-text="email()"></p>
                                     </div>
                                 </div>
                                 <div class="mt-3">
-                                    <span class="font-mono text-[10px] px-2 py-0.5 border uppercase tracking-widest"
-                                          :style="isAdmin ? 'border-color:rgba(245,158,11,.35); color:#f59e0b; background:rgba(245,158,11,.05);' : 'border-color:rgba(74,144,226,.3); color:#4a90e2; background:rgba(74,144,226,.05);'"
-                                          x-text="role()"></span>
+                                    <span class="font-mono text-[10px] px-2 py-0.5 border uppercase tracking-widest" :style="isAdmin ? 'border-color:rgba(245,158,11,.35); color:#f59e0b; background:rgba(245,158,11,.05);' : 'border-color:rgba(74,144,226,.3); color:#4a90e2; background:rgba(74,144,226,.05);'" x-text="role()"></span>
                                 </div>
                             </div>
                             <div class="py-1">
-                                <button @click="logout()"
-                                        class="w-full px-4 py-3 text-left font-mono text-xs flex items-center space-x-3 transition-colors duration-150"
-                                        style="color:#ef4444;"
-                                        onmouseover="this.style.background='rgba(239,68,68,.07)'" onmouseout="this.style.background=''">
-                                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-                                    </svg>
+                                <button @click="logout()" class="w-full px-4 py-3 text-left font-mono text-xs flex items-center space-x-3 transition-colors duration-150" style="color:#ef4444;" onmouseover="this.style.background='rgba(239,68,68,.07)'" onmouseout="this.style.background=''">
+                                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
                                     <span>Cerrar sesión</span>
                                 </button>
                             </div>
@@ -368,9 +528,7 @@
                 <span class="tracking-widest text-xs" x-text="isAdmin ? 'Global Camera Network' : 'Camera Network'"></span>
                 <span class="w-12 h-px" style="background:linear-gradient(to left, transparent, #4a90e2);"></span>
             </div>
-            <h2 class="text-5xl font-bold mb-4 tracking-wider" style="color:#ffffff;">
-                Camera<br/><span class="text-glow" style="color:#4a90e2;">Management System</span>
-            </h2>
+            <h2 class="text-5xl font-bold mb-4 tracking-wider" style="color:#ffffff;">Camera<br/><span class="text-glow" style="color:#4a90e2;">Management System</span></h2>
             <p class="font-mono text-sm tracking-wide" style="color:#9ca3af;">Live status · Segment integrity · Cryptographic monitoring</p>
         </div>
 
@@ -400,8 +558,7 @@
         <!-- Toolbar -->
         <div class="flex items-center justify-between mb-6">
             <div class="flex items-center space-x-3">
-                <input type="text" x-model="search"
-                       :placeholder="isAdmin ? 'Filter by ID, name, location, owner...' : 'Filter cameras...'"
+                <input type="text" x-model="search" :placeholder="isAdmin ? 'Filter by ID, name, location, owner...' : 'Filter cameras...'"
                        class="bg-black border px-4 py-2 font-mono text-sm focus:outline-none transition-colors"
                        style="border-color:#2c5f8d; color:#e5e7eb; width:280px;"
                        onfocus="this.style.borderColor='#4a90e2'" onblur="this.style.borderColor='#2c5f8d'" />
@@ -413,26 +570,20 @@
                 </select>
             </div>
             <div class="flex items-center space-x-3">
-                <!-- Register Camera button (Admin only) -->
                 <template x-if="isAdmin">
                     <button @click="openRegisterModal()"
                             class="flex items-center space-x-2 px-4 py-2 border font-mono text-xs tracking-widest transition-all duration-200"
                             style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.05);"
                             onmouseover="this.style.background='rgba(74,144,226,.12)'" onmouseout="this.style.background='rgba(74,144,226,.05)'">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                        </svg>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                         <span>Register Camera</span>
                     </button>
                 </template>
-                <!-- Refresh -->
                 <button @click="loadCameras()" :disabled="loading"
                         class="flex items-center space-x-2 px-4 py-2 border font-mono text-xs tracking-widest transition-all duration-300"
                         style="border-color:#2c5f8d; color:#4a90e2;"
                         onmouseover="this.style.borderColor='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'">
-                    <svg class="w-4 h-4" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                    </svg>
+                    <svg class="w-4 h-4" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                     <span x-text="loading ? 'Loading...' : 'Refresh'"></span>
                 </button>
             </div>
@@ -449,9 +600,7 @@
             <template x-for="i in 3" :key="i">
                 <div class="card-bg border p-6" style="border-color:rgba(74,144,226,.15);">
                     <div class="flex justify-between mb-4"><div class="skeleton h-3 w-24 rounded"></div><div class="skeleton h-3 w-12 rounded"></div></div>
-                    <div class="skeleton h-6 w-36 rounded mb-2"></div>
-                    <div class="skeleton h-3 w-48 rounded mb-2"></div>
-                    <div class="skeleton h-3 w-24 rounded mb-6"></div>
+                    <div class="skeleton h-6 w-36 rounded mb-2"></div><div class="skeleton h-3 w-48 rounded mb-2"></div><div class="skeleton h-3 w-24 rounded mb-6"></div>
                     <div class="grid grid-cols-2 gap-3 mb-4"><div class="skeleton h-12 rounded"></div><div class="skeleton h-12 rounded"></div></div>
                     <div class="skeleton h-8 w-full rounded"></div>
                 </div>
@@ -460,25 +609,22 @@
 
         <!-- Empty -->
         <div x-show="!loading && !error && filteredCameras.length === 0" x-transition class="text-center py-20">
-            <svg class="w-16 h-16 mx-auto mb-4" style="color:#374151;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-            </svg>
+            <svg class="w-16 h-16 mx-auto mb-4" style="color:#374151;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
             <p class="font-mono text-sm" style="color:#6b7280;">No cameras found</p>
             <template x-if="isAdmin">
-                <button @click="openRegisterModal()" class="mt-4 px-6 py-2 border font-mono text-xs" style="border-color:#2c5f8d; color:#4a90e2;">
-                    + Register first camera
-                </button>
+                <button @click="openRegisterModal()" class="mt-4 px-6 py-2 border font-mono text-xs" style="border-color:#2c5f8d; color:#4a90e2;">+ Register first camera</button>
             </template>
         </div>
 
         <!-- Camera grid -->
         <div x-show="!loading && !error && filteredCameras.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <template x-for="cam in filteredCameras" :key="cam.camera_id">
-                <div class="camera-card card-bg border p-6 relative overflow-hidden" :class="cardClass(cam)" :style="cardBorder(cam)">
+                <div class="camera-card card-bg border p-6 relative overflow-hidden" :class="cardClass(cam)" :style="cardBorder(cam)"
+                     @click="openDetail(cam)">
 
                     <div class="absolute top-0 left-0 w-full h-px" :style="'background: linear-gradient(90deg, transparent, ' + accentColor(cam) + '55, transparent);'"></div>
 
-                    <!-- Row 1: status + recording badge -->
+                    <!-- Row 1: status + recording/alert badge -->
                     <div class="flex items-center justify-between mb-4">
                         <div class="flex items-center space-x-2">
                             <template x-if="cam.status">
@@ -489,17 +635,29 @@
                             </template>
                             <template x-if="!cam.status"><span class="font-mono text-xs tracking-widest" style="color:#4b5563;">UNKNOWN</span></template>
                         </div>
-                        <template x-if="cam.status && cam.status.active_video">
-                            <div class="flex items-center space-x-1 px-2 py-0.5 border" style="border-color:rgba(239,68,68,.4); background:rgba(127,29,29,.15);">
-                                <div class="w-1.5 h-1.5 rounded-full animate-pulse" style="background:#ef4444;"></div>
-                                <span class="font-mono text-xs" style="color:#ef4444;">REC</span>
-                            </div>
-                        </template>
-                        <template x-if="cam.status && !cam.status.active_video && cam.status.stats.invalid_segments > 0">
-                            <div class="flex items-center space-x-1 px-2 py-0.5 border" style="border-color:rgba(239,68,68,.4); background:rgba(127,29,29,.15);">
-                                <span class="font-mono text-xs" style="color:#ef4444;">⚠ ALERT</span>
-                            </div>
-                        </template>
+                        <div class="flex items-center space-x-1.5">
+                            <template x-if="cam.status && cam.status.active_video">
+                                <div class="flex items-center space-x-1 px-2 py-0.5 border" style="border-color:rgba(239,68,68,.4); background:rgba(127,29,29,.15);">
+                                    <div class="w-1.5 h-1.5 rounded-full animate-pulse" style="background:#ef4444;"></div>
+                                    <span class="font-mono text-xs" style="color:#ef4444;">REC</span>
+                                </div>
+                            </template>
+                            <template x-if="cam.status && !cam.status.active_video && cam.status.stats.invalid_segments > 0">
+                                <div class="flex items-center space-x-1 px-2 py-0.5 border" style="border-color:rgba(239,68,68,.4); background:rgba(127,29,29,.15);">
+                                    <span class="font-mono text-xs" style="color:#ef4444;">⚠ ALERT</span>
+                                </div>
+                            </template>
+                            <!-- Edit button (admin only, stops propagation) -->
+                            <template x-if="isAdmin && cam.is_active">
+                                <button @click.stop="openEditModal(cam)"
+                                        class="w-6 h-6 flex items-center justify-center border transition-all"
+                                        style="border-color:#2c5f8d; color:#6b7280;"
+                                        onmouseover="this.style.borderColor='#4a90e2'; this.style.color='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'; this.style.color='#6b7280'"
+                                        title="Edit camera">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                                </button>
+                            </template>
+                        </div>
                     </div>
 
                     <!-- Row 2: ID + name -->
@@ -508,30 +666,25 @@
                         <p class="font-mono text-sm" style="color:#d1d5db;" x-text="cam.name"></p>
                     </div>
 
-                    <!-- Row 2.5: Owner badge (Admin only) -->
+                    <!-- Owner badge (Admin only) -->
                     <template x-if="isAdmin">
                         <div class="flex items-center space-x-1.5 mb-4 mt-2">
-                            <svg class="w-3 h-3 flex-shrink-0" style="color:#5ba3f5;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-                            </svg>
+                            <svg class="w-3 h-3 flex-shrink-0" style="color:#5ba3f5;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
                             <span class="owner-badge" x-text="cam.owner_name || cam.owner_id || 'Unknown'"></span>
                         </div>
                     </template>
                     <template x-if="!isAdmin"><div class="mb-4"></div></template>
 
-                    <!-- Row 3: Location + last seen -->
+                    <!-- Location + last seen -->
                     <div class="flex items-center justify-between mb-5">
                         <div class="flex items-center space-x-1.5">
-                            <svg class="w-3 h-3 flex-shrink-0" style="color:#6b7280;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
-                            </svg>
+                            <svg class="w-3 h-3 flex-shrink-0" style="color:#6b7280;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                             <span class="font-mono text-xs" style="color:#9ca3af;" x-text="cam.location || 'No location'"></span>
                         </div>
                         <span class="font-mono text-xs" style="color:#4b5563;" x-text="cam.status ? ('Last seen: ' + fmtRelative(cam.status.last_seen)) : '—'"></span>
                     </div>
 
-                    <!-- Row 4: Stats -->
+                    <!-- Stats -->
                     <template x-if="cam.status">
                         <div class="grid grid-cols-2 gap-3 mb-5">
                             <div class="border p-3 text-center" style="border-color:rgba(74,144,226,.15); background:#000;">
@@ -550,20 +703,18 @@
                         </div>
                     </template>
 
-                    <!-- Row 5: Integrity bar -->
+                    <!-- Integrity bar -->
                     <template x-if="cam.status && cam.status.stats.total_segments > 0">
                         <div class="mb-5">
                             <div class="flex justify-between mb-1">
                                 <span class="font-mono text-xs" style="color:#6b7280;">Integrity</span>
                                 <span class="font-mono text-xs" :style="'color:' + (cam.status.stats.integrity_ok ? '#4a90e2' : '#ef4444') + ';'" x-text="integrityRate(cam) + '%'"></span>
                             </div>
-                            <div class="h-1" style="background:#1f2937;">
-                                <div class="h-full transition-all duration-700" :style="'width:' + integrityRate(cam) + '%; background-color:' + (cam.status.stats.integrity_ok ? '#4a90e2' : '#ef4444') + ';'"></div>
-                            </div>
+                            <div class="h-1" style="background:#1f2937;"><div class="h-full transition-all duration-700" :style="'width:' + integrityRate(cam) + '%; background-color:' + (cam.status.stats.integrity_ok ? '#4a90e2' : '#ef4444') + ';'"></div></div>
                         </div>
                     </template>
 
-                    <!-- Row 6: Active video -->
+                    <!-- Active video -->
                     <template x-if="cam.status && cam.status.active_video">
                         <div class="border px-3 py-2 mb-5 font-mono text-xs" style="border-color:rgba(239,68,68,.3); background:rgba(127,29,29,.08);">
                             <span style="color:#f87171;">&#9679; Recording: </span>
@@ -571,52 +722,40 @@
                         </div>
                     </template>
 
-                    <!-- Row 7: Footer -->
+                    <!-- Footer -->
                     <div class="flex items-center justify-between pt-3 border-t" style="border-color:rgba(74,144,226,.1);">
                         <span class="font-mono text-xs" style="color:#4b5563;" x-text="'ID: ' + cam.camera_id"></span>
                         <div class="flex items-center space-x-2">
-
-                            <!-- Deactivate controls (Admin + active cameras only) -->
                             <template x-if="isAdmin && cam.is_active">
                                 <div class="flex items-center space-x-1.5">
-                                    <!-- Normal state -->
                                     <span x-show="confirmDeactivate !== cam.camera_id">
                                         <button @click.stop="confirmDeactivate = cam.camera_id"
                                                 class="font-mono text-[10px] px-2 py-0.5 border transition-colors"
                                                 style="border-color:rgba(239,68,68,.2); color:#6b7280;"
-                                                onmouseover="this.style.color='#ef4444'; this.style.borderColor='rgba(239,68,68,.5)'"
-                                                onmouseout="this.style.color='#6b7280'; this.style.borderColor='rgba(239,68,68,.2)'">
-                                            Deactivate
-                                        </button>
+                                                onmouseover="this.style.color='#ef4444'; this.style.borderColor='rgba(239,68,68,.5)'" onmouseout="this.style.color='#6b7280'; this.style.borderColor='rgba(239,68,68,.2)'">Deactivate</button>
                                     </span>
-                                    <!-- Confirm state -->
                                     <span x-show="confirmDeactivate === cam.camera_id" class="flex items-center space-x-1">
                                         <span class="font-mono text-[10px]" style="color:#ef4444;">Sure?</span>
-                                        <button @click.stop="deactivateCamera(cam.camera_id)"
-                                                class="font-mono text-[10px] px-1.5 py-0.5 border"
-                                                style="border-color:#ef4444; color:#ef4444;">Yes</button>
-                                        <button @click.stop="confirmDeactivate = null"
-                                                class="font-mono text-[10px] px-1.5 py-0.5 border"
-                                                style="border-color:#374151; color:#6b7280;">No</button>
+                                        <button @click.stop="deactivateCamera(cam.camera_id)" class="font-mono text-[10px] px-1.5 py-0.5 border" style="border-color:#ef4444; color:#ef4444;">Yes</button>
+                                        <button @click.stop="confirmDeactivate = null" class="font-mono text-[10px] px-1.5 py-0.5 border" style="border-color:#374151; color:#6b7280;">No</button>
                                     </span>
                                 </div>
                             </template>
-
-                            <span class="font-mono text-xs px-2 py-0.5 border"
-                                  :style="cam.is_active ? 'border-color:rgba(74,144,226,.3); color:#4a90e2;' : 'border-color:rgba(107,114,128,.3); color:#6b7280;'"
-                                  x-text="cam.is_active ? 'Active' : 'Inactive'"></span>
+                            <span class="font-mono text-xs px-2 py-0.5 border" :style="cam.is_active ? 'border-color:rgba(74,144,226,.3); color:#4a90e2;' : 'border-color:rgba(107,114,128,.3); color:#6b7280;'" x-text="cam.is_active ? 'Active' : 'Inactive'"></span>
                         </div>
                     </div>
 
+                    <!-- Click hint -->
+                    <div class="absolute bottom-2 right-3">
+                        <span class="font-mono text-[9px] tracking-widest" style="color:#1f2937;">click to expand</span>
+                    </div>
                 </div>
             </template>
         </div>
 
-        <!-- Pagination info -->
         <div x-show="!loading && total > cameras.length" class="mt-6 text-center">
             <p class="font-mono text-xs" style="color:#6b7280;" x-text="'Showing ' + cameras.length + ' of ' + total + ' cameras'"></p>
         </div>
-
     </main>
 
 
@@ -642,7 +781,7 @@
             isAdmin:      false,
             confirmDeactivate: null,
 
-            // ── Register modal state ───────────────────────────
+            // ── Register modal ─────────────────────────────────
             showRegisterModal: false,
             registerStep:      1,
             registerLoading:   false,
@@ -653,7 +792,19 @@
             form: { camera_id: '', name: '', location: '', description: '' },
             formErrors: { camera_id: '', name: '' },
 
-            // ── Init ────────────────────────────────────────
+            // ── Edit modal ────────────────────────────────────
+            showEditModal: false,
+            editForm: { camera_id: '', name: '', location: '', description: '' },
+            editErrors: { name: '' },
+            editLoading: false,
+            editError: null,
+            editOk: false,
+
+            // ── Detail modal ──────────────────────────────────
+            showDetailModal: false,
+            detailCam: null,
+
+            // ── Init ──────────────────────────────────────────
             init() {
                 if (typeof Auth !== 'undefined') Auth.requireAuth();
                 const user   = Auth.getUser();
@@ -662,7 +813,7 @@
                 setInterval(() => this.loadCameras(), 30_000);
             },
 
-            // ── Load cameras ────────────────────────────────
+            // ── Load cameras ──────────────────────────────────
             async loadCameras() {
                 this.loading = true; this.error = null;
                 try {
@@ -679,6 +830,11 @@
                         } catch { cam.status = null; }
                         return cam;
                     }));
+                    // Sync detailCam if open
+                    if (this.detailCam) {
+                        const updated = this.cameras.find(c => c.camera_id === this.detailCam.camera_id);
+                        if (updated) this.detailCam = updated;
+                    }
                 } catch (err) {
                     this.error = 'Error loading cameras: ' + err.message;
                 } finally {
@@ -686,10 +842,10 @@
                 }
             },
 
-            // ── Register modal methods ────────────────────────
+            // ── Register modal ────────────────────────────────
             openRegisterModal() {
-                this.form         = { camera_id: '', name: '', location: '', description: '' };
-                this.formErrors   = { camera_id: '', name: '' };
+                this.form          = { camera_id: '', name: '', location: '', description: '' };
+                this.formErrors    = { camera_id: '', name: '' };
                 this.registerError = null;
                 this.registerStep  = 1;
                 this.newCamera     = null;
@@ -699,24 +855,20 @@
                 document.body.style.overflow = 'hidden';
             },
             closeRegisterModal() {
-                if (this.registerStep === 2) return; // blocked until checkbox
+                if (this.registerStep === 2) return;
                 this.showRegisterModal = false;
                 document.body.style.overflow = '';
             },
             closeAfterRegister() {
                 this.showRegisterModal = false;
                 document.body.style.overflow = '';
-                this.loadCameras(); // refresh grid to show new camera
+                this.loadCameras();
             },
 
-            // ── Validation ──────────────────────────────────
             validateCameraId() {
                 const v = this.form.camera_id;
                 if (!v) { this.formErrors.camera_id = 'Camera ID is required'; return false; }
-                if (!/^[A-Za-z0-9_-]{3,100}$/.test(v)) {
-                    this.formErrors.camera_id = 'Only letters, numbers, - and _ (3–100 chars)';
-                    return false;
-                }
+                if (!/^[A-Za-z0-9_-]{3,100}$/.test(v)) { this.formErrors.camera_id = 'Only letters, numbers, - and _ (3–100 chars)'; return false; }
                 this.formErrors.camera_id = ''; return true;
             },
             validateForm() {
@@ -726,32 +878,16 @@
                 return idOk && nameOk;
             },
 
-            // ── Submit registration ────────────────────────────
             async submitRegister() {
                 if (!this.validateForm()) return;
-                this.registerLoading = true;
-                this.registerError   = null;
+                this.registerLoading = true; this.registerError = null;
                 try {
-                    const body = {
-                        camera_id:   this.form.camera_id.trim(),
-                        name:        this.form.name.trim(),
-                        location:    this.form.location.trim() || null,
-                        description: this.form.description.trim() || null,
-                    };
-                    const res = await fetch('/api/v1/cameras/', {
-                        method:  'POST',
-                        headers: { 'Content-Type': 'application/json', ...Auth.authHeader() },
-                        body:    JSON.stringify(body),
-                    });
+                    const body = { camera_id: this.form.camera_id.trim(), name: this.form.name.trim(), location: this.form.location.trim() || null, description: this.form.description.trim() || null };
+                    const res  = await fetch('/api/v1/cameras/', { method: 'POST', headers: { 'Content-Type': 'application/json', ...Auth.authHeader() }, body: JSON.stringify(body) });
                     if (res.status === 401) { Auth.logout(); return; }
-                    if (res.status === 400) {
-                        const data = await res.json();
-                        this.registerError = data.detail || 'Camera ID already registered';
-                        return;
-                    }
+                    if (res.status === 400) { const data = await res.json(); this.registerError = data.detail || 'Camera ID already registered'; return; }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
-                    this.newCamera    = await res.json();
-                    this.registerStep = 2;
+                    this.newCamera = await res.json(); this.registerStep = 2;
                 } catch (err) {
                     this.registerError = 'Error registering camera: ' + err.message;
                 } finally {
@@ -759,38 +895,70 @@
                 }
             },
 
-            // ── Copy API key to clipboard ──────────────────────
             async copyApiKey() {
                 const key = this.newCamera && this.newCamera.api_key;
                 if (!key) return;
-                try {
-                    await navigator.clipboard.writeText(key);
-                } catch {
-                    // Fallback for older browsers
-                    const el = document.createElement('textarea');
-                    el.value = key; el.style.position = 'fixed'; el.style.opacity = '0';
-                    document.body.appendChild(el); el.select();
-                    document.execCommand('copy'); document.body.removeChild(el);
+                try { await navigator.clipboard.writeText(key); } catch {
+                    const el = document.createElement('textarea'); el.value = key; el.style.position = 'fixed'; el.style.opacity = '0';
+                    document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
                 }
-                this.copied = true;
-                setTimeout(() => { this.copied = false; }, 2500);
+                this.copied = true; setTimeout(() => { this.copied = false; }, 2500);
             },
 
-            // ── Deactivate camera ──────────────────────────────
+            // ── Edit modal ────────────────────────────────────
+            openEditModal(cam) {
+                this.editForm    = { camera_id: cam.camera_id, name: cam.name || '', location: cam.location || '', description: cam.description || '' };
+                this.editErrors  = { name: '' };
+                this.editError   = null;
+                this.editOk      = false;
+                this.editLoading = false;
+                this.showEditModal = true;
+                document.body.style.overflow = 'hidden';
+            },
+            closeEditModal() {
+                this.showEditModal = false;
+                document.body.style.overflow = '';
+            },
+            openEditFromDetail() {
+                this.showDetailModal = false;
+                this.openEditModal(this.detailCam);
+            },
+
+            async submitEdit() {
+                if (!this.editForm.name.trim()) { this.editErrors.name = 'Name is required'; return; }
+                this.editLoading = true; this.editError = null; this.editOk = false;
+                try {
+                    const body = { name: this.editForm.name.trim(), location: this.editForm.location.trim() || null, description: this.editForm.description.trim() || null };
+                    const res  = await fetch(`/api/v1/cameras/${this.editForm.camera_id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...Auth.authHeader() }, body: JSON.stringify(body) });
+                    if (res.status === 401) { Auth.logout(); return; }
+                    if (!res.ok) { const d = await res.json().catch(() => ({})); this.editError = d.detail || 'Error updating camera'; return; }
+                    const updated = await res.json();
+                    // Update local camera list
+                    const idx = this.cameras.findIndex(c => c.camera_id === updated.camera_id);
+                    if (idx !== -1) { this.cameras[idx] = { ...this.cameras[idx], ...updated }; }
+                    this.editOk = true;
+                    setTimeout(() => { this.closeEditModal(); }, 1200);
+                } catch (err) {
+                    this.editError = 'Network error: ' + err.message;
+                } finally {
+                    this.editLoading = false;
+                }
+            },
+
+            // ── Detail modal ──────────────────────────────────
+            openDetail(cam) {
+                this.detailCam      = cam;
+                this.showDetailModal = true;
+                document.body.style.overflow = 'hidden';
+            },
+
+            // ── Deactivate ────────────────────────────────────
             async deactivateCamera(cameraId) {
                 this.confirmDeactivate = null;
                 try {
-                    const res = await fetch(`/api/v1/cameras/${cameraId}`, {
-                        method:  'DELETE',
-                        headers: Auth.authHeader(),
-                    });
+                    const res = await fetch(`/api/v1/cameras/${cameraId}`, { method: 'DELETE', headers: Auth.authHeader() });
                     if (res.status === 401) { Auth.logout(); return; }
-                    if (!res.ok) {
-                        const data = await res.json().catch(() => ({}));
-                        alert('Error: ' + (data.detail || 'HTTP ' + res.status));
-                        return;
-                    }
-                    // Optimistic update: mark camera as inactive locally
+                    if (!res.ok) { const data = await res.json().catch(() => ({})); alert('Error: ' + (data.detail || 'HTTP ' + res.status)); return; }
                     const cam = this.cameras.find(c => c.camera_id === cameraId);
                     if (cam) cam.is_active = false;
                 } catch (err) {
@@ -798,16 +966,12 @@
                 }
             },
 
-            // ── Filtering ────────────────────────────────────
+            // ── Filtering ─────────────────────────────────────
             get filteredCameras() {
                 return this.cameras.filter(cam => {
                     if (this.search) {
                         const q = this.search.toLowerCase();
-                        const match =
-                            (cam.camera_id  || '').toLowerCase().includes(q) ||
-                            (cam.name       || '').toLowerCase().includes(q) ||
-                            (cam.location   || '').toLowerCase().includes(q) ||
-                            (this.isAdmin && (cam.owner_name || '').toLowerCase().includes(q));
+                        const match = (cam.camera_id || '').toLowerCase().includes(q) || (cam.name || '').toLowerCase().includes(q) || (cam.location || '').toLowerCase().includes(q) || (this.isAdmin && (cam.owner_name || '').toLowerCase().includes(q));
                         if (!match) return false;
                     }
                     if (this.filterStatus === 'online')  return cam.status && cam.status.online;
@@ -819,7 +983,7 @@
 
             // ── Card helpers ──────────────────────────────────
             accentColor(cam) {
-                if (!cam.status) return '#6b7280';
+                if (!cam || !cam.status) return '#6b7280';
                 if (cam.status.stats && cam.status.stats.invalid_segments > 0) return '#ef4444';
                 return cam.status.online ? '#4a90e2' : '#6b7280';
             },
@@ -834,7 +998,7 @@
                 return cam.status.online ? 'border-color:rgba(74,144,226,.3);' : 'border-color:rgba(74,144,226,.12);';
             },
             integrityRate(cam) {
-                if (!cam.status || !cam.status.stats) return 100;
+                if (!cam || !cam.status || !cam.status.stats) return 100;
                 const total = cam.status.stats.total_segments, invalid = cam.status.stats.invalid_segments;
                 if (total === 0) return 100;
                 return Math.round(((total - invalid) / total) * 100);
