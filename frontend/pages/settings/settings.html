@@ -72,26 +72,29 @@
             border-color: #2c5f8d !important;
         }
 
-        /* ── Selects ── */
+        /* ── Selects: mismo estilo que botón Refresh ── */
         select {
             background: #000;
             border: 1px solid #2c5f8d;
-            color: #9ca3af;
+            color: #6b7280;
             font-family: 'Space Mono', monospace;
             font-size: 12px;
             padding: 8px 32px 8px 12px;
             outline: none;
-            /* quita el estilo nativo del browser */
             -webkit-appearance: none;
             -moz-appearance: none;
             appearance: none;
-            /* flecha custom SVG coherente con el resto */
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234a90e2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+            /* flecha gris, igual que el texto del Refresh */
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
             background-position: right 10px center;
             cursor: pointer;
+            transition: border-color 0.2s, color 0.2s;
         }
-        select:focus { border-color: #4a90e2; }
+        select:hover { border-color: #4a90e2; color: #4a90e2;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234a90e2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+        }
+        select:focus { border-color: #4a90e2; color: #4a90e2; }
         select option { background: #0a0a0a; color: #e5e7eb; }
     </style>
 </head>
