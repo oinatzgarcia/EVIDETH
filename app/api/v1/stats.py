@@ -11,6 +11,10 @@ from app.db.models import (
 from app.core.dependencies import require_analyst
 
 
+# Debe coincidir con CAMERA_ONLINE_THRESHOLD_SECONDS en cameras.py
+CAMERA_ONLINE_THRESHOLD_SECONDS = 60
+
+
 router = APIRouter(
     prefix="/stats",
     tags=["Statistics"],
@@ -23,17 +27,21 @@ router = APIRouter(
 
 @router.get(
     "/",
-    summary="Estadísticas globales del sistema",
+    summary="Estadísticas del sistema",
     description="""
-Devuelve estadísticas agregadas en tiempo real sobre todo el sistema.
+Devuelve estadísticas agregadas en tiempo real.
+
+- **Admin**: ve estadísticas globales de todo el sistema, incluida la sección `users`.
+- **Analyst/Viewer**: ve estadísticas acotadas a sus propias cámaras
+  (cámaras, videos, segmentos y verificaciones). La sección `users` no se incluye.
 
 **Secciones:**
-- `cameras`: total, activas, inactivas y cuántas están online ahora mismo
-- `videos`: total por estado (grabando, completado, corrupto, archivado)
+- `cameras`: total, activas, inactivas y online ahora mismo
+- `videos`: total por estado
 - `segments`: total por estado + tasa de integridad
 - `verifications`: total por resultado + tasa de éxito
-- `users`: total activos por rol
-- `last_24h`: actividad de las útimas 24 horas
+- `users`: total activos por rol (**solo Admin**)
+- `last_24h`: actividad de las últimas 24 horas
 
 Requiere rol **Analyst** o **Admin**.
     """
@@ -42,67 +50,98 @@ def get_stats(
     db: Session = Depends(get_db),
     current_user  = Depends(require_analyst)
 ):
-    now = datetime.now(timezone.utc)
+    now      = datetime.now(timezone.utc)
+    is_admin = current_user.role == UserRole.ADMIN
 
-    # ── Cámaras ──────────────────────────────────────
-    total_cameras  = db.query(func.count(Camera.id)).scalar() or 0
-    active_cameras = db.query(func.count(Camera.id)).filter(Camera.is_active == True).scalar() or 0
-    two_min_ago    = now - timedelta(minutes=2)
-    online_cameras = db.query(func.count(Camera.id)).filter(
+    # Umbral de online: consistente con cameras.py
+    online_threshold = now - timedelta(seconds=CAMERA_ONLINE_THRESHOLD_SECONDS)
+
+    # ── Subquery de cámaras accesibles para el usuario ──────────────────────
+    # Admin: todas las cámaras. Analyst/Viewer: solo las propias.
+    cam_q = db.query(Camera)
+    if not is_admin:
+        cam_q = cam_q.filter(Camera.owner_id == str(current_user.id))
+
+    # IDs de cámaras accesibles — usado para filtrar videos/segmentos/verifs
+    owned_cam_ids = db.query(Camera.id)
+    if not is_admin:
+        owned_cam_ids = owned_cam_ids.filter(Camera.owner_id == str(current_user.id))
+    owned_cam_ids_sq = owned_cam_ids.subquery()
+
+    # ── Cámaras ────────────────────────────────────────────────
+    total_cameras  = cam_q.count()
+    active_cameras = cam_q.filter(Camera.is_active == True).count()
+    online_cameras = cam_q.filter(
         Camera.is_active == True,
-        Camera.last_seen >= two_min_ago
-    ).scalar() or 0
+        Camera.last_seen >= online_threshold
+    ).count()
 
-    # ── Videos ──────────────────────────────────────
-    total_videos   = db.query(func.count(Video.id)).scalar() or 0
+    # ── Videos ────────────────────────────────────────────────
+    vid_q = db.query(Video).filter(Video.camera_id.in_(owned_cam_ids_sq))
+    total_videos     = vid_q.count()
     videos_by_status = {
-        s.value: (db.query(func.count(Video.id)).filter(Video.status == s).scalar() or 0)
+        s.value: (vid_q.filter(Video.status == s).count())
         for s in VideoStatus
     }
 
-    # ── Segmentos ──────────────────────────────────
-    total_segments = db.query(func.count(Segment.id)).scalar() or 0
+    # ── Segmentos ─────────────────────────────────────────────
+    owned_vid_ids_sq = db.query(Video.id).filter(
+        Video.camera_id.in_(owned_cam_ids_sq)
+    ).subquery()
+
+    seg_q          = db.query(Segment).filter(Segment.video_id.in_(owned_vid_ids_sq))
+    total_segments = seg_q.count()
     segs_by_status = {
-        s.value: (db.query(func.count(Segment.id)).filter(Segment.status == s).scalar() or 0)
+        s.value: (seg_q.filter(Segment.status == s).count())
         for s in SegmentStatus
     }
     valid_segs     = segs_by_status.get("valid", 0)
     integrity_rate = round(valid_segs / total_segments * 100, 2) if total_segments > 0 else 0.0
 
-    # ── Verificaciones ─────────────────────────────
-    total_verifs   = db.query(func.count(Verification.id)).scalar() or 0
+    # ── Verificaciones ─────────────────────────────────────────
+    owned_seg_ids_sq = db.query(Segment.id).filter(
+        Segment.video_id.in_(owned_vid_ids_sq)
+    ).subquery()
+
+    verif_q        = db.query(Verification).filter(
+        Verification.segment_id.in_(owned_seg_ids_sq)
+    )
+    total_verifs   = verif_q.count()
     verifs_by_result = {
-        r.value: (db.query(func.count(Verification.id)).filter(Verification.result == r).scalar() or 0)
+        r.value: (verif_q.filter(Verification.result == r).count())
         for r in VerificationResult
     }
-    pass_verifs    = verifs_by_result.get("pass", 0)
-    success_rate   = round(pass_verifs / total_verifs * 100, 2) if total_verifs > 0 else 0.0
+    pass_verifs  = verifs_by_result.get("pass", 0)
+    success_rate = round(pass_verifs / total_verifs * 100, 2) if total_verifs > 0 else 0.0
 
-    # ── Usuarios ────────────────────────────────────
-    total_users    = db.query(func.count(User.id)).scalar() or 0
-    active_users   = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
-    users_by_role  = {
-        r.value: (
-            db.query(func.count(User.id))
-            .filter(User.role == r, User.is_active == True)
-            .scalar() or 0
-        )
-        for r in UserRole
-    }
+    # ── Usuarios (solo Admin) ───────────────────────────────────
+    # Analistas y viewers no necesitan conocer la distribución de usuarios
+    # del sistema — es información sensible de la plataforma.
+    users_section = None
+    if is_admin:
+        total_users  = db.query(func.count(User.id)).scalar() or 0
+        active_users = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
+        users_by_role = {
+            r.value: (
+                db.query(func.count(User.id))
+                .filter(User.role == r, User.is_active == True)
+                .scalar() or 0
+            )
+            for r in UserRole
+        }
+        users_section = {
+            "total":   total_users,
+            "active":  active_users,
+            "by_role": users_by_role,
+        }
 
-    # ── Actividad útimas 24 h ────────────────────────
-    yesterday = now - timedelta(hours=24)
-    verifs_24h   = db.query(func.count(Verification.id)).filter(
-        Verification.verified_at >= yesterday
-    ).scalar() or 0
-    segments_24h = db.query(func.count(Segment.id)).filter(
-        Segment.created_at >= yesterday
-    ).scalar() or 0
-    videos_24h   = db.query(func.count(Video.id)).filter(
-        Video.created_at >= yesterday
-    ).scalar() or 0
+    # ── Actividad últimas 24 h (acotada por ownership) ───────────────
+    yesterday    = now - timedelta(hours=24)
+    verifs_24h   = verif_q.filter(Verification.verified_at >= yesterday).count()
+    segments_24h = seg_q.filter(Segment.created_at >= yesterday).count()
+    videos_24h   = vid_q.filter(Video.created_at >= yesterday).count()
 
-    return {
+    response = {
         "cameras": {
             "total":      total_cameras,
             "active":     active_cameras,
@@ -123,11 +162,6 @@ def get_stats(
             **verifs_by_result,
             "success_rate_pct": success_rate,
         },
-        "users": {
-            "total":   total_users,
-            "active":  active_users,
-            "by_role": users_by_role,
-        },
         "last_24h": {
             "verifications":     verifs_24h,
             "segments_uploaded": segments_24h,
@@ -135,3 +169,8 @@ def get_stats(
         },
         "generated_at": now.isoformat(),
     }
+
+    if users_section:
+        response["users"] = users_section
+
+    return response
