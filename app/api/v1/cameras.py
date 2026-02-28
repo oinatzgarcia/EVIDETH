@@ -10,6 +10,11 @@ from pydantic import BaseModel, field_validator
 import re
 
 
+# Umbral para considerar una cámara como online.
+# Una cámara envía segmentos cada 30 s, así que 60 s = 2 segmentos perdidos.
+CAMERA_ONLINE_THRESHOLD_SECONDS = 60
+
+
 router = APIRouter(
     prefix="/cameras",
     tags=["Cameras"],
@@ -176,6 +181,23 @@ def _to_camera_detail(camera: Camera) -> CameraDetailResponse:
     )
 
 
+def _is_camera_online(camera: Camera) -> bool:
+    """Devuelve True si la cámara ha enviado un segmento/heartbeat
+    en los últimos CAMERA_ONLINE_THRESHOLD_SECONDS segundos.
+
+    Nota: se usa .total_seconds() — no .seconds — para evitar el bug
+    que ocurre cuando last_seen tiene más de 24 h de antigüedad
+    (.seconds solo devuelve el componente de segundos dentro del día).
+    """
+    if camera.last_seen is None:
+        return False
+    last = camera.last_seen
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    delta = datetime.now(timezone.utc) - last
+    return delta.total_seconds() < CAMERA_ONLINE_THRESHOLD_SECONDS
+
+
 # ── 1. Registrar cámara (solo Admin) ─────────────────
 
 @router.post(
@@ -289,10 +311,9 @@ def camera_status(
         Segment.status  == SegmentStatus.INVALID
     ).count()
 
-    is_online = (
-        camera.last_seen is not None and
-        (datetime.now(timezone.utc) - camera.last_seen).seconds < 120
-    )
+    # Usa el helper centralizado para consistencia en todo el codebase.
+    # total_seconds() es correcto para cualquier antigüedad; .seconds falla >24 h.
+    is_online = _is_camera_online(camera)
 
     return {
         "camera_id":    camera.camera_id,
@@ -386,6 +407,7 @@ def upload_segment(
         signed_at=datetime.now(timezone.utc) if data.ecdsa_signature else None
     )
     db.add(segment)
+    # Actualizar last_seen en cada segmento recibido → fuente de verdad de actividad
     camera.last_seen = datetime.now(timezone.utc)
     db.commit()
     db.refresh(segment)
