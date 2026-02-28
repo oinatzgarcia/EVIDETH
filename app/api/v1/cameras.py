@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, timezone
 from app.db.session import get_db
 from app.db.models import Camera, Segment, Video, SegmentStatus, VideoStatus, UserRole
@@ -8,6 +8,7 @@ from app.core.security import generate_api_key, hash_api_key
 from app.core.dependencies import require_admin, require_analyst, get_current_camera
 from pydantic import BaseModel, field_validator
 import re
+import json
 
 
 # Umbral para considerar una cámara como online.
@@ -75,14 +76,28 @@ class CameraUpdate(BaseModel):
 
 
 class SegmentUpload(BaseModel):
+    """
+    Payload que envía la cámara al subir un segmento.
+
+    Criptografía de dos niveles:
+      Nivel 1 — sha256_hash:   SHA-256 del fichero de segmento completo.
+      Nivel 2 — second_hashes: lista de SHA-256, uno por segundo del segmento.
+                merkle_root:   raíz del árbol Merkle construido sobre second_hashes.
+                               Permite al servidor localizar exactamente qué
+                               segundo fue manipulado durante la verificación.
+    """
     video_id:        str
     segment_index:   int
     start_time_secs: int
     end_time_secs:   int
     sha256_hash:     str
-    ecdsa_signature: Optional[str] = None
-    public_key_id:   Optional[str] = None
-    file_size_bytes: Optional[int] = None
+    ecdsa_signature: Optional[str]       = None
+    public_key_id:   Optional[str]       = None
+    file_size_bytes: Optional[int]       = None
+
+    # Nivel 2 — Merkle
+    merkle_root:   Optional[str]       = None   # SHA-256 hex (64 chars) de la raíz
+    second_hashes: Optional[List[str]] = None   # [h_s0, h_s1, ..., h_s(N-1)]
 
     @field_validator('sha256_hash')
     @classmethod
@@ -90,6 +105,24 @@ class SegmentUpload(BaseModel):
         if not re.match(r'^[a-fA-F0-9]{64}$', v):
             raise ValueError('sha256_hash debe ser exactamente 64 caracteres hexadecimales')
         return v.lower()
+
+    @field_validator('merkle_root')
+    @classmethod
+    def validate_merkle_root(cls, v):
+        if v is not None and not re.match(r'^[a-fA-F0-9]{64}$', v):
+            raise ValueError('merkle_root debe ser exactamente 64 caracteres hexadecimales')
+        return v.lower() if v else v
+
+    @field_validator('second_hashes')
+    @classmethod
+    def validate_second_hashes(cls, v):
+        if v is not None:
+            for h in v:
+                if not re.match(r'^[a-fA-F0-9]{64}$', h):
+                    raise ValueError(
+                        f'Cada hash en second_hashes debe ser 64 chars hex; inválido: {h[:16]}...'
+                    )
+        return v
 
     @field_validator('segment_index')
     @classmethod
@@ -123,6 +156,7 @@ class SegmentResponse(BaseModel):
     id:            str
     segment_index: int
     sha256_hash:   str
+    merkle_root:   Optional[str]
     status:        str
     signed_at:     Optional[datetime]
     created_at:    Optional[datetime]
@@ -311,8 +345,6 @@ def camera_status(
         Segment.status  == SegmentStatus.INVALID
     ).count()
 
-    # Usa el helper centralizado para consistencia en todo el codebase.
-    # total_seconds() es correcto para cualquier antigüedad; .seconds falla >24 h.
     is_online = _is_camera_online(camera)
 
     return {
@@ -372,7 +404,16 @@ def start_video(
     response_model=SegmentResponse,
     status_code=201,
     summary="Enviar segmento de video",
-    description="La cámara envía el hash SHA-256 y firma ECDSA de cada segmento de 30s. Requiere `X-API-Key`."
+    description="""
+La cámara envía el hash SHA-256, firma ECDSA y datos Merkle de cada segmento de 30 s.
+Requiere `X-API-Key`.
+
+**Niveles criptográficos almacenados:**
+- `sha256_hash`:   SHA-256 del fichero de segmento completo (Nivel 1)
+- `merkle_root`:   Raíz del árbol Merkle de hashes por segundo (Nivel 2, opcional)
+- `second_hashes`: Lista de SHA-256, uno por segundo del segmento (Nivel 2, opcional)
+- `ecdsa_signature`: Firma ECDSA P-256 del merkle_root (o sha256_hash si no hay Merkle)
+    """
 )
 def upload_segment(
     data:    SegmentUpload,
@@ -393,18 +434,29 @@ def upload_segment(
     ).first():
         raise HTTPException(status_code=409, detail=f"Segmento #{data.segment_index} ya registrado")
 
+    # Serializar second_hashes a JSON para guardar en columna Text
+    second_hashes_json = json.dumps(data.second_hashes) if data.second_hashes else None
+
+    # Estado del segmento:
+    #   VALID   → tiene firma ECDSA + merkle_root (ambos niveles completos)
+    #   PENDING → falta firma o Merkle (aceptable durante desarrollo)
+    has_full_crypto = bool(data.ecdsa_signature and data.merkle_root)
+    status = SegmentStatus.VALID if has_full_crypto else SegmentStatus.PENDING
+
     segment = Segment(
-        video_id=data.video_id,
-        segment_index=data.segment_index,
-        duration_secs=data.end_time_secs - data.start_time_secs,
-        start_time_secs=data.start_time_secs,
-        end_time_secs=data.end_time_secs,
-        file_size_bytes=data.file_size_bytes,
-        sha256_hash=data.sha256_hash,
-        ecdsa_signature=data.ecdsa_signature,
-        public_key_id=data.public_key_id,
-        status=SegmentStatus.VALID if data.ecdsa_signature else SegmentStatus.PENDING,
-        signed_at=datetime.now(timezone.utc) if data.ecdsa_signature else None
+        video_id        = data.video_id,
+        segment_index   = data.segment_index,
+        duration_secs   = data.end_time_secs - data.start_time_secs,
+        start_time_secs = data.start_time_secs,
+        end_time_secs   = data.end_time_secs,
+        file_size_bytes = data.file_size_bytes,
+        sha256_hash     = data.sha256_hash,
+        ecdsa_signature = data.ecdsa_signature,
+        public_key_id   = data.public_key_id,
+        merkle_root     = data.merkle_root,
+        second_hashes   = second_hashes_json,
+        status          = status,
+        signed_at       = datetime.now(timezone.utc) if data.ecdsa_signature else None,
     )
     db.add(segment)
     # Actualizar last_seen en cada segmento recibido → fuente de verdad de actividad
@@ -483,7 +535,6 @@ def list_videos(
     if not camera:
         raise HTTPException(status_code=404, detail="Cámara no encontrada")
 
-    # Analyst solo puede listar videos de sus propias cámaras
     if current_user.role != UserRole.ADMIN and camera.owner_id != str(current_user.id):
         raise HTTPException(status_code=403, detail="No tienes acceso a esta cámara")
 
@@ -529,7 +580,6 @@ def get_camera(
     if not camera:
         raise HTTPException(status_code=404, detail="Cámara no encontrada")
 
-    # Analyst solo puede consultar sus propias cámaras
     if current_user.role != UserRole.ADMIN and camera.owner_id != str(current_user.id):
         raise HTTPException(status_code=403, detail="No tienes acceso a esta cámara")
 
