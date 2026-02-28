@@ -1,0 +1,22 @@
+# EVIDETH Camera Simulator — dependencias
+# Instalar con: pip install -r requirements.txt
+
+# Vídeo y frames sintéticos
+opencv-python-headless==4.9.0.80
+numpy==2.4.2
+
+# Comunicación con el backend
+requests==2.32.5
+
+# Criptografía ECDSA P-256
+cryptography==42.0.4
+
+# Logging estructurado
+loguru==0.7.2
+
+# Variables de entorno desde .env
+python-dotenv==1.0.1
+
+# Azure Key Vault (solo necesario si SIGNING_MODE=azure)
+azure-identity==1.15.0
+azure-keyvault-keys==4.9.0

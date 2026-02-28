@@ -1,0 +1,36 @@
+# EVIDETH — Docker Compose (uso LOCAL)
+# ==============================================
+# Levanta el simulador de cámara en tu PC apuntando al backend en Azure.
+#
+# Uso:
+#   1. Crear simulator/.env a partir de simulator/.env.example
+#   2. docker compose up --build
+#
+# El backend y la BD corren en Azure (no en este compose).
+# Para entorno local completo (dev), ver docker-compose.dev.yml
+# ==============================================
+
+services:
+  camera-simulator:
+    build:
+      context: ./simulator
+      dockerfile: Dockerfile
+    container_name: evideth-cam-simulator
+    env_file:
+      - ./simulator/.env
+    volumes:
+      # Persistir la clave privada ECDSA entre reinicios del contenedor
+      - simulator-keys:/keys
+    restart: unless-stopped
+    # Sin puertos expuestos: el simulador solo hace requests salientes al backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  simulator-keys:
+    # Volumen nombrado para la clave privada ECDSA P-256
+    # La clave se genera automáticamente en el primer arranque
+    # y se reutiliza en los siguientes.
