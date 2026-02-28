@@ -13,7 +13,7 @@ Simula una cámara de seguridad:
   8. Mantiene un heartbeat cada HEARTBEAT_INTERVAL segundos
   9. Reintenta los envíos fallidos mediante una cola persistente
 
-CONVENCIÓN ECDSA:
+CONVENCIAN ECDSA:
     datos firmados = bytes.fromhex(merkle_root)   [32 bytes raw]
     algoritmo      = ECDSA con SHA-256 interno
     codificación   = base64url del DER signature
@@ -35,9 +35,12 @@ Variables de entorno (ver .env.example):
     HEARTBEAT_INTERVAL Segundos entre heartbeats (default: 30)
     MAX_RETRIES        Reintentos por petición (default: 3)
     RETRY_DELAY        Segundos base entre reintentos (default: 5)
+    SAVE_SEGMENTS_DIR  Directorio donde copiar los segmentos generados
+                       (vacío = no guardar). útil para pruebas de verificación.
 """
 
 import os
+import shutil
 import time
 import queue
 import hashlib
@@ -61,7 +64,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# ── Configuración ────────────────────────────────────────────────
+# ── Configuración ────────────────────────────────────────────
 
 API_URL            = os.environ["API_URL"].rstrip("/")
 CAMERA_API_KEY     = os.environ["CAMERA_API_KEY"]
@@ -76,19 +79,20 @@ TAMPER_MODE        = os.getenv("TAMPER_MODE",             "false").lower() == "t
 HEARTBEAT_INTERVAL = int(os.getenv("HEARTBEAT_INTERVAL",  "30"))
 MAX_RETRIES        = int(os.getenv("MAX_RETRIES",         "3"))
 RETRY_DELAY        = int(os.getenv("RETRY_DELAY",         "5"))
+SAVE_SEGMENTS_DIR  = os.getenv("SAVE_SEGMENTS_DIR",       "").strip()
 
 HEADERS    = {"X-API-Key": CAMERA_API_KEY}
 _EMPTY_HASH = hashlib.sha256(b"").hexdigest()   # centinela para segundos no extraíbles
 
 
-# ── Criptografía: Merkle tree (cópia exacta de app/utils/merkle.py) ───────────
+# ── Criptografía: Merkle tree (cópia exacta de app/utils/merkle.py) ──────────
 #
 # IMPORTANTE: el algoritmo debe ser idéntico al del servidor para que los
 # Merkle roots coincidan. Cualquier diferencia (orden de concatenación,
 # manejo de nodos impares, etc.) hace que la verificación falle siempre.
 
 def _sha256_concat(left: str, right: str) -> str:
-    """SHA-256(left_bytes ‖ right_bytes). left/right son strings hex de 64 chars."""
+    """SHA-256(left_bytes ‡ right_bytes). left/right son strings hex de 64 chars."""
     return hashlib.sha256(bytes.fromhex(left) + bytes.fromhex(right)).hexdigest()
 
 
@@ -114,7 +118,7 @@ def build_merkle_root(leaf_hashes: List[str]) -> str:
     return level[0]
 
 
-# ── Hashing ───────────────────────────────────────────────────
+# ── Hashing ──────────────────────────────────────────
 
 def sha256_file(path: str) -> str:
     """
@@ -172,7 +176,7 @@ def extract_second_hashes(seg_path: str, duration_secs: int) -> List[str]:
     return leaf_hashes
 
 
-# ── Servicio de firma ECDSA P-256 ──────────────────────────────────
+# ── Servicio de firma ECDSA P-256 ─────────────────────────────
 
 class CryptoService:
     """
@@ -265,7 +269,7 @@ class CryptoService:
             return base64.urlsafe_b64encode(sig).decode()
 
 
-# ── Cliente API ───────────────────────────────────────────────────
+# ── Cliente API ─────────────────────────────────────────
 
 class APIClient:
     """Comunicación con el backend EVIDETH con reintentos y backoff exponencial."""
@@ -343,7 +347,7 @@ class APIClient:
             logger.warning(f"Heartbeat fallido: {exc}")
 
 
-# ── Generador de vídeo ───────────────────────────────────────────
+# ── Generador de vídeo ────────────────────────────────────
 
 class VideoGenerator:
     """
@@ -426,7 +430,7 @@ class VideoGenerator:
         return frame
 
 
-# ── Daemon principal ───────────────────────────────────────────
+# ── Daemon principal ───────────────────────────────────
 
 class CameraSimulator:
     """
@@ -449,6 +453,7 @@ class CameraSimulator:
         logger.info(f"  Segmento   : {SEGMENT_DURATION}s @ {FPS}fps {WIDTH}x{HEIGHT}")
         logger.info(f"  Firma      : {SIGNING_MODE.upper()} sobre merkle_root")
         logger.info(f"  Tamper     : {'ACTIVADO ⚠️' if TAMPER_MODE else 'desactivado'}")
+        logger.info(f"  Guardar    : {SAVE_SEGMENTS_DIR if SAVE_SEGMENTS_DIR else 'desactivado (solo temp)'}")
         logger.info("=" * 60)
 
         threading.Thread(target=self._heartbeat_loop, daemon=True, name="heartbeat").start()
@@ -506,7 +511,21 @@ class CameraSimulator:
                 f"    firma        : {signature[:20]}..."
             )
 
-            # 7. Payload completo para el servidor
+            # 7. Guardar copia del segmento si SAVE_SEGMENTS_DIR está configurado
+            #    DEBE hacerse ANTES de que el TemporaryDirectory se elimine.
+            #    El fichero guardado tiene el mismo nombre que el filename enviado
+            #    al servidor, facilitando correlacionar con el video_id en BD.
+            if SAVE_SEGMENTS_DIR:
+                os.makedirs(SAVE_SEGMENTS_DIR, exist_ok=True)
+                saved_path = os.path.join(SAVE_SEGMENTS_DIR, fname)
+                shutil.copy2(seg_path, saved_path)
+                logger.info(
+                    f"  💾 Segmento guardado → {saved_path}\n"
+                    f"     video_id en BD : {video_id}\n"
+                    f"     Para verificar : POST /api/v1/verification/upload/{video_id}"
+                )
+
+            # 8. Payload completo para el servidor
             payload = {
                 "video_id":        video_id,
                 "segment_index":   idx,
@@ -520,12 +539,12 @@ class CameraSimulator:
                 "second_hashes":   second_hashes,
             }
 
-            # 8. Enviar (con reintentos internos)
+            # 9. Enviar (con reintentos internos)
             if not self.api.send_segment(payload):
                 logger.error(f"Segmento {idx} encolado para reintento")
                 self._failed.put(payload)
 
-        # 9. Finalizar vídeo
+        # 10. Finalizar vídeo
         self.api.finish_video(video_id)
 
     @staticmethod
@@ -564,7 +583,7 @@ class CameraSimulator:
                 self._failed.put(p)
 
 
-# ── Entry point ──────────────────────────────────────────────
+# ── Entry point ─────────────────────────────────────
 
 if __name__ == "__main__":
     CameraSimulator().run()
