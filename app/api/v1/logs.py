@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import csv, io
 
 from app.db.session import get_db
-from app.db.models import Verification, Video, Segment, Camera, VerificationResult
+from app.db.models import Verification, Video, Segment, Camera, VerificationResult, UserRole
 from app.core.dependencies import require_analyst
 
 
@@ -29,11 +29,20 @@ def _ts(dt: Optional[datetime]) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def _collect_events(db, event_type, camera_id, user_id, date_from, date_to) -> list:
-    """Recoge eventos de las 4 fuentes y los devuelve como lista de dicts homogéneos."""
+def _collect_events(db, event_type, camera_id, user_id, date_from, date_to, current_user=None) -> list:
+    """
+    Recoge eventos de las 4 fuentes y los devuelve como lista de dicts homógeneos.
+
+    Control de acceso por propietario de cámara:
+    - Admin: ve eventos de todas las cámaras.
+    - Analyst/Viewer: solo ve eventos de sus propias cámaras.
+    """
+    is_admin  = current_user is None or current_user.role == UserRole.ADMIN
+    owner_id  = None if is_admin else str(current_user.id)
+
     events = []
 
-    # ── Verificaciones ──────────────────────────────
+    # ── Verificaciones ───────────────────────────────────────────
     if event_type in (None, "verification"):
         q = (
             db.query(Verification)
@@ -41,6 +50,7 @@ def _collect_events(db, event_type, camera_id, user_id, date_from, date_to) -> l
             .join(Video,    Segment.video_id         == Video.id)
             .join(Camera,   Video.camera_id          == Camera.id)
         )
+        if owner_id:  q = q.filter(Camera.owner_id == owner_id)   # ◄ ownership
         if camera_id: q = q.filter(Camera.camera_id == camera_id)
         if user_id:   q = q.filter(Verification.verified_by_id == user_id)
         if date_from: q = q.filter(Verification.verified_at >= date_from)
@@ -70,9 +80,10 @@ def _collect_events(db, event_type, camera_id, user_id, date_from, date_to) -> l
                 "file_size_bytes": None,
             })
 
-    # ── Videos iniciados ───────────────────────────
+    # ── Videos iniciados ──────────────────────────────────────────
     if event_type in (None, "video_started"):
         q = db.query(Video).join(Camera, Video.camera_id == Camera.id)
+        if owner_id:  q = q.filter(Camera.owner_id == owner_id)   # ◄ ownership
         if camera_id: q = q.filter(Camera.camera_id == camera_id)
         if date_from: q = q.filter(Video.created_at >= date_from)
         if date_to:   q = q.filter(Video.created_at <= date_to)
@@ -100,13 +111,14 @@ def _collect_events(db, event_type, camera_id, user_id, date_from, date_to) -> l
                 "file_size_bytes": None,
             })
 
-    # ── Videos finalizados ─────────────────────────
+    # ── Videos finalizados ───────────────────────────────────────
     if event_type in (None, "video_finished"):
         q = (
             db.query(Video)
             .join(Camera, Video.camera_id == Camera.id)
             .filter(Video.ended_at.isnot(None))
         )
+        if owner_id:  q = q.filter(Camera.owner_id == owner_id)   # ◄ ownership
         if camera_id: q = q.filter(Camera.camera_id == camera_id)
         if date_from: q = q.filter(Video.ended_at >= date_from)
         if date_to:   q = q.filter(Video.ended_at <= date_to)
@@ -134,13 +146,14 @@ def _collect_events(db, event_type, camera_id, user_id, date_from, date_to) -> l
                 "file_size_bytes": None,
             })
 
-    # ── Segmentos subidos ───────────────────────────
+    # ── Segmentos subidos ──────────────────────────────────────────
     if event_type in (None, "segment_uploaded"):
         q = (
             db.query(Segment)
             .join(Video,  Segment.video_id  == Video.id)
             .join(Camera, Video.camera_id   == Camera.id)
         )
+        if owner_id:  q = q.filter(Camera.owner_id == owner_id)   # ◄ ownership
         if camera_id: q = q.filter(Camera.camera_id == camera_id)
         if date_from: q = q.filter(Segment.created_at >= date_from)
         if date_to:   q = q.filter(Segment.created_at <= date_to)
@@ -199,13 +212,16 @@ def _compute_counts(events: list) -> dict:
     }
 
 
-# ── 1. Log de actividad paginado ──────────────────────
+# ── 1. Log de actividad paginado ────────────────────────────
 
 @router.get(
     "/activity",
     summary="Log de actividad del sistema",
     description="""
-Devuelve un log cronológico unificado de todos los eventos del sistema.
+Devuelve un log cronológico unificado de eventos del sistema.
+
+- **Admin**: ve eventos de todas las cámaras.
+- **Analyst/Viewer**: solo ve eventos de sus propias cámaras.
 
 **Tipos de eventos:**
 - `verification`: verificación de integridad realizada por un analista
@@ -214,16 +230,11 @@ Devuelve un log cronológico unificado de todos los eventos del sistema.
 - `segment_uploaded`: cámara registró un segmento de 30s
 
 **Filtros:**
-- `event_type`: tipo de evento
-- `result`: resultado de la verificación (`pass` | `fail` | `error`)
-- `camera_id`: filtrar por cámara específica
-- `user_id`: filtrar por ID de usuario (solo aplica a eventos `verification`)
-- `date_from` / `date_to`: rango de fechas ISO 8601
+- `event_type`, `result`, `camera_id`, `user_id`, `date_from`, `date_to`
 - `page` / `per_page`: paginación
 
-El campo `counts` del response refleja siempre los totales globales del rango
-de fechas/cámara indicados, independientemente de los filtros `event_type` y
-`result`, para que los contadores del dashboard sean estables.
+El campo `counts` refleja los totales del rango/cámara, independientemente
+de los filtros `event_type` y `result`.
 
 Requiere rol **Analyst** o **Admin**.
     """
@@ -240,14 +251,13 @@ def get_activity_log(
     db:         Session            = Depends(get_db),
     current_user = Depends(require_analyst)
 ):
-    # 1. Recoge todos los eventos respetando filtros de cámara/fecha (sin event_type ni result)
-    #    para que los contadores de resumen sean globales.
-    all_events = _collect_events(db, None, camera_id, user_id, date_from, date_to)
+    # 1. Recoge eventos con ownership filter (sin event_type ni result para contadores globales)
+    all_events = _collect_events(db, None, camera_id, user_id, date_from, date_to, current_user)
 
-    # 2. Calcula contadores antes de filtrar por tipo/resultado
+    # 2. Contadores estables antes de filtrar por tipo/resultado
     counts = _compute_counts(all_events)
 
-    # 3. Aplica filtros de event_type y result sobre la lista completa
+    # 3. Aplica filtros de event_type y result
     filtered = all_events
     if event_type:
         filtered = [e for e in filtered if e["event_type"] == event_type]
@@ -264,7 +274,6 @@ def get_activity_log(
     start = (page - 1) * per_page
     items = filtered[start: start + per_page]
 
-    # El frontend espera "detail" como objeto anidado
     def to_response(e):
         return {
             "event_type": e["event_type"],
@@ -291,21 +300,16 @@ def get_activity_log(
     }
 
 
-# ── 2. Exportación CSV del log de actividad ─────────────
+# ── 2. Exportación CSV del log de actividad ──────────────────────
 
 @router.get(
     "/activity/export",
     summary="Exportar log de actividad a CSV",
     description="""
-Descarga el log de actividad completo (o filtrado) en formato CSV.
+Descarga el log de actividad en formato CSV.
 
-**Columnas exportadas (una por tipo de campo, vacío si no aplica al tipo de evento):**
-`timestamp`, `event_type`, `camera_id`, `video_id`, `actor_id`, `actor_type`, `ip_address`,
-`result`, `hash_match`, `segment_index`, `error_message`,
-`filename`, `fps`, `resolution`, `codec`,
-`duration_secs`, `status`, `sha256_hash`, `file_size_bytes`
-
-**Filtros:** mismos que `GET /logs/activity` (sin paginación — exporta todo).
+- **Admin**: exporta eventos de todas las cámaras.
+- **Analyst/Viewer**: exporta solo eventos de sus propias cámaras.
 
 El fichero se genera en streaming (sin cargar todo en RAM).
 Requiere rol **Analyst** o **Admin**.
@@ -321,7 +325,7 @@ def export_activity_log(
     db:         Session            = Depends(get_db),
     current_user = Depends(require_analyst)
 ):
-    events = _collect_events(db, event_type, camera_id, user_id, date_from, date_to)
+    events = _collect_events(db, event_type, camera_id, user_id, date_from, date_to, current_user)
 
     if result:
         result_lower = result.lower()
@@ -334,11 +338,8 @@ def export_activity_log(
     CSV_COLS = [
         "timestamp", "event_type", "camera_id", "video_id",
         "actor_id", "actor_type", "ip_address",
-        # Verificaciones
         "result", "hash_match", "segment_index", "error_message",
-        # Videos
         "filename", "fps", "resolution", "codec", "duration_secs", "status",
-        # Segmentos
         "sha256_hash", "file_size_bytes",
     ]
 
