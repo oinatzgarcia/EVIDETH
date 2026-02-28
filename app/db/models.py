@@ -9,7 +9,7 @@ import uuid
 import enum
 
 
-# ── Enums ─────────────────────────────────────────────
+# ── Enums ─────────────────────────────────────────────────
 
 class UserRole(str, enum.Enum):
     ADMIN   = "admin"
@@ -34,7 +34,7 @@ class VerificationResult(str, enum.Enum):
     ERROR   = "error"          # Error durante verificación
 
 
-# ── User ──────────────────────────────────────────────
+# ── User ────────────────────────────────────────────────
 
 class User(Base):
     __tablename__ = "users"
@@ -57,7 +57,7 @@ class User(Base):
         return f"<User {self.email} [{self.role}]>"
 
 
-# ── Camera ────────────────────────────────────────────
+# ── Camera ───────────────────────────────────────────────
 
 class Camera(Base):
     __tablename__ = "cameras"
@@ -67,12 +67,22 @@ class Camera(Base):
     name        = Column(String(255), nullable=False)
     location    = Column(String(255))
     description = Column(Text)
-    api_key     = Column(String(255), nullable=False)      # SHA-256 hash
+    api_key     = Column(String(255), nullable=False)      # SHA-256 hash de la API Key
     is_active   = Column(Boolean, default=True)
-    last_seen   = Column(DateTime(timezone=True))          # Último heartbeat
+    last_seen   = Column(DateTime(timezone=True))          # Último heartbeat / segmento
     created_at  = Column(DateTime(timezone=True), server_default=func.now())
     updated_at  = Column(DateTime(timezone=True), onupdate=func.now())
     owner_id    = Column(String(36), ForeignKey("users.id"))
+
+    # ── Criptografía ──────────────────────────────────────────
+    # Clave pública ECDSA P-256 en formato PEM.
+    # Generada automáticamente por el simulador en el primer arranque
+    # y exportada a /keys/camera_public.pem.
+    # El administrador la registra mediante:
+    #   POST /api/v1/cameras/{camera_id}/public-key
+    # Usada por verifier.py para validar firmas de segmentos.
+    # NIST FIPS 186-5 — Digital Signature Standard (ECDSA)
+    public_key_pem = Column(Text, nullable=True)
 
     # Relaciones
     owner  = relationship("User", back_populates="cameras")
@@ -82,7 +92,7 @@ class Camera(Base):
         return f"<Camera {self.camera_id} @ {self.location}>"
 
 
-# ── Video ─────────────────────────────────────────────
+# ── Video ────────────────────────────────────────────────
 
 class Video(Base):
     __tablename__ = "videos"
@@ -117,7 +127,7 @@ class Video(Base):
         return f"<Video {self.filename} [{self.status}]>"
 
 
-# ── Segment ───────────────────────────────────────────
+# ── Segment ──────────────────────────────────────────────
 
 class Segment(Base):
     __tablename__ = "segments"
@@ -129,15 +139,15 @@ class Segment(Base):
     end_time_secs   = Column(Integer, nullable=False)      # Segundo de fin en el video
     file_size_bytes = Column(Integer)
 
-    # ── Criptografía Nivel 1: hash del segmento completo (30 s) ───────────────
+    # ── Criptografía Nivel 1: hash del segmento completo (30 s) ─────────────
     sha256_hash     = Column(String(64), nullable=False)   # SHA-256 del segmento completo
-    ecdsa_signature = Column(Text)                         # Firma ECDSA P-256 en base64
-    public_key_id   = Column(String(255))                  # ID de clave en Azure Key Vault
+    ecdsa_signature = Column(Text)                         # Firma ECDSA P-256 en base64url
+    public_key_id   = Column(String(255))                  # Huella de la clave (fingerprint)
 
-    # ── Criptografía Nivel 2: árbol Merkle de hashes por segundo ──────────────
+    # ── Criptografía Nivel 2: árbol Merkle de hashes por segundo ───────────
     # Permite localizar exactamente qué segundo(s) fueron manipulados.
     # Ref: Nakamoto (2008) Bitcoin Whitepaper §7 — Merkle branch SPV
-    merkle_root     = Column(String(64))                   # Raíz del árbol Merkle (nullable)
+    merkle_root     = Column(String(64))                   # Raíz del árbol Merkle (hex64)
     second_hashes   = Column(Text)                         # JSON: ["h0", "h1", ..., "h29"]
 
     blob_url        = Column(String(1000))                 # URL en Azure Blob Storage
@@ -157,7 +167,7 @@ class Segment(Base):
         return f"<Segment #{self.segment_index} [{self.status}] video={self.video_id}>"
 
 
-# ── Verification ──────────────────────────────────────
+# ── Verification ───────────────────────────────────────────
 
 class Verification(Base):
     __tablename__ = "verifications"
