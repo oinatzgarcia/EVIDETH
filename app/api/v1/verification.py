@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import tempfile, os, shutil, csv, io
 
 from app.db.session import get_db
-from app.db.models import Video, Camera, Verification, Segment, VerificationResult
+from app.db.models import Video, Camera, Verification, Segment, VerificationResult, UserRole
 from app.core.dependencies import require_analyst
 from app.services.verifier import verify_video
 from app.schemas.verification import VerificationReport
@@ -22,15 +22,27 @@ router = APIRouter(
 )
 
 
-# ── Helper: construye la query de verificaciones con los filtros comunes ──
+# ── Helper: construye la query con filtros comunes + ownership ────────
 
-def _build_verification_query(db, camera_id, result, date_from, date_to):
+def _build_verification_query(db, camera_id, result, date_from, date_to, current_user=None):
+    """
+    Construye la query base de verificaciones aplicando filtros y control
+    de acceso por propietario de cámara.
+
+    - Admin: ve verificaciones de todas las cámaras.
+    - Analyst/Viewer: solo ve verificaciones de sus propias cámaras.
+    """
     query = (
         db.query(Verification)
         .join(Segment,  Verification.segment_id == Segment.id)
         .join(Video,    Segment.video_id         == Video.id)
         .join(Camera,   Video.camera_id          == Camera.id)
     )
+
+    # ── Ownership: filtra por propietario si no es admin ──────────────
+    if current_user and current_user.role != UserRole.ADMIN:
+        query = query.filter(Camera.owner_id == str(current_user.id))
+
     if camera_id:
         query = query.filter(Camera.camera_id == camera_id)
     if result:
@@ -45,13 +57,25 @@ def _build_verification_query(db, camera_id, result, date_from, date_to):
     return query
 
 
+def _check_camera_access(camera: Camera, current_user) -> None:
+    """Lanza 403 si el usuario no es admin y no es propietario de la cámara."""
+    if current_user.role != UserRole.ADMIN and camera.owner_id != str(current_user.id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes acceso a esta cámara"
+        )
+
+
 # ── 1. Listado global con filtros + paginación ────────────
 
 @router.get(
     "/",
     summary="Listar verificaciones",
     description="""
-Devuelve todas las verificaciones del sistema con filtros y paginación.
+Devuelve las verificaciones del sistema con filtros y paginación.
+
+- **Admin**: ve todas las verificaciones del sistema.
+- **Analyst/Viewer**: solo ve verificaciones de sus propias cámaras.
 
 **Filtros:**
 - `camera_id`: ID físico de la cámara
@@ -70,7 +94,7 @@ def list_verifications(
     db:         Session            = Depends(get_db),
     current_user = Depends(require_analyst)
 ):
-    query = _build_verification_query(db, camera_id, result, date_from, date_to)
+    query = _build_verification_query(db, camera_id, result, date_from, date_to, current_user)
 
     total = query.count()
     items = (
@@ -119,13 +143,14 @@ def list_verifications(
     description="""
 Descarga un fichero CSV con todas las verificaciones que cumplan los filtros.
 
+- **Admin**: exporta todas las verificaciones del sistema.
+- **Analyst/Viewer**: exporta solo las verificaciones de sus propias cámaras.
+
 **Columnas exportadas:**
 `id`, `camera_id`, `video_id`, `segment_id`, `segment_index`,
 `result`, `hash_match`, `signature_valid`,
 `computed_hash`, `stored_hash`, `error_message`,
 `verified_at` (ISO 8601), `verified_by_id`, `ip_address`
-
-**Filtros:** mismos que `GET /verification/`
 
 El fichero se genera en streaming (sin cargar todo en RAM).
 Requiere rol **Analyst** o **Admin**.
@@ -140,7 +165,7 @@ def export_verifications(
     current_user = Depends(require_analyst)
 ):
     verifications = (
-        _build_verification_query(db, camera_id, result, date_from, date_to)
+        _build_verification_query(db, camera_id, result, date_from, date_to, current_user)
         .order_by(Verification.verified_at.desc())
         .all()
     )
@@ -156,12 +181,10 @@ def export_verifications(
         buf = io.StringIO()
         writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
 
-        # Cabecera
         writer.writerow(HEADERS)
         yield buf.getvalue()
         buf.seek(0); buf.truncate(0)
 
-        # Filas
         for v in verifications:
             cam = (
                 v.segment.video.camera
@@ -187,7 +210,6 @@ def export_verifications(
             yield buf.getvalue()
             buf.seek(0); buf.truncate(0)
 
-    # Nombre de fichero con timestamp UTC para evitar colisiones
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"evideth_verifications_{ts}.csv"
 
@@ -196,7 +218,6 @@ def export_verifications(
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
-            # Necesario para que el frontend pueda leer el header en CORS
             "Access-Control-Expose-Headers": "Content-Disposition",
         },
     )
@@ -207,7 +228,14 @@ def export_verifications(
 @router.post(
     "/upload",
     response_model=VerificationReport,
-    summary="Subir video para verificación de integridad"
+    summary="Subir video para verificación de integridad",
+    description="""
+Verifica la integridad de un video subido comparando cada segmento contra
+los hashes y firmas almacenados en BD.
+
+- **Admin**: puede verificar cualquier cámara del sistema.
+- **Analyst/Viewer**: solo puede verificar cámaras que le pertenecen.
+    """
 )
 async def upload_and_verify(
     request:     Request,
@@ -220,6 +248,9 @@ async def upload_and_verify(
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
         raise HTTPException(status_code=404, detail="Cámara no encontrada")
+
+    # ── Ownership check ─────────────────────────────────────────────────
+    _check_camera_access(camera, current_user)
 
     video_db = db.query(Video).filter(
         Video.id == video_db_id, Video.camera_id == camera.id
@@ -267,11 +298,10 @@ async def upload_and_verify(
     "/history/{video_id}",
     summary="Historial de verificaciones de un video",
     description="""
-Devuelve las verificaciones realizadas sobre un video con filtros y paginación.
+Devuelve las verificaciones realizadas sobre un video.
 
-**Filtros:**
-- `result`: resultado (`pass`, `fail`, `error`)
-- `page` / `per_page`: paginación
+- **Admin**: puede consultar cualquier video del sistema.
+- **Analyst/Viewer**: solo puede consultar videos de sus propias cámaras.
     """
 )
 def verification_history(
@@ -285,6 +315,11 @@ def verification_history(
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video no encontrado")
+
+    # ── Ownership check via cámara del video ────────────────────────────
+    camera = db.query(Camera).filter(Camera.id == video.camera_id).first()
+    if camera:
+        _check_camera_access(camera, current_user)
 
     segment_ids = [s.id for s in db.query(Segment).filter(Segment.video_id == video_id).all()]
 
@@ -331,7 +366,12 @@ def verification_history(
 @router.get(
     "/{verification_id}",
     summary="Obtener verificación por ID",
-    description="Detalle completo con segmento, video y cámara asociados."
+    description="""
+Detalle completo con segmento, video y cámara asociados.
+
+- **Admin**: puede consultar cualquier verificación.
+- **Analyst/Viewer**: solo puede consultar verificaciones de sus propias cámaras.
+    """
 )
 def get_verification(
     verification_id: str,
@@ -345,6 +385,10 @@ def get_verification(
     segment = v.segment
     video   = segment.video  if segment else None
     camera  = video.camera   if video   else None
+
+    # ── Ownership check ────────────────────────────────────────────────
+    if camera:
+        _check_camera_access(camera, current_user)
 
     return {
         "id":              str(v.id),
