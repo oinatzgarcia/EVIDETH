@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, timezone
 import tempfile, os, shutil, csv, io
+import magic
 
 from app.db.session import get_db
 from app.db.models import Video, Camera, Verification, Segment, VerificationResult, UserRole
@@ -20,6 +21,80 @@ router = APIRouter(
         403: {"description": "Sin permisos suficientes"},
     }
 )
+
+
+# ── Constantes de validación de formato ──────────────────────────────
+
+ALLOWED_EXTENSIONS = {".mp4", ".avi", ".mkv", ".mov"}
+
+# MIME types reales detectados por python-magic (magic bytes)
+# Algunos contenedores tienen más de un MIME posible según la variante.
+ALLOWED_MIMETYPES = {
+    "video/mp4",
+    "video/x-msvideo",    # AVI
+    "video/x-matroska",   # MKV
+    "video/quicktime",    # MOV
+    "video/webm",         # MKV/WebM — libmagic a veces los unifica
+    "application/octet-stream",   # MKV sin libmagic actualizado
+}
+
+# Tamaño máximo admitido: 2 GB
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
+
+# Bytes leídos para detección de magic bytes (suficiente para todos los contenedores)
+MAGIC_READ_BYTES = 2048
+
+
+# ── Helper: valida extensión + magic bytes del fichero subido ──────────
+
+def _validate_video_file(upload: UploadFile) -> str:
+    """
+    Valida el formato del fichero en dos fases:
+
+    1. Extensión del nombre (rápida, primera línea de defensa).
+    2. Magic bytes — lee los primeros bytes del contenido real
+       con python-magic para detectar el tipo independientemente
+       del nombre o la cabecera Content-Type del cliente.
+
+    Devuelve la extensión normalizada (.mp4, .avi, etc.).
+    Lanza HTTPException 400 si el fichero no es un video admitido.
+
+    Importante: después de llamar a esta función el cursor del
+    fichero queda en la posición 0 (listo para una lectura completa).
+    """
+    # ── Fase 1: extensión ─────────────────────────────────────────────
+    filename = upload.filename or ""
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Extensión no admitida: '{ext or '(ninguna)'}'. "
+                f"Formatos válidos: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+            )
+        )
+
+    # ── Fase 2: magic bytes (contenido real) ────────────────────────────
+    header = upload.file.read(MAGIC_READ_BYTES)
+    upload.file.seek(0)                          # ◄ reset para lectura posterior
+
+    if not header:
+        raise HTTPException(status_code=400, detail="El fichero está vacío")
+
+    detected_mime = magic.from_buffer(header, mime=True)
+
+    if detected_mime not in ALLOWED_MIMETYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"El contenido del fichero no es un video válido. "
+                f"Tipo detectado: '{detected_mime}'. "
+                f"Tipos admitidos: video/mp4, video/x-msvideo, "
+                f"video/x-matroska, video/quicktime"
+            )
+        )
+
+    return ext
 
 
 # ── Helper: construye la query con filtros comunes + ownership ────────
@@ -39,7 +114,6 @@ def _build_verification_query(db, camera_id, result, date_from, date_to, current
         .join(Camera,   Video.camera_id          == Camera.id)
     )
 
-    # ── Ownership: filtra por propietario si no es admin ──────────────
     if current_user and current_user.role != UserRole.ADMIN:
         query = query.filter(Camera.owner_id == str(current_user.id))
 
@@ -135,7 +209,6 @@ def list_verifications(
 
 
 # ── 2. Exportación CSV ───────────────────────────────
-# Definido ANTES de /{verification_id} para evitar conflicto de rutas.
 
 @router.get(
     "/export",
@@ -145,15 +218,6 @@ Descarga un fichero CSV con todas las verificaciones que cumplan los filtros.
 
 - **Admin**: exporta todas las verificaciones del sistema.
 - **Analyst/Viewer**: exporta solo las verificaciones de sus propias cámaras.
-
-**Columnas exportadas:**
-`id`, `camera_id`, `video_id`, `segment_id`, `segment_index`,
-`result`, `hash_match`, `signature_valid`,
-`computed_hash`, `stored_hash`, `error_message`,
-`verified_at` (ISO 8601), `verified_by_id`, `ip_address`
-
-El fichero se genera en streaming (sin cargar todo en RAM).
-Requiere rol **Analyst** o **Admin**.
     """
 )
 def export_verifications(
@@ -180,7 +244,6 @@ def export_verifications(
     def iter_csv():
         buf = io.StringIO()
         writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
-
         writer.writerow(HEADERS)
         yield buf.getvalue()
         buf.seek(0); buf.truncate(0)
@@ -233,6 +296,11 @@ def export_verifications(
 Verifica la integridad de un video subido comparando cada segmento contra
 los hashes y firmas almacenados en BD.
 
+**Validación de formato (dos fases):**
+1. Extensión del nombre: `.mp4`, `.avi`, `.mkv`, `.mov`
+2. Magic bytes del contenido real (python-magic) — detecta ficheros
+   renombrados independientemente del nombre o Content-Type del cliente.
+
 - **Admin**: puede verificar cualquier cámara del sistema.
 - **Analyst/Viewer**: solo puede verificar cámaras que le pertenecen.
     """
@@ -245,11 +313,20 @@ async def upload_and_verify(
     db:          Session    = Depends(get_db),
     current_user            = Depends(require_analyst)
 ):
+    # ── 1. Tamaño máximo (pre-check cuando el cliente envía Content-Length) ──
+    if video.size is not None and video.size > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Fichero demasiado grande. Máximo admitido: {MAX_UPLOAD_BYTES // (1024**3)} GB"
+        )
+
+    # ── 2. Validación de formato: extensión + magic bytes ────────────────
+    ext = _validate_video_file(video)           # lanza 400 si no es válido
+
+    # ── 3. Ownership check ────────────────────────────────────────────────
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
         raise HTTPException(status_code=404, detail="Cámara no encontrada")
-
-    # ── Ownership check ─────────────────────────────────────────────────
     _check_camera_access(camera, current_user)
 
     video_db = db.query(Video).filter(
@@ -258,10 +335,7 @@ async def upload_and_verify(
     if not video_db:
         raise HTTPException(status_code=404, detail="Video no encontrado en BD")
 
-    ext = os.path.splitext(video.filename)[1].lower()
-    if ext not in {".mp4", ".avi", ".mkv", ".mov"}:
-        raise HTTPException(status_code=400, detail="Formato no permitido")
-
+    # ── 4. Guardar en fichero temporal y verificar ────────────────────────
     temp_dir   = tempfile.mkdtemp(prefix="evideth_upload_")
     video_path = os.path.join(temp_dir, f"upload{ext}")
 
@@ -316,7 +390,6 @@ def verification_history(
     if not video:
         raise HTTPException(status_code=404, detail="Video no encontrado")
 
-    # ── Ownership check via cámara del video ────────────────────────────
     camera = db.query(Camera).filter(Camera.id == video.camera_id).first()
     if camera:
         _check_camera_access(camera, current_user)
@@ -361,17 +434,11 @@ def verification_history(
 
 
 # ── 5. Detalle de una verificación por ID ──────────────
-# DEBE ir después de /export e /history/{id} para no capturar esos paths.
 
 @router.get(
     "/{verification_id}",
     summary="Obtener verificación por ID",
-    description="""
-Detalle completo con segmento, video y cámara asociados.
-
-- **Admin**: puede consultar cualquier verificación.
-- **Analyst/Viewer**: solo puede consultar verificaciones de sus propias cámaras.
-    """
+    description="Detalle completo con segmento, video y cámara asociados."
 )
 def get_verification(
     verification_id: str,
@@ -386,7 +453,6 @@ def get_verification(
     video   = segment.video  if segment else None
     camera  = video.camera   if video   else None
 
-    # ── Ownership check ────────────────────────────────────────────────
     if camera:
         _check_camera_access(camera, current_user)
 
