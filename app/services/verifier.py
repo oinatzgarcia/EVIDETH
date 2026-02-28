@@ -121,6 +121,11 @@ def verify_video(
     """
     Verificación de integridad con doble nivel criptográfico + firma ECDSA.
 
+    Nivel 0 — Hash del fichero completo (opcional, si Video.file_hash está almacenado):
+        SHA-256 del fichero subido vs. hash almacenado al ingestar el vídeo original.
+        → Detección inmediata: cualquier modificación (headers MP4, metadata, frames).
+        Si file_hash no está en el modelo o es None, este nivel se omite.
+
     Nivel 1 — SHA-256 del segmento (30 s):
         SHA-256 del fichero completo vs. hash almacenado en BD.
         → Detección rápida: ¿el segmento fue alterado?
@@ -145,6 +150,38 @@ def verify_video(
     )
     if not stored_segments:
         raise ValueError(f"No hay segmentos almacenados para el video {video_db_id}")
+
+    # ── Nivel 0: Hash del fichero completo (defensa en profundidad) ───────────
+    # Detecta modificaciones en cualquier parte del fichero MP4, incluyendo
+    # metadatos del contenedor (moov box) que ffmpeg podría ignorar al extraer
+    # segmentos. Completamente opcional: si el campo no existe o es None se omite.
+    video_record      = db.query(Video).filter(Video.id == video_db_id).first()
+    stored_file_hash  = getattr(video_record, "file_hash", None) if video_record else None
+
+    if stored_file_hash:
+        with open(video_path, "rb") as f:
+            computed_file_hash = hashlib.sha256(f.read()).hexdigest()
+        if computed_file_hash != stored_file_hash:
+            return {
+                "video_id":        video_db_id,
+                "camera_id":       camera_id,
+                "integrity_ok":    False,
+                "verdict":         "MANIPULADO O INCOMPLETO",
+                "ecdsa_available": False,
+                "reason":          "file_hash_mismatch",
+                "detail":          (
+                    "Hash del fichero completo no coincide — "
+                    "el fichero fue modificado antes de la verificación por segmentos."
+                ),
+                "summary": {
+                    "total_segments": len(stored_segments),
+                    "passed":  0,
+                    "failed":  1,
+                    "missing": 0,
+                },
+                "segments":    [],
+                "verified_at": datetime.now(timezone.utc).isoformat(),
+            }
 
     # Obtener clave pública de la cámara para verificar firmas ECDSA
     camera_public_key_pem = _get_camera_public_key(camera_id, db)

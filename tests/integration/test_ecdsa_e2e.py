@@ -20,6 +20,11 @@ Casos cubiertos:
   - SKIP-ECDSA:        cámara sin clave pública registrada (legacy / inicio)
   - MERKLE-PRECISION:  segundo exacto manipulado identificado en second_results
 
+Nota sobre la corrupción del MP4:
+  Un fichero MP4 tiene estructura [ftyp][moov (metadata ~0-25%)][mdat (frames ~25-100%)].
+  Para que ffmpeg re-extraiga segmentos con hashes distintos la corrupción DEBE caer
+  en la zona mdat. Por eso usamos offset = 60 % del fichero.
+
 Ejecución:
     pytest tests/integration/test_ecdsa_e2e.py -v
     pytest tests/integration/test_ecdsa_e2e.py -v -s   # con output detallado
@@ -280,6 +285,11 @@ class TestEcdsaE2E:
         CASO FAIL-HASH — vídeo corrompido:
           La firma ECDSA sigue siendo válida (el segmento almacenado es autentico)
           pero el hash del vídeo subido no coincide → FAIL (manipulación detectada)
+
+        NOTA: la corrupción debe caer en la zona mdat (frame data) del MP4,
+        NO en moov (metadata/índice ~0-25 %). Si cae en moov, ffmpeg puede
+        ignorarla al re-extraer los frames y los hashes no cambian.
+        Usamos offset = 60 % para garantizar que estamos en mdat.
         """
         priv_a, pub_a = keypair_a
 
@@ -287,11 +297,12 @@ class TestEcdsaE2E:
         video   = _make_video(db, camera)
         _make_segments(db, video, processed_segments, priv_a, _fingerprint(pub_a))
 
-        # Corromper 1 byte en la zona de datos (20% del fichero)
+        # Corromper 1 byte en zona mdat (frame data ≥ 60 % del fichero)
+        # Evitar moov (~0-25 %) que ffmpeg puede ignorar al extraer segmentos
         corrupted = os.path.join(tmp_dir, "corrupted.mp4")
         shutil.copy2(real_video, corrupted)
         size   = os.path.getsize(corrupted)
-        offset = int(size * 0.20)
+        offset = int(size * 0.60)
         with open(corrupted, "r+b") as f:
             f.seek(offset)
             b = f.read(1)[0]
@@ -385,6 +396,9 @@ class TestEcdsaE2E:
         CASO MERKLE-PRECISION — segundo exacto identificado:
           Corromper el vídeo y verificar que second_results lista exactamente
           los segundos afectados (no solo que hay un fallo genérico).
+
+        NOTA: igual que test_ecdsa_fail_video_tampered, se usa offset = 60 %
+        para garantizar que la corrupción cae en zona mdat (frame data).
         """
         priv_a, pub_a = keypair_a
 
@@ -399,7 +413,7 @@ class TestEcdsaE2E:
         corrupted = os.path.join(tmp_dir, "corrupted_merkle.mp4")
         shutil.copy2(real_video, corrupted)
         size   = os.path.getsize(corrupted)
-        offset = int(size * 0.20)
+        offset = int(size * 0.60)  # zona mdat, no moov
         with open(corrupted, "r+b") as f:
             f.seek(offset)
             b = f.read(1)[0]
