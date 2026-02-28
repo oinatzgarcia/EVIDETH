@@ -10,12 +10,12 @@ from app.schemas.auth import (
     RegisterRequest, LoginRequest, RefreshRequest,
     TokenResponse, UserResponse
 )
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_admin
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-# ── Helper ─────────────────────────────────────
+# ── Helper ───────────────────────────────────────────────
 
 def _build_token_response(user: User) -> TokenResponse:
     """Construye la respuesta de token incluyendo el objeto user.
@@ -31,10 +31,31 @@ def _build_token_response(user: User) -> TokenResponse:
     )
 
 
-# ── Endpoints ─────────────────────────────────
+# ── Endpoints ────────────────────────────────────────────
 
-@router.post("/register", response_model=UserResponse, status_code=201)
-def register(data: RegisterRequest, db: Session = Depends(get_db)):
+@router.post(
+    "/register",
+    response_model=UserResponse,
+    status_code=201,
+    summary="Registrar usuario",
+    description="""
+Crea una nueva cuenta de usuario. **Solo Admin**.
+
+El campo `role` permite asignar cualquier rol al nuevo usuario.
+El primer Admin del sistema debe crearse mediante el script de seed
+o una migración de base de datos (`scripts/seed_admin.py`).
+
+**RBAC:**
+- `POST /auth/register` → Admin (JWT Bearer requerido)
+- `POST /auth/login`    → público
+- `GET  /auth/me`       → cualquier usuario autenticado
+    """
+)
+def register(
+    data: RegisterRequest,
+    db: Session = Depends(get_db),
+    _current_admin: User = Depends(require_admin)   # ◄─ RBAC: solo Admin crea usuarios
+):
     if db.query(User).filter(User.email == data.email).first():
         raise HTTPException(status_code=400, detail="Email ya registrado")
 
@@ -50,7 +71,12 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
     return user
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Iniciar sesión",
+    description="Autenticación pública. Devuelve access token + refresh token + objeto user."
+)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
     if not user or not verify_password(data.password, user.password):
@@ -64,7 +90,12 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     return _build_token_response(user)
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    summary="Renovar tokens",
+    description="Rota el access token usando un refresh token válido."
+)
 def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
     payload = decode_token(data.refresh_token)
     if not payload or payload.get("type") != "refresh":
@@ -77,6 +108,11 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
     return _build_token_response(user)
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    summary="Usuario actual",
+    description="Devuelve los datos del usuario autenticado (cualquier rol)."
+)
 def get_me(current_user: User = Depends(get_current_user)):
     return current_user
