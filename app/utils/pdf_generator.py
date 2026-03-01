@@ -22,8 +22,8 @@ import os
 class ForensicPDFGenerator:
     """Generate forensic-grade PDF reports for video verification"""
     
-    # EVIDETH Brand Colors - Updated to match web design
-    COLOR_PRIMARY = colors.HexColor('#1e3a5f')  # Darker blue matching web
+    # EVIDETH Brand Colors - Matching web design exactly
+    COLOR_PRIMARY = colors.HexColor('#4a90e2')  # Exact blue from web
     COLOR_SUCCESS = colors.HexColor('#10b981')
     COLOR_DANGER = colors.HexColor('#ef4444')
     COLOR_WARNING = colors.HexColor('#f59e0b')
@@ -416,7 +416,7 @@ class ForensicPDFGenerator:
         """Add header and footer to each page"""
         canvas.saveState()
         
-        # Header with darker blue
+        # Header with brand blue
         canvas.setFillColor(self.COLOR_PRIMARY)
         canvas.rect(0, A4[1] - 2*cm, A4[0], 2*cm, fill=True, stroke=False)
         
