@@ -99,7 +99,6 @@ class CameraPublicKeyUpdate(BaseModel):
                 "public_key_pem debe ser una clave pública EC en formato PEM "
                 "(debe empezar con '-----BEGIN PUBLIC KEY-----')"
             )
-        # Verificar que la clave es válida si cryptography está disponible
         if load_pem_public_key is not None:
             try:
                 load_pem_public_key(v.encode())
@@ -113,11 +112,13 @@ class SegmentUpload(BaseModel):
     Payload que envía la cámara al subir un segmento.
 
     Criptografía de dos niveles:
-      Nivel 1 — sha256_hash:   SHA-256 del fichero de segmento completo.
-      Nivel 2 — second_hashes: lista de SHA-256, uno por segundo del segmento.
-                merkle_root:   raíz del árbol Merkle construido sobre second_hashes.
-                               Permite al servidor localizar exactamente qué
-                               segundo fue manipulado durante la verificación.
+      Nivel 1 — sha256_hash:     SHA-256 del fichero de segmento completo.
+      Nivel 2 — second_hashes:   lista de SHA-256, uno por segundo del segmento.
+                merkle_root:     raíz del árbol Merkle construido sobre second_hashes.
+                                 Permite al servidor localizar exactamente qué
+                                 segundo fue manipulado durante la verificación.
+      Visual  — frame_thumbnails: un frame JPEG (base64) por segundo del segmento.
+                                  Almacenado para comparación original vs tamperizando.
     """
     video_id:        str
     segment_index:   int
@@ -131,6 +132,9 @@ class SegmentUpload(BaseModel):
     # Nivel 2 — Merkle
     merkle_root:   Optional[str]       = None   # SHA-256 hex (64 chars) de la raíz
     second_hashes: Optional[List[str]] = None   # [h_s0, h_s1, ..., h_s(N-1)]
+
+    # Visual — thumbnails por segundo (base64 JPEG, ~20-40 KB/frame)
+    frame_thumbnails: Optional[List[Optional[str]]] = None
 
     @field_validator('sha256_hash')
     @classmethod
@@ -426,24 +430,26 @@ def upload_segment(
     ).first():
         raise HTTPException(status_code=409, detail=f"Segmento #{data.segment_index} ya registrado")
 
-    second_hashes_json = json.dumps(data.second_hashes) if data.second_hashes else None
-    has_full_crypto    = bool(data.ecdsa_signature and data.merkle_root)
-    status             = SegmentStatus.VALID if has_full_crypto else SegmentStatus.PENDING
+    second_hashes_json   = json.dumps(data.second_hashes)   if data.second_hashes   else None
+    frame_thumbnails_json = json.dumps(data.frame_thumbnails) if data.frame_thumbnails else None
+    has_full_crypto      = bool(data.ecdsa_signature and data.merkle_root)
+    status               = SegmentStatus.VALID if has_full_crypto else SegmentStatus.PENDING
 
     segment = Segment(
-        video_id        = data.video_id,
-        segment_index   = data.segment_index,
-        duration_secs   = data.end_time_secs - data.start_time_secs,
-        start_time_secs = data.start_time_secs,
-        end_time_secs   = data.end_time_secs,
-        file_size_bytes = data.file_size_bytes,
-        sha256_hash     = data.sha256_hash,
-        ecdsa_signature = data.ecdsa_signature,
-        public_key_id   = data.public_key_id,
-        merkle_root     = data.merkle_root,
-        second_hashes   = second_hashes_json,
-        status          = status,
-        signed_at       = datetime.now(timezone.utc) if data.ecdsa_signature else None,
+        video_id          = data.video_id,
+        segment_index     = data.segment_index,
+        duration_secs     = data.end_time_secs - data.start_time_secs,
+        start_time_secs   = data.start_time_secs,
+        end_time_secs     = data.end_time_secs,
+        file_size_bytes   = data.file_size_bytes,
+        sha256_hash       = data.sha256_hash,
+        ecdsa_signature   = data.ecdsa_signature,
+        public_key_id     = data.public_key_id,
+        merkle_root       = data.merkle_root,
+        second_hashes     = second_hashes_json,
+        frame_thumbnails  = frame_thumbnails_json,   # <-- thumbnails originales
+        status            = status,
+        signed_at         = datetime.now(timezone.utc) if data.ecdsa_signature else None,
     )
     db.add(segment)
     camera.last_seen = datetime.now(timezone.utc)
