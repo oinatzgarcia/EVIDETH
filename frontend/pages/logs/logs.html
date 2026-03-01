@@ -68,7 +68,6 @@
             box-shadow: 0 0 8px rgba(74,222,128,.3);
         }
         .btn-download-sm svg { width: 13px; height: 13px; flex-shrink: 0; }
-        /* Modal overlay */
         .modal-overlay {
             position: fixed; inset: 0; background: rgba(0,0,0,.85);
             z-index: 1000; display: flex; align-items: center; justify-content: center;
@@ -341,7 +340,7 @@
                                         <div><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Timestamp (UTC)</p><p class="font-mono text-xs" style="color:#d1d5db;" x-text="entry.timestamp"></p></div>
                                         <div x-show="entry.ip_address"><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Source IP</p><p class="font-mono text-xs" style="color:#d1d5db;" x-text="entry.ip_address"></p></div>
                                         <div x-show="entry.user_id"><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">User ID</p><p class="font-mono text-xs" style="color:#d1d5db;" x-text="entry.user_id"></p></div>
-                                        <div x-show="entry.detail && entry.detail.video_id"><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Video ID</p><p class="hash-text" x-text="entry.detail && entry.detail.video_id"></p></div>
+                                        <div x-show="entry.video_id"><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Video ID</p><p class="hash-text" x-text="entry.video_id"></p></div>
                                     </div>
                                     <div class="space-y-3">
                                         <template x-if="entry.event_type === 'verification'">
@@ -350,7 +349,7 @@
                                                 <div x-show="entry.detail && entry.detail.segment_index != null"><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Segment</p><p class="font-mono text-xs" style="color:#d1d5db;" x-text="'#' + (entry.detail && entry.detail.segment_index)"></p></div>
                                                 <div x-show="entry.detail && entry.detail.passed != null"><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Segments passed / failed</p><p class="font-mono text-xs" style="color:#d1d5db;" x-text="entry.detail && (entry.detail.passed + ' ✓  /  ' + entry.detail.failed + ' ✗')"></p></div>
                                                 <div x-show="entry.detail && entry.detail.sha256_hash"><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">SHA-256</p><p class="hash-text" :class="entry.detail && entry.detail.result === 'pass' ? 'ok' : 'fail'" x-text="entry.detail && entry.detail.sha256_hash"></p></div>
-                                                <div x-show="entry.detail && entry.detail.video_id" class="pt-2">
+                                                <div x-show="entry.video_id" class="pt-2">
                                                     <button @click="openModal(entry)" class="px-4 py-2 border font-mono text-xs" style="border-color:#4a90e2; color:#4a90e2;"
                                                             onmouseover="this.style.background='rgba(74,144,226,.07)'" onmouseout="this.style.background=''">
                                                         View Full Report →
@@ -528,7 +527,6 @@
                     this.items  = data.items  ?? [];
                     this.total  = data.total  ?? 0;
                     this.counts = data.counts ?? { verification: 0, tampered: 0, recording: 0 };
-                    // Debug: log verification entries
                     console.log('[EVIDETH] Loaded items:', this.items.filter(e => e.event_type === 'verification'));
                 } catch(err) { this.error = 'Error loading logs: ' + err.message; }
                 finally     { this.loading = false; }
@@ -540,12 +538,17 @@
             toggleDetail(idx) { this.openIdx = this.openIdx === idx ? null : idx; },
 
             async downloadReportForEntry(entry) {
-                console.log('[EVIDETH] Download clicked for:', entry);
-                if (!entry.detail || !entry.detail.video_id) {
-                    alert('No video_id available for this verification');
+                console.log('[EVIDETH] Download clicked for entry:', entry);
+                // Check multiple possible locations for video_id
+                const videoId = entry.video_id || (entry.detail && entry.detail.video_id);
+                console.log('[EVIDETH] Extracted video_id:', videoId);
+                
+                if (!videoId) {
+                    console.error('[EVIDETH] No video_id found. Entry structure:', JSON.stringify(entry, null, 2));
+                    alert('No video_id available. Check console for details.');
                     return;
                 }
-                const videoId = entry.detail.video_id;
+                
                 try {
                     const res = await fetch('/api/v1/verification/' + videoId, { headers: Auth.authHeader() });
                     if (res.status === 401) { Auth.logout(); return; }
@@ -558,10 +561,11 @@
             },
 
             async openModal(entry) {
-                if (!entry.detail || !entry.detail.video_id) return;
+                const videoId = entry.video_id || (entry.detail && entry.detail.video_id);
+                if (!videoId) return;
                 this.modal = { open: true, loading: true, error: null, report: null };
                 try {
-                    const res = await fetch('/api/v1/verification/' + entry.detail.video_id, { headers: Auth.authHeader() });
+                    const res = await fetch('/api/v1/verification/' + videoId, { headers: Auth.authHeader() });
                     if (res.status === 401) { Auth.logout(); return; }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     this.modal.report = await res.json();
