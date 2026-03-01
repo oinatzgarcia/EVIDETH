@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 import tempfile, os, shutil, csv, io
 import filetype
@@ -11,6 +11,7 @@ from app.db.models import Video, Camera, Verification, Segment, VerificationResu
 from app.core.dependencies import require_analyst
 from app.services.verifier import verify_video
 from app.schemas.verification import VerificationReport
+from app.utils.pdf_generator import ForensicPDFGenerator
 
 
 router = APIRouter(
@@ -145,6 +146,120 @@ def _check_camera_access(camera: Camera, current_user) -> None:
             status_code=403,
             detail="No tienes acceso a esta cámara"
         )
+
+
+# ── Helper: construir datos del reporte (usado por JSON y PDF) ────────
+
+def _build_verification_report_data(video_id: str, db: Session, current_user) -> Dict[str, Any]:
+    """
+    Construye los datos del reporte de verificación.
+    Reutilizable por endpoints JSON y PDF.
+    """
+    video = db.query(Video).filter(Video.id == video_id).first()
+    
+    if not video:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Video with ID {video_id} not found"
+        )
+    
+    camera = db.query(Camera).filter(Camera.id == video.camera_id).first()
+    if camera:
+        _check_camera_access(camera, current_user)
+    
+    segments = (
+        db.query(Segment)
+        .filter(Segment.video_id == video_id)
+        .order_by(Segment.segment_index)
+        .all()
+    )
+    
+    total_segments = len(segments)
+    segments_detail = []
+    passed_segments = 0
+    failed_segments = 0
+    
+    for seg in segments:
+        latest_verification = (
+            db.query(Verification)
+            .filter(Verification.segment_id == seg.id)
+            .order_by(Verification.verified_at.desc())
+            .first()
+        )
+        
+        if latest_verification:
+            segment_passed = latest_verification.result == VerificationResult.PASS
+            if segment_passed:
+                passed_segments += 1
+            else:
+                failed_segments += 1
+            
+            segment_data = {
+                "segment_index": seg.segment_index,
+                "start_time_secs": seg.start_time_secs,
+                "end_time_secs": seg.end_time_secs,
+                "result": "pass" if segment_passed else "fail",
+                "hash": seg.sha256_hash,
+                "hash_calculated": latest_verification.computed_hash,
+                "hash_expected": seg.sha256_hash,
+                "signature_valid": latest_verification.signature_valid,
+                "verified_at": latest_verification.verified_at.isoformat() if latest_verification.verified_at else None,
+            }
+        else:
+            segment_data = {
+                "segment_index": seg.segment_index,
+                "start_time_secs": seg.start_time_secs,
+                "end_time_secs": seg.end_time_secs,
+                "result": "missing",
+                "hash": seg.sha256_hash,
+                "hash_calculated": None,
+                "hash_expected": seg.sha256_hash,
+                "signature_valid": None,
+                "verified_at": None,
+            }
+        
+        segments_detail.append(segment_data)
+    
+    missing_segments = total_segments - (passed_segments + failed_segments)
+    integrity_ok = failed_segments == 0 and missing_segments == 0
+    
+    if integrity_ok:
+        verdict = "Video integrity verified successfully - All segments passed cryptographic validation"
+    else:
+        if failed_segments > 0:
+            verdict = f"Video tampering detected - {failed_segments} segment(s) failed verification"
+        else:
+            verdict = f"Incomplete verification - {missing_segments} segment(s) not yet verified"
+    
+    latest_verification_time = None
+    if segments:
+        latest_verif = (
+            db.query(Verification)
+            .join(Segment)
+            .filter(Segment.video_id == video_id)
+            .order_by(Verification.verified_at.desc())
+            .first()
+        )
+        if latest_verif and latest_verif.verified_at:
+            latest_verification_time = latest_verif.verified_at.isoformat()
+    
+    return {
+        "video_id": video_id,
+        "camera_id": camera.camera_id if camera else None,
+        "filename": video.filename,
+        "duration_secs": video.duration_secs,
+        "verified_at": latest_verification_time or datetime.utcnow().isoformat(),
+        "created_at": video.created_at.isoformat() if video.created_at else None,
+        "integrity_ok": integrity_ok,
+        "verdict": verdict,
+        "summary": {
+            "total_segments": total_segments,
+            "passed": passed_segments,
+            "failed": failed_segments,
+            "missing": missing_segments,
+        },
+        "segments": segments_detail
+    }
 
 
 # ── 1. Listado global con filtros + paginación ───────────────────
@@ -367,7 +482,80 @@ async def upload_and_verify(
             pass
 
 
-# ── 4. Historial de un video ───────────────────────────────────
+# ── 4. Obtener reporte completo de verificación por video_id (JSON) ──────
+
+@router.get(
+    "/report/{video_id}",
+    response_model=Dict[str, Any],
+    summary="Obtener reporte de verificación completo (JSON)",
+    description="""
+Retorna el reporte completo de verificación de un video específico en formato JSON.
+
+Incluye:
+- Información del video (camera_id, filename, timestamps)
+- Resumen de segmentos (total, passed, failed, missing)
+- Detalle de cada segmento con sus hashes y resultados de verificación
+- Veredicto de integridad global
+
+Este endpoint es útil para descargar el reporte en formato JSON después
+de realizar una verificación.
+    """
+)
+def get_verification_report(
+    video_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_analyst)
+):
+    return _build_verification_report_data(video_id, db, current_user)
+
+
+# ── 4B. Descargar reporte forense en PDF ──────────────────────────────────
+
+@router.get(
+    "/report/{video_id}/pdf",
+    summary="Descargar reporte forense en PDF",
+    description="""
+Genera y descarga un reporte forense profesional en formato PDF.
+
+El PDF incluye:
+- Portada con clasificación del documento
+- Resumen ejecutivo de la verificación
+- Detalles técnicos del video y cámara
+- Tabla completa de análisis de segmentos
+- Cadena de custodia (chain of custody)
+- Detalles criptográficos (SHA-256, ECDSA P-256)
+- Disclaimer legal para uso como prueba forense
+
+Formato profesional válido como evidencia legal.
+    """
+)
+def download_forensic_pdf(
+    video_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_analyst)
+):
+    # Reutilizar la función helper para obtener los datos
+    report_data = _build_verification_report_data(video_id, db, current_user)
+    
+    # Generar el PDF
+    generator = ForensicPDFGenerator()
+    pdf_buffer = generator.generate_report(report_data)
+    
+    # Nombre del archivo con timestamp
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"EVIDETH_Forensic_Report_{video_id[:8]}_{ts}.pdf"
+    
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
+# ── 5. Historial de un video ───────────────────────────────────
 
 @router.get("/history/{video_id}", summary="Historial de verificaciones de un video")
 def verification_history(
@@ -424,7 +612,7 @@ def verification_history(
     }
 
 
-# ── 5. Detalle de una verificación por ID ───────────────────────
+# ── 6. Detalle de una verificación por ID ───────────────────────
 
 @router.get("/{verification_id}", summary="Obtener verificación por ID")
 def get_verification(
