@@ -42,6 +42,7 @@ Variables de entorno (ver .env.example):
 """
 
 import os
+import sys
 import shutil
 import time
 import queue
@@ -84,11 +85,15 @@ RETRY_DELAY        = int(os.getenv("RETRY_DELAY",         "5"))
 SAVE_SEGMENTS_DIR  = os.getenv("SAVE_SEGMENTS_DIR",       "").strip()
 MAX_SEGMENTS       = int(os.getenv("MAX_SEGMENTS",        "0"))   # 0 = infinito
 
+# En Windows, TemporaryDirectory puede fallar al limpiar si OpenCV
+# todavía tiene el handle abierto. ignore_cleanup_errors evita el crash.
+IS_WINDOWS = sys.platform == "win32"
+
 HEADERS    = {"X-API-Key": CAMERA_API_KEY}
 _EMPTY_HASH = hashlib.sha256(b"").hexdigest()
 
 
-# ── Merkle tree (cópia exacta de app/utils/merkle.py) ─────────────────────
+# ── Merkle tree ───────────────────────────────────────────────
 
 def _sha256_concat(left: str, right: str) -> str:
     return hashlib.sha256(bytes.fromhex(left) + bytes.fromhex(right)).hexdigest()
@@ -110,7 +115,7 @@ def build_merkle_root(leaf_hashes: List[str]) -> str:
     return level[0]
 
 
-# ── Hashing ──────────────────────────────────────────────────
+# ── Hashing ─────────────────────────────────────────────────
 
 def sha256_file(path: str) -> str:
     h = hashlib.sha256()
@@ -122,7 +127,8 @@ def sha256_file(path: str) -> str:
 
 def extract_second_hashes(seg_path: str, duration_secs: int) -> List[str]:
     leaf_hashes: List[str] = []
-    with tempfile.TemporaryDirectory(prefix="evideth_sec_") as tmp:
+    # ignore_cleanup_errors=True: evita crash en Windows si ffmpeg deja handles abiertos
+    with tempfile.TemporaryDirectory(prefix="evideth_sec_", ignore_cleanup_errors=IS_WINDOWS) as tmp:
         for sec in range(duration_secs):
             out = os.path.join(tmp, f"sec_{sec:04d}.mp4")
             cmd = [
@@ -147,7 +153,7 @@ def extract_second_hashes(seg_path: str, duration_secs: int) -> List[str]:
     return leaf_hashes
 
 
-# ── CryptoService ─────────────────────────────────────────────
+# ── CryptoService ──────────────────────────────────────────────
 
 class CryptoService:
     def __init__(self):
@@ -243,6 +249,20 @@ class APIClient:
                 if r.status_code == 409:
                     logger.warning(f"Segmento #{idx} ya registrado (409)")
                     return True
+                if not r.ok:
+                    # Loguear el body del error para facilitar el debugging
+                    try:
+                        err_body = r.json()
+                    except Exception:
+                        err_body = r.text[:500]
+                    logger.warning(
+                        f"send_segment #{idx} intento {attempt}/{MAX_RETRIES}: "
+                        f"{r.status_code} {r.reason}\n"
+                        f"  └─ Body: {err_body}"
+                    )
+                    if attempt < MAX_RETRIES:
+                        time.sleep(RETRY_DELAY * attempt)
+                    continue
                 r.raise_for_status()
                 srv_root = r.json().get("merkle_root", "N/A")
                 logger.success(
@@ -295,6 +315,9 @@ class VideoGenerator:
             if expected > elapsed:
                 time.sleep(expected - elapsed)
         writer.release()
+        # Windows necesita un momento para liberar el handle del fichero
+        if IS_WINDOWS:
+            time.sleep(0.3)
         size_mb = os.path.getsize(out_path) / (1024 * 1024)
         logger.debug(f"Segmento {segment_index} escrito → {out_path} ({size_mb:.1f} MB)")
 
@@ -318,7 +341,7 @@ class VideoGenerator:
         ]:
             cv2.line(frame, (ox, oy), (ox + sx*corner_len, oy), corner_col, 1)
             cv2.line(frame, (ox, oy), (ox, oy + sy*corner_len), corner_col, 1)
-        now_str = datetime.utcfromtimestamp(abs_sec).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_str = datetime.fromtimestamp(abs_sec, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(frame, f"EVIDETH — {CAMERA_ID}",
                     (20, 38), font, 0.85, (0, 200, 255), 1, cv2.LINE_AA)
@@ -344,7 +367,7 @@ class CameraSimulator:
         self.gen    = VideoGenerator()
         self._failed: queue.Queue = queue.Queue()
         self._stop  = threading.Event()
-        self._saved_files: list  = []   # rutas de los ficheros guardados
+        self._saved_files: list  = []
 
     def run(self) -> None:
         limit_str = f"{MAX_SEGMENTS} segmento(s)" if MAX_SEGMENTS > 0 else "infinito (Ctrl+C para parar)"
@@ -367,14 +390,11 @@ class CameraSimulator:
 
         try:
             while not self._stop.is_set():
-                # Parar si se alcanzó el límite de segmentos
                 if MAX_SEGMENTS > 0 and segment_index >= MAX_SEGMENTS:
                     logger.info(f"✅ MAX_SEGMENTS={MAX_SEGMENTS} alcanzado — simulador detenido")
                     break
-
                 self._process_segment(segment_index, boot_epoch)
                 segment_index += 1
-
         except KeyboardInterrupt:
             logger.info("Simulador detenido (Ctrl+C)")
         finally:
@@ -382,7 +402,6 @@ class CameraSimulator:
             self._print_summary(segment_index)
 
     def _print_summary(self, total: int) -> None:
-        """Resumen final al terminar."""
         logger.info("=" * 60)
         logger.info(f"RESUMEN: {total} segmento(s) generados y enviados")
         if self._saved_files:
@@ -391,8 +410,8 @@ class CameraSimulator:
                 logger.info(f"  💾 {path}")
             logger.info("")
             logger.info("Para verificar integridad (Swagger UI):")
-            logger.info(f"  POST /api/v1/verification/upload/{{video_id}}")
-            logger.info(f"  → Adjuntar fichero .mp4 del listado anterior")
+            logger.info("  POST /api/v1/verification/upload/{video_id}")
+            logger.info("  → Adjuntar fichero .mp4 del listado anterior")
         logger.info("=" * 60)
 
     def _process_segment(self, idx: int, boot_epoch: int) -> None:
@@ -402,7 +421,11 @@ class CameraSimulator:
         video_id   = self.api.start_video(fname)
         start_secs = idx * SEGMENT_DURATION
 
-        with tempfile.TemporaryDirectory(prefix="evideth_sim_") as tmp:
+        # ignore_cleanup_errors=True evita PermissionError en Windows
+        with tempfile.TemporaryDirectory(
+            prefix="evideth_sim_",
+            ignore_cleanup_errors=IS_WINDOWS,
+        ) as tmp:
             seg_path = os.path.join(tmp, fname)
 
             logger.info(f"--- Grabando segmento {idx}/{MAX_SEGMENTS if MAX_SEGMENTS > 0 else '∞'} ({SEGMENT_DURATION}s) ---")
@@ -427,7 +450,6 @@ class CameraSimulator:
                 f"    firma       : {signature[:20]}..."
             )
 
-            # Guardar copia ANTES de que el TemporaryDirectory se elimine
             if SAVE_SEGMENTS_DIR:
                 os.makedirs(SAVE_SEGMENTS_DIR, exist_ok=True)
                 saved_path = os.path.join(SAVE_SEGMENTS_DIR, fname)
