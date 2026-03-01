@@ -6,39 +6,37 @@ Simula una cámara de seguridad:
   1. Genera vídeo sintético con OpenCV (frames con timestamp y camera ID)
   2. Divide la grabación en segmentos de SEGMENT_DURATION segundos
   3. Calcula el hash SHA-256 de cada segmento completo          (Nivel 1)
-  4. Calcula hash SHA-256 de cada segundo del segmento con ffmpeg
-  5. Construye el árbol Merkle sobre los hashes por segundo      (Nivel 2)
+  4. Calcula hash SHA-256 de los frames RGB de cada segundo     (Nivel 2)
+  5. Construye el árbol Merkle sobre los hashes por segundo     (Nivel 2)
   6. Firma el Merkle root con ECDSA P-256 (clave local o Azure Key Vault)
   7. Envía todo al servidor EVIDETH
   8. Mantiene un heartbeat cada HEARTBEAT_INTERVAL segundos
   9. Reintenta los envíos fallidos mediante una cola persistente
 
-CONVENCIN ECDSA:
+CONVENCION ECDSA:
     datos firmados = bytes.fromhex(merkle_root)   [32 bytes raw]
     algoritmo      = ECDSA con SHA-256 interno
-    codificación   = base64url del DER signature
-    Verificación en servidor:
+    codificacion   = base64url del DER signature
+    Verificacion en servidor:
         public_key.verify(sig, bytes.fromhex(merkle_root), ec.ECDSA(hashes.SHA256()))
 
-Variables de entorno (ver .env.example):
+VARIABLES DE ENTORNO (ver .env.example):
     API_URL            URL base del backend
-    CAMERA_API_KEY     X-API-Key de esta cámara
-    CAMERA_ID          Identificador de cámara
+    CAMERA_API_KEY     X-API-Key de esta camara
+    CAMERA_ID          Identificador de camara
     SEGMENT_DURATION   Segundos por segmento (default: 30)
     FPS                Frames por segundo     (default: 25)
-    WIDTH / HEIGHT     Resolución del frame   (default: 1280x720)
+    WIDTH / HEIGHT     Resolucion del frame   (default: 1280x720)
     SIGNING_MODE       'local' | 'azure'      (default: local)
     PRIVATE_KEY_FILE   Ruta clave PEM         (SIGNING_MODE=local)
     AZURE_VAULT_URL    URL del Key Vault      (SIGNING_MODE=azure)
     AZURE_KEY_NAME     Nombre de la clave     (SIGNING_MODE=azure)
     TAMPER_MODE        'true' corrompe 1 de cada 3 segmentos para la demo
     HEARTBEAT_INTERVAL Segundos entre heartbeats (default: 30)
-    MAX_RETRIES        Reintentos por petición (default: 3)
+    MAX_RETRIES        Reintentos por peticion (default: 3)
     RETRY_DELAY        Segundos base entre reintentos (default: 5)
     SAVE_SEGMENTS_DIR  Directorio donde copiar los segmentos generados
-                       (vacío = no guardar). útil para pruebas de verificación.
-    MAX_SEGMENTS       Máximo de segmentos a generar y parar (0 = infinito).
-                       Ejemplo: MAX_SEGMENTS=1 genera 1 segmento de 30s y para.
+    MAX_SEGMENTS       Maximo de segmentos a generar (0 = infinito)
 """
 
 import os
@@ -48,9 +46,8 @@ import time
 import queue
 import hashlib
 import base64
-import tempfile
-import threading
 import subprocess
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
@@ -67,7 +64,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# ── Configuración ────────────────────────────────────────────
+# ── Configuracion ────────────────────────────────────────────
 
 API_URL            = os.environ["API_URL"].rstrip("/")
 CAMERA_API_KEY     = os.environ["CAMERA_API_KEY"]
@@ -83,13 +80,11 @@ HEARTBEAT_INTERVAL = int(os.getenv("HEARTBEAT_INTERVAL",  "30"))
 MAX_RETRIES        = int(os.getenv("MAX_RETRIES",         "3"))
 RETRY_DELAY        = int(os.getenv("RETRY_DELAY",         "5"))
 SAVE_SEGMENTS_DIR  = os.getenv("SAVE_SEGMENTS_DIR",       "").strip()
-MAX_SEGMENTS       = int(os.getenv("MAX_SEGMENTS",        "0"))   # 0 = infinito
+MAX_SEGMENTS       = int(os.getenv("MAX_SEGMENTS",        "0"))
 
-# En Windows, TemporaryDirectory puede fallar al limpiar si OpenCV
-# todavía tiene el handle abierto. ignore_cleanup_errors evita el crash.
 IS_WINDOWS = sys.platform == "win32"
 
-HEADERS    = {"X-API-Key": CAMERA_API_KEY}
+HEADERS     = {"X-API-Key": CAMERA_API_KEY}
 _EMPTY_HASH = hashlib.sha256(b"").hexdigest()
 
 
@@ -101,7 +96,7 @@ def _sha256_concat(left: str, right: str) -> str:
 
 def build_merkle_root(leaf_hashes: List[str]) -> str:
     if not leaf_hashes:
-        raise ValueError("Lista de hojas vacía")
+        raise ValueError("Lista de hojas vacia")
     if len(leaf_hashes) == 1:
         return leaf_hashes[0]
     level = list(leaf_hashes)
@@ -126,31 +121,36 @@ def sha256_file(path: str) -> str:
 
 
 def extract_second_hashes(seg_path: str, duration_secs: int) -> List[str]:
-    leaf_hashes: List[str] = []
-    # ignore_cleanup_errors=True: evita crash en Windows si ffmpeg deja handles abiertos
-    with tempfile.TemporaryDirectory(prefix="evideth_sec_", ignore_cleanup_errors=IS_WINDOWS) as tmp:
-        for sec in range(duration_secs):
-            out = os.path.join(tmp, f"sec_{sec:04d}.mp4")
-            cmd = [
-                "ffmpeg", "-y",
-                "-i",  seg_path,
-                "-ss", str(sec),
-                "-t",  "1",
-                "-c",  "copy",
-                "-avoid_negative_ts", "1",
-                out,
-            ]
-            r = subprocess.run(cmd, capture_output=True)
-            if (
-                r.returncode != 0
-                or not os.path.exists(out)
-                or os.path.getsize(out) == 0
-            ):
-                logger.warning(f"  segundo {sec}: no extraíble → usando centinela")
-                leaf_hashes.append(_EMPTY_HASH)
-            else:
-                leaf_hashes.append(sha256_file(out))
-    return leaf_hashes
+    """
+    Hash SHA-256 de los frames RGB decodificados de cada segundo.
+
+    Usa ffmpeg para decodificar y volcar los pixeles crudos RGB24 por stdout.
+    Al hashear los pixels (no el contenedor MP4), el resultado es identico
+    en cualquier plataforma/version de ffmpeg para el mismo contenido de video.
+
+    Este metodo es simetrico con el del verificador (video_processor.py),
+    garantizando que los hashes almacenados son reproducibles en verificacion.
+    """
+    hashes: List[str] = []
+
+    for sec in range(duration_secs):
+        cmd = [
+            "ffmpeg",
+            "-i",       seg_path,
+            "-ss",      str(sec),
+            "-t",       "1",
+            "-f",       "rawvideo",  # sin contenedor, solo pixels
+            "-pix_fmt", "rgb24",    # formato canonico y consistente
+            "pipe:1",
+        ]
+        r = subprocess.run(cmd, capture_output=True)
+        if r.returncode != 0 or not r.stdout:
+            logger.warning(f"  segundo {sec}: no extraible -> usando centinela")
+            hashes.append(_EMPTY_HASH)
+        else:
+            hashes.append(hashlib.sha256(r.stdout).hexdigest())
+
+    return hashes
 
 
 # ── CryptoService ──────────────────────────────────────────────
@@ -179,7 +179,7 @@ class CryptoService:
                 encryption_algorithm=serialization.NoEncryption(),
             )
             key_path.write_bytes(pem)
-            logger.info(f"Nueva clave ECDSA P-256 generada → {key_path}")
+            logger.info(f"Nueva clave ECDSA P-256 generada -> {key_path}")
 
         pub_pem = self._private_key.public_key().public_bytes(
             encoding=serialization.Encoding.PEM,
@@ -189,7 +189,7 @@ class CryptoService:
         pub_export.write_bytes(pub_pem)
         self.public_key_id = hashlib.sha256(pub_pem).hexdigest()[:16]
         logger.info(f"public_key_id : {self.public_key_id}")
-        logger.info(f"Clave pública → {pub_export}")
+        logger.info(f"Clave publica -> {pub_export}")
 
     def _init_azure(self):
         from azure.identity import DefaultAzureCredential
@@ -203,7 +203,7 @@ class CryptoService:
         self._crypto_client = CryptographyClient(key, credential=credential)
         self._sign_algo     = SignatureAlgorithm.es256
         self.public_key_id  = key_name
-        logger.info(f"Azure Key Vault — clave: {key_name}")
+        logger.info(f"Azure Key Vault -- clave: {key_name}")
 
     def sign(self, merkle_root: str) -> str:
         data = bytes.fromhex(merkle_root)
@@ -230,13 +230,13 @@ class APIClient:
                 )
                 r.raise_for_status()
                 video_id = r.json()["id"]
-                logger.info(f"Vídeo registrado: {video_id}")
+                logger.info(f"Video registrado: {video_id}")
                 return video_id
             except Exception as exc:
                 logger.warning(f"start_video intento {attempt}/{MAX_RETRIES}: {exc}")
                 if attempt < MAX_RETRIES:
                     time.sleep(RETRY_DELAY * attempt)
-        raise RuntimeError("start_video falló tras máximo de reintentos")
+        raise RuntimeError("start_video fallo tras maximo de reintentos")
 
     def send_segment(self, payload: dict) -> bool:
         idx = payload["segment_index"]
@@ -250,7 +250,6 @@ class APIClient:
                     logger.warning(f"Segmento #{idx} ya registrado (409)")
                     return True
                 if not r.ok:
-                    # Loguear el body del error para facilitar el debugging
                     try:
                         err_body = r.json()
                     except Exception:
@@ -258,7 +257,7 @@ class APIClient:
                     logger.warning(
                         f"send_segment #{idx} intento {attempt}/{MAX_RETRIES}: "
                         f"{r.status_code} {r.reason}\n"
-                        f"  └─ Body: {err_body}"
+                        f"  +-- Body: {err_body}"
                     )
                     if attempt < MAX_RETRIES:
                         time.sleep(RETRY_DELAY * attempt)
@@ -266,8 +265,8 @@ class APIClient:
                 r.raise_for_status()
                 srv_root = r.json().get("merkle_root", "N/A")
                 logger.success(
-                    f"Segmento #{idx} aceptado — "
-                    f"hash: {payload['sha256_hash'][:16]}... — "
+                    f"Segmento #{idx} aceptado -- "
+                    f"hash: {payload['sha256_hash'][:16]}... -- "
                     f"merkle_root: {str(srv_root)[:16]}..."
                 )
                 return True
@@ -284,7 +283,7 @@ class APIClient:
                 headers=HEADERS, timeout=10,
             )
             r.raise_for_status()
-            logger.info(f"Vídeo {video_id} finalizado")
+            logger.info(f"Video {video_id} finalizado")
         except Exception as exc:
             logger.error(f"finish_video error: {exc}")
 
@@ -315,11 +314,10 @@ class VideoGenerator:
             if expected > elapsed:
                 time.sleep(expected - elapsed)
         writer.release()
-        # Windows necesita un momento para liberar el handle del fichero
         if IS_WINDOWS:
             time.sleep(0.3)
         size_mb = os.path.getsize(out_path) / (1024 * 1024)
-        logger.debug(f"Segmento {segment_index} escrito → {out_path} ({size_mb:.1f} MB)")
+        logger.debug(f"Segmento {segment_index} escrito -> {out_path} ({size_mb:.1f} MB)")
 
     def _build_frame(self, frame_n: int, segment_index: int, abs_sec: int) -> np.ndarray:
         frame = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
@@ -343,13 +341,13 @@ class VideoGenerator:
             cv2.line(frame, (ox, oy), (ox, oy + sy*corner_len), corner_col, 1)
         now_str = datetime.fromtimestamp(abs_sec, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(frame, f"EVIDETH — {CAMERA_ID}",
+        cv2.putText(frame, f"EVIDETH -- {CAMERA_ID}",
                     (20, 38), font, 0.85, (0, 200, 255), 1, cv2.LINE_AA)
         cv2.putText(frame, f"SEG {segment_index:04d}  FRM {frame_n:06d}  [{WIDTH}x{HEIGHT} @ {FPS}fps]",
                     (20, 70), font, 0.55, (0, 140, 180), 1, cv2.LINE_AA)
         cv2.putText(frame, now_str,
                     (20, HEIGHT-18), font, 0.55, (0, 180, 80), 1, cv2.LINE_AA)
-        cv2.putText(frame, "SHA-256 · ECDSA P-256 · Merkle · EVIDETH",
+        cv2.putText(frame, "SHA-256 - ECDSA P-256 - Merkle - EVIDETH",
                     (WIDTH-420, HEIGHT-18), font, 0.45, (40, 60, 40), 1, cv2.LINE_AA)
         if TAMPER_MODE and segment_index % 3 == 0:
             cv2.rectangle(frame, (cx-220, cy-40), (cx+220, cy+50), (0, 0, 180), 2)
@@ -358,7 +356,7 @@ class VideoGenerator:
         return frame
 
 
-# ── CameraSimulator (daemon principal) ───────────────────────────
+# ── CameraSimulator ─────────────────────────────────────────────────
 
 class CameraSimulator:
     def __init__(self):
@@ -373,13 +371,13 @@ class CameraSimulator:
         limit_str = f"{MAX_SEGMENTS} segmento(s)" if MAX_SEGMENTS > 0 else "infinito (Ctrl+C para parar)"
         logger.info("=" * 60)
         logger.info("EVIDETH Camera Simulator")
-        logger.info(f"  Cámara     : {CAMERA_ID}")
+        logger.info(f"  Camara     : {CAMERA_ID}")
         logger.info(f"  Backend    : {API_URL}")
         logger.info(f"  Segmento   : {SEGMENT_DURATION}s @ {FPS}fps {WIDTH}x{HEIGHT}")
         logger.info(f"  Firma      : {SIGNING_MODE.upper()} sobre merkle_root")
-        logger.info(f"  Tamper     : {'ACTIVADO ⚠️' if TAMPER_MODE else 'desactivado'}")
+        logger.info(f"  Tamper     : {'ACTIVADO' if TAMPER_MODE else 'desactivado'}")
         logger.info(f"  Guardar    : {SAVE_SEGMENTS_DIR if SAVE_SEGMENTS_DIR else 'desactivado'}")
-        logger.info(f"  Límite     : {limit_str}")
+        logger.info(f"  Limite     : {limit_str}")
         logger.info("=" * 60)
 
         threading.Thread(target=self._heartbeat_loop, daemon=True, name="heartbeat").start()
@@ -391,7 +389,7 @@ class CameraSimulator:
         try:
             while not self._stop.is_set():
                 if MAX_SEGMENTS > 0 and segment_index >= MAX_SEGMENTS:
-                    logger.info(f"✅ MAX_SEGMENTS={MAX_SEGMENTS} alcanzado — simulador detenido")
+                    logger.info(f"MAX_SEGMENTS={MAX_SEGMENTS} alcanzado -- simulador detenido")
                     break
                 self._process_segment(segment_index, boot_epoch)
                 segment_index += 1
@@ -405,13 +403,13 @@ class CameraSimulator:
         logger.info("=" * 60)
         logger.info(f"RESUMEN: {total} segmento(s) generados y enviados")
         if self._saved_files:
-            logger.info(f"Vídeos guardados en: {SAVE_SEGMENTS_DIR}")
+            logger.info(f"Videos guardados en: {SAVE_SEGMENTS_DIR}")
             for path in self._saved_files:
-                logger.info(f"  💾 {path}")
+                logger.info(f"  {path}")
             logger.info("")
             logger.info("Para verificar integridad (Swagger UI):")
             logger.info("  POST /api/v1/verification/upload/{video_id}")
-            logger.info("  → Adjuntar fichero .mp4 del listado anterior")
+            logger.info("  -> Adjuntar fichero .mp4 del listado anterior")
         logger.info("=" * 60)
 
     def _process_segment(self, idx: int, boot_epoch: int) -> None:
@@ -421,14 +419,15 @@ class CameraSimulator:
         video_id   = self.api.start_video(fname)
         start_secs = idx * SEGMENT_DURATION
 
-        # ignore_cleanup_errors=True evita PermissionError en Windows
-        with tempfile.TemporaryDirectory(
-            prefix="evideth_sim_",
-            ignore_cleanup_errors=IS_WINDOWS,
-        ) as tmp:
+        with (
+            __import__('tempfile').TemporaryDirectory(
+                prefix="evideth_sim_",
+                ignore_cleanup_errors=IS_WINDOWS,
+            ) as tmp
+        ):
             seg_path = os.path.join(tmp, fname)
 
-            logger.info(f"--- Grabando segmento {idx}/{MAX_SEGMENTS if MAX_SEGMENTS > 0 else '∞'} ({SEGMENT_DURATION}s) ---")
+            logger.info(f"--- Grabando segmento {idx}/{MAX_SEGMENTS if MAX_SEGMENTS > 0 else 'inf'} ({SEGMENT_DURATION}s) ---")
             self.gen.record_segment(seg_path, idx, boot_epoch + start_secs)
 
             if TAMPER_MODE and idx % 3 == 0:
@@ -456,7 +455,7 @@ class CameraSimulator:
                 shutil.copy2(seg_path, saved_path)
                 self._saved_files.append(saved_path)
                 logger.info(
-                    f"  💾 Guardado → {saved_path}\n"
+                    f"  Guardado -> {saved_path}\n"
                     f"     video_id  : {video_id}"
                 )
 
@@ -505,7 +504,7 @@ class CameraSimulator:
                 try:
                     p = self._failed.get_nowait()
                     if self.api.send_segment(p):
-                        logger.success(f"Reintento OK — segmento #{p['segment_index']}")
+                        logger.success(f"Reintento OK -- segmento #{p['segment_index']}")
                     else:
                         pending.append(p)
                 except queue.Empty:
@@ -517,4 +516,5 @@ class CameraSimulator:
 # ── Entry point ────────────────────────────────────────────
 
 if __name__ == "__main__":
+    import queue
     CameraSimulator().run()

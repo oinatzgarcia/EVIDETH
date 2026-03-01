@@ -40,49 +40,45 @@ def calculate_sha256(file_path: str) -> str:
 
 def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
     """
-    Extrae el hash SHA-256 de cada chunk de 1 segundo dentro de un segmento.
+    Hash SHA-256 de los frames RGB decodificados de cada segundo.
 
-    Usa exactamente los mismos parámetros ffmpeg que el simulador para
-    garantizar hashes idénticos sobre el mismo fichero.
+    En lugar de hashear ficheros MP4 de 1s (cuyos bytes de contenedor
+    varian entre versiones/plataformas de ffmpeg), se extraen los pixels
+    crudos RGB24 via stdout. El contenido decodificado es identico
+    en cualquier plataforma para el mismo fichero de entrada.
+
+    Este metodo es el mismo que usa el simulador, garantizando que
+    los hashes son comparables independientemente del SO o version ffmpeg.
     """
     hashes: List[str] = []
 
-    with tempfile.TemporaryDirectory(prefix="evideth_sec_") as tmp:
-        for sec in range(duration_secs):
-            out = os.path.join(tmp, f"sec_{sec:04d}.mp4")
-            cmd = [
-                "ffmpeg", "-y",
-                "-i", segment_path,
-                "-ss", str(sec),
-                "-t", "1",
-                "-c", "copy",
-                "-avoid_negative_ts", "1",
-                out
-            ]
-            r = subprocess.run(cmd, capture_output=True)
-            if r.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) == 0:
-                hashes.append(_EMPTY_HASH)
-            else:
-                hashes.append(calculate_sha256(out))
+    for sec in range(duration_secs):
+        cmd = [
+            "ffmpeg",
+            "-i",      segment_path,
+            "-ss",     str(sec),
+            "-t",      "1",
+            "-f",      "rawvideo",   # pixeles crudos, sin contenedor
+            "-pix_fmt", "rgb24",    # formato de pixel canonico
+            "pipe:1",               # volcar por stdout
+        ]
+        r = subprocess.run(cmd, capture_output=True)
+        if r.returncode != 0 or not r.stdout:
+            hashes.append(_EMPTY_HASH)
+        else:
+            hashes.append(hashlib.sha256(r.stdout).hexdigest())
 
     return hashes
 
 
 def segment_video(video_path: str, output_dir: str) -> List[Dict]:
     """
-    Divide el video en segmentos lógicos de SEGMENT_DURATION segundos.
+    Divide el video en segmentos logicos de SEGMENT_DURATION segundos.
 
-    IMPORTANTE — consistencia de hashes:
-      El simulador guarda el fichero MP4 generado por OpenCV y calcula
-      sha256 + second_hashes directamente sobre ese fichero.
-      Si el verificador re-extrae el mismo contenido con ffmpeg (-c copy),
-      los headers del contenedor MP4 cambian → bytes distintos → hashes distintos.
-
-      Por tanto:
-        - Si el vídeo subido cabe en un único segmento (duración ≤ SEGMENT_DURATION),
-          se hashea y se extraen los segundos DIRECTAMENTE del fichero original.
-        - Solo se re-extrae con ffmpeg cuando hay múltiples segmentos (el vídeo
-          fue concatenado y hay que trocearlo).
+    Para videos de un unico segmento (duracion <= SEGMENT_DURATION),
+    se hashea el fichero original directamente sin re-extraerlo con ffmpeg,
+    garantizando que el sha256 (Nivel 1) sea identico al almacenado
+    por el simulador.
     """
     duration = get_video_duration(video_path)
     total_logical_segments = math.ceil(duration / SEGMENT_DURATION)
@@ -96,23 +92,21 @@ def segment_video(video_path: str, output_dir: str) -> List[Dict]:
         is_complete  = seg_duration >= SEGMENT_DURATION
 
         if total_logical_segments == 1:
-            # ── Video de un único segmento: trabajar con el fichero original ──────
-            # El simulador hashea este mismo fichero sin pasar por ffmpeg,
-            # por lo que los hashes son directamente comparables.
-            work_path = video_path
+            # Video de un unico segmento: usar el fichero original sin re-extraer.
+            # El simulador hashea este mismo fichero directamente, por lo que
+            # el sha256 es comparable.
+            work_path   = video_path
             sha256_hash = calculate_sha256(work_path)
             file_size   = os.path.getsize(work_path)
         else:
-            # ── Video multi-segmento: extraer la porción con ffmpeg ──────────────
-            # Aquí sí es necesario trocear; ambos lados (grabación y verificación)
-            # pasarían por ffmpeg por lo que el comportamiento es simétrico.
+            # Multi-segmento: extraer la porcion con ffmpeg.
             work_path = os.path.join(output_dir, f"segment_{segment_index:04d}.mp4")
             cmd = [
                 "ffmpeg", "-y",
-                "-i", video_path,
-                "-ss", str(start),
-                "-t", str(seg_duration),
-                "-c", "copy",
+                "-i",    video_path,
+                "-ss",   str(start),
+                "-t",    str(seg_duration),
+                "-c",    "copy",
                 "-avoid_negative_ts", "1",
                 work_path
             ]
@@ -124,7 +118,7 @@ def segment_video(video_path: str, output_dir: str) -> List[Dict]:
             sha256_hash = calculate_sha256(work_path)
             file_size   = os.path.getsize(work_path)
 
-        # Nivel 2: hashes por segundo + Merkle root (sobre work_path en ambos casos)
+        # Nivel 2: raw-frame hashes + Merkle root
         second_hashes = extract_second_hashes(work_path, int(seg_duration))
         merkle_root   = build_merkle_root(second_hashes)
 
