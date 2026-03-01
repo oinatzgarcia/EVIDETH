@@ -67,6 +67,14 @@
             border-color: #4ade80; background: rgba(74,222,128,.15);
             box-shadow: 0 0 8px rgba(74,222,128,.3);
         }
+        .btn-download-sm.pdf {
+            border: 1px solid rgba(239,68,68,.5);
+            color: #ef4444; background: rgba(239,68,68,.08);
+        }
+        .btn-download-sm.pdf:hover {
+            border-color: #ef4444; background: rgba(239,68,68,.15);
+            box-shadow: 0 0 8px rgba(239,68,68,.3);
+        }
         .btn-download-sm svg { width: 13px; height: 13px; flex-shrink: 0; }
         .modal-overlay {
             position: fixed; inset: 0; background: rgba(0,0,0,.85);
@@ -280,13 +288,13 @@
         <!-- Log table -->
         <div class="card-bg border border-glow overflow-hidden">
             <div class="grid font-mono text-xs tracking-widest uppercase px-5 py-3 border-b"
-                 style="grid-template-columns:140px 90px 110px 1fr 100px 130px; border-color:rgba(74,144,226,.15); color:#4b5563;">
+                 style="grid-template-columns:140px 90px 110px 1fr 100px 160px; border-color:rgba(74,144,226,.15); color:#4b5563;">
                 <span>Timestamp</span><span>Event</span><span>Camera</span><span>Detail</span><span>IP Address</span><span class="text-right">Actions</span>
             </div>
             <template x-if="loading">
                 <div>
                     <template x-for="i in 8" :key="i">
-                        <div class="grid px-5 py-4 border-b" style="grid-template-columns:140px 90px 110px 1fr 100px 130px; border-color:rgba(74,144,226,.07);">
+                        <div class="grid px-5 py-4 border-b" style="grid-template-columns:140px 90px 110px 1fr 100px 160px; border-color:rgba(74,144,226,.07);">
                             <div class="skeleton h-3 w-28 rounded"></div><div class="skeleton h-3 w-16 rounded"></div>
                             <div class="skeleton h-3 w-20 rounded"></div><div class="skeleton h-3 w-48 rounded"></div>
                             <div class="skeleton h-3 w-24 rounded"></div><div class="skeleton h-3 w-12 rounded ml-auto"></div>
@@ -302,7 +310,7 @@
                     <template x-for="(entry, idx) in items" :key="idx">
                         <div>
                             <div class="grid items-center px-5 py-3.5 border-b"
-                                 style="grid-template-columns:140px 90px 110px 1fr 100px 130px; border-color:rgba(74,144,226,.07);">
+                                 style="grid-template-columns:140px 90px 110px 1fr 100px 160px; border-color:rgba(74,144,226,.07);">
                                 <!-- Timestamp -->
                                 <div class="cursor-pointer" @click="toggleDetail(idx)">
                                     <p class="font-mono text-xs" style="color:#d1d5db;" x-text="fmtDate(entry.timestamp)"></p>
@@ -317,14 +325,25 @@
                                 <span class="font-mono text-xs truncate pr-4 cursor-pointer" style="color:#9ca3af;" x-text="entrySummary(entry)" @click="toggleDetail(idx)"></span>
                                 <!-- IP -->
                                 <span class="font-mono text-xs cursor-pointer" style="color:#4b5563;" x-text="entry.ip_address || '—'" @click="toggleDetail(idx)"></span>
-                                <!-- Actions column -->
+                                <!-- Actions column - PDF + JSON buttons -->
                                 <div class="flex justify-end items-center gap-2">
                                     <span class="font-mono text-[10px] px-2 py-0.5 border cursor-pointer" :style="resultBadgeStyle(entry)" x-text="resultLabel(entry)" @click="toggleDetail(idx)"></span>
-                                    <!-- Download button (show for ALL verification events) -->
+                                    <!-- PDF Download button -->
+                                    <button x-show="entry.event_type === 'verification'"
+                                            @click.stop="downloadPDFForEntry(entry)" 
+                                            class="btn-download-sm pdf" 
+                                            title="Download forensic PDF report">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                  d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                                        </svg>
+                                        PDF
+                                    </button>
+                                    <!-- JSON Download button -->
                                     <button x-show="entry.event_type === 'verification'"
                                             @click.stop="downloadReportForEntry(entry)" 
                                             class="btn-download-sm" 
-                                            title="Download forensic report">
+                                            title="Download forensic JSON report">
                                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                   d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
@@ -399,7 +418,7 @@
         </div>
     </main>
 
-    <!-- MODAL (unchanged, keeping previous implementation) -->
+    <!-- MODAL -->
     <div x-show="modal.open" x-transition:enter="transition ease-out duration-200"
          x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
          x-transition:leave="transition ease-in duration-150"
@@ -465,6 +484,15 @@
                             </template>
                         </div>
                         <div class="flex items-center gap-3 mt-6 pt-5 border-t" style="border-color:rgba(74,144,226,.15);">
+                            <button @click="downloadModalPDF()" class="flex items-center gap-2 px-4 py-2 border font-mono text-xs"
+                                    style="border-color:#ef4444; color:#ef4444; background:rgba(239,68,68,.05);"
+                                    onmouseover="this.style.background='rgba(239,68,68,.1)'" onmouseout="this.style.background='rgba(239,68,68,.05)'">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                                </svg>
+                                Download PDF Report
+                            </button>
                             <button @click="downloadModalReport()" class="flex items-center gap-2 px-4 py-2 border font-mono text-xs"
                                     style="border-color:#4ade80; color:#4ade80; background:rgba(74,222,128,.05);"
                                     onmouseover="this.style.background='rgba(74,222,128,.1)'" onmouseout="this.style.background='rgba(74,222,128,.05)'">
@@ -537,9 +565,42 @@
             nextPage() { if (this.page < this.totalPages) { this.page++; this.loadLogs(); } },
             toggleDetail(idx) { this.openIdx = this.openIdx === idx ? null : idx; },
 
+            async downloadPDFForEntry(entry) {
+                console.log('[EVIDETH PDF] Download clicked for entry:', entry);
+                const videoId = entry.video_id || (entry.detail && entry.detail.video_id);
+                console.log('[EVIDETH PDF] Extracted video_id:', videoId);
+                
+                if (!videoId) {
+                    console.error('[EVIDETH PDF] No video_id found');
+                    alert('No video_id available for PDF generation');
+                    return;
+                }
+                
+                try {
+                    const res = await fetch('/api/v1/verification/' + videoId + '/report', { 
+                        headers: Auth.authHeader() 
+                    });
+                    if (res.status === 401) { Auth.logout(); return; }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    
+                    // Download PDF blob
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+                    a.href = url;
+                    a.download = 'evideth_report_' + (entry.camera_id || 'unknown') + '_' + ts + '.pdf';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                } catch (err) {
+                    alert('Error downloading PDF: ' + err.message);
+                }
+            },
+
             async downloadReportForEntry(entry) {
                 console.log('[EVIDETH] Download clicked for entry:', entry);
-                // Check multiple possible locations for video_id
                 const videoId = entry.video_id || (entry.detail && entry.detail.video_id);
                 console.log('[EVIDETH] Extracted video_id:', videoId);
                 
@@ -576,6 +637,31 @@
                 }
             },
             closeModal() { this.modal = { open: false, loading: false, error: null, report: null }; },
+            
+            async downloadModalPDF() {
+                if (!this.modal.report || !this.modal.report.video_id) return;
+                try {
+                    const res = await fetch('/api/v1/verification/' + this.modal.report.video_id + '/report', {
+                        headers: Auth.authHeader()
+                    });
+                    if (res.status === 401) { Auth.logout(); return; }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+                    a.href = url;
+                    a.download = 'evideth_report_' + (this.modal.report.camera_id || 'unknown') + '_' + ts + '.pdf';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                } catch (err) {
+                    alert('Error downloading PDF: ' + err.message);
+                }
+            },
+            
             downloadModalReport() { if (this.modal.report) this.downloadReportJSON(this.modal.report); },
 
             async downloadReportJSON(report) {
