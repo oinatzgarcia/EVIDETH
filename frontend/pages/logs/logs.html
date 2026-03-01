@@ -288,13 +288,13 @@
         <!-- Log table -->
         <div class="card-bg border border-glow overflow-hidden">
             <div class="grid font-mono text-xs tracking-widest uppercase px-5 py-3 border-b"
-                 style="grid-template-columns:140px 90px 110px 1fr 100px 160px; border-color:rgba(74,144,226,.15); color:#4b5563;">
+                 style="grid-template-columns:140px 90px 110px 1fr 100px 220px; border-color:rgba(74,144,226,.15); color:#4b5563;">
                 <span>Timestamp</span><span>Event</span><span>Camera</span><span>Detail</span><span>IP Address</span><span class="text-right">Actions</span>
             </div>
             <template x-if="loading">
                 <div>
                     <template x-for="i in 8" :key="i">
-                        <div class="grid px-5 py-4 border-b" style="grid-template-columns:140px 90px 110px 1fr 100px 160px; border-color:rgba(74,144,226,.07);">
+                        <div class="grid px-5 py-4 border-b" style="grid-template-columns:140px 90px 110px 1fr 100px 220px; border-color:rgba(74,144,226,.07);">
                             <div class="skeleton h-3 w-28 rounded"></div><div class="skeleton h-3 w-16 rounded"></div>
                             <div class="skeleton h-3 w-20 rounded"></div><div class="skeleton h-3 w-48 rounded"></div>
                             <div class="skeleton h-3 w-24 rounded"></div><div class="skeleton h-3 w-12 rounded ml-auto"></div>
@@ -310,7 +310,7 @@
                     <template x-for="(entry, idx) in items" :key="idx">
                         <div>
                             <div class="grid items-center px-5 py-3.5 border-b"
-                                 style="grid-template-columns:140px 90px 110px 1fr 100px 160px; border-color:rgba(74,144,226,.07);">
+                                 style="grid-template-columns:140px 90px 110px 1fr 100px 220px; border-color:rgba(74,144,226,.07);">
                                 <!-- Timestamp -->
                                 <div class="cursor-pointer" @click="toggleDetail(idx)">
                                     <p class="font-mono text-xs" style="color:#d1d5db;" x-text="fmtDate(entry.timestamp)"></p>
@@ -577,7 +577,7 @@
                 }
                 
                 try {
-                    const res = await fetch('/api/v1/verification/' + videoId + '/report', { 
+                    const res = await fetch('/api/v1/verification/report/' + videoId + '/pdf', { 
                         headers: Auth.authHeader() 
                     });
                     if (res.status === 401) { Auth.logout(); return; }
@@ -611,7 +611,7 @@
                 }
                 
                 try {
-                    const res = await fetch('/api/v1/verification/' + videoId, { headers: Auth.authHeader() });
+                    const res = await fetch('/api/v1/verification/report/' + videoId, { headers: Auth.authHeader() });
                     if (res.status === 401) { Auth.logout(); return; }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     const report = await res.json();
@@ -626,7 +626,7 @@
                 if (!videoId) return;
                 this.modal = { open: true, loading: true, error: null, report: null };
                 try {
-                    const res = await fetch('/api/v1/verification/' + videoId, { headers: Auth.authHeader() });
+                    const res = await fetch('/api/v1/verification/report/' + videoId, { headers: Auth.authHeader() });
                     if (res.status === 401) { Auth.logout(); return; }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     this.modal.report = await res.json();
@@ -641,7 +641,7 @@
             async downloadModalPDF() {
                 if (!this.modal.report || !this.modal.report.video_id) return;
                 try {
-                    const res = await fetch('/api/v1/verification/' + this.modal.report.video_id + '/report', {
+                    const res = await fetch('/api/v1/verification/report/' + this.modal.report.video_id + '/pdf', {
                         headers: Auth.authHeader()
                     });
                     if (res.status === 401) { Auth.logout(); return; }
