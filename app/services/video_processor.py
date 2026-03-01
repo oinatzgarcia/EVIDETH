@@ -1,5 +1,6 @@
 import subprocess
 import hashlib
+import math
 import os
 import json
 import tempfile
@@ -10,7 +11,7 @@ from app.utils.merkle import build_merkle_root
 
 
 SEGMENT_DURATION = 30  # segundos
-_EMPTY_HASH = hashlib.sha256(b"").hexdigest()  # Centinela para segundos no extraíbles
+_EMPTY_HASH = hashlib.sha256(b"").hexdigest()
 
 
 def get_video_duration(video_path: str) -> float:
@@ -24,7 +25,6 @@ def get_video_duration(video_path: str) -> float:
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe error: {result.stderr}")
-
     data = json.loads(result.stdout)
     return float(data["format"]["duration"])
 
@@ -42,17 +42,8 @@ def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
     """
     Extrae el hash SHA-256 de cada chunk de 1 segundo dentro de un segmento.
 
-    Granularidad fina equivalente a las hojas del árbol Merkle: permite
-    identificar exactamente qué segundo fue manipulado, sin necesidad de
-    retransmitir el segmento completo (análogo a SPV de Bitcoin).
-
-    Args:
-        segment_path:  Ruta al fichero de segmento (.mp4).
-        duration_secs: Duración del segmento en segundos (normalmente 30).
-
-    Returns:
-        Lista de ``duration_secs`` hashes SHA-256 en hex.
-        Si un segundo no se puede extraer, se usa SHA-256(b"") como centinela.
+    Usa exactamente los mismos parámetros ffmpeg que el simulador para
+    garantizar hashes idénticos sobre el mismo fichero.
     """
     hashes: List[str] = []
 
@@ -79,47 +70,62 @@ def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
 
 def segment_video(video_path: str, output_dir: str) -> List[Dict]:
     """
-    Divide el video en segmentos de 30 s usando ffmpeg.
+    Divide el video en segmentos lógicos de SEGMENT_DURATION segundos.
 
-    Para cada segmento calcula dos niveles criptográficos:
-      - **Nivel 1** ``sha256_hash``:  SHA-256 del fichero de segmento completo.
-      - **Nivel 2** ``second_hashes`` + ``merkle_root``:
-            SHA-256 de cada chunk de 1 s → raíz del árbol Merkle.
+    IMPORTANTE — consistencia de hashes:
+      El simulador guarda el fichero MP4 generado por OpenCV y calcula
+      sha256 + second_hashes directamente sobre ese fichero.
+      Si el verificador re-extrae el mismo contenido con ffmpeg (-c copy),
+      los headers del contenedor MP4 cambian → bytes distintos → hashes distintos.
 
-    Devuelve lista de segmentos con sus metadatos y datos criptográficos.
+      Por tanto:
+        - Si el vídeo subido cabe en un único segmento (duración ≤ SEGMENT_DURATION),
+          se hashea y se extraen los segundos DIRECTAMENTE del fichero original.
+        - Solo se re-extrae con ffmpeg cuando hay múltiples segmentos (el vídeo
+          fue concatenado y hay que trocearlo).
     """
     duration = get_video_duration(video_path)
+    total_logical_segments = math.ceil(duration / SEGMENT_DURATION)
     segments = []
     segment_index = 0
     start = 0.0
 
     while start < duration:
-        end = min(start + SEGMENT_DURATION, duration)
+        end          = min(start + SEGMENT_DURATION, duration)
         seg_duration = end - start
-        is_complete = seg_duration >= SEGMENT_DURATION
+        is_complete  = seg_duration >= SEGMENT_DURATION
 
-        output_path = os.path.join(output_dir, f"segment_{segment_index:04d}.mp4")
+        if total_logical_segments == 1:
+            # ── Video de un único segmento: trabajar con el fichero original ──────
+            # El simulador hashea este mismo fichero sin pasar por ffmpeg,
+            # por lo que los hashes son directamente comparables.
+            work_path = video_path
+            sha256_hash = calculate_sha256(work_path)
+            file_size   = os.path.getsize(work_path)
+        else:
+            # ── Video multi-segmento: extraer la porción con ffmpeg ──────────────
+            # Aquí sí es necesario trocear; ambos lados (grabación y verificación)
+            # pasarían por ffmpeg por lo que el comportamiento es simétrico.
+            work_path = os.path.join(output_dir, f"segment_{segment_index:04d}.mp4")
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", video_path,
+                "-ss", str(start),
+                "-t", str(seg_duration),
+                "-c", "copy",
+                "-avoid_negative_ts", "1",
+                work_path
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"ffmpeg error en segmento {segment_index}: {result.stderr}"
+                )
+            sha256_hash = calculate_sha256(work_path)
+            file_size   = os.path.getsize(work_path)
 
-        # Extrae el segmento con ffmpeg (copia sin recodificar → hash consistente)
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-ss", str(start),
-            "-t", str(seg_duration),
-            "-c", "copy",
-            "-avoid_negative_ts", "1",
-            output_path
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"ffmpeg error en segmento {segment_index}: {result.stderr}")
-
-        # Nivel 1: hash del segmento completo
-        sha256_hash = calculate_sha256(output_path)
-        file_size   = os.path.getsize(output_path)
-
-        # Nivel 2: hashes por segundo + Merkle root
-        second_hashes = extract_second_hashes(output_path, int(seg_duration))
+        # Nivel 2: hashes por segundo + Merkle root (sobre work_path en ambos casos)
+        second_hashes = extract_second_hashes(work_path, int(seg_duration))
         merkle_root   = build_merkle_root(second_hashes)
 
         segments.append({
@@ -132,7 +138,7 @@ def segment_video(video_path: str, output_dir: str) -> List[Dict]:
             "second_hashes":   second_hashes,
             "merkle_root":     merkle_root,
             "file_size_bytes": file_size,
-            "file_path":       output_path,
+            "file_path":       work_path,
         })
 
         segment_index += 1
