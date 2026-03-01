@@ -539,7 +539,6 @@
 
             async downloadReportForEntry(entry) {
                 console.log('[EVIDETH] Download clicked for entry:', entry);
-                // Check multiple possible locations for video_id
                 const videoId = entry.video_id || (entry.detail && entry.detail.video_id);
                 console.log('[EVIDETH] Extracted video_id:', videoId);
                 
@@ -550,7 +549,7 @@
                 }
                 
                 try {
-                    const res = await fetch('/api/v1/verification/' + videoId, { headers: Auth.authHeader() });
+                    const res = await fetch('/api/v1/verification/report/' + videoId, { headers: Auth.authHeader() });
                     if (res.status === 401) { Auth.logout(); return; }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     const report = await res.json();
@@ -565,7 +564,7 @@
                 if (!videoId) return;
                 this.modal = { open: true, loading: true, error: null, report: null };
                 try {
-                    const res = await fetch('/api/v1/verification/' + videoId, { headers: Auth.authHeader() });
+                    const res = await fetch('/api/v1/verification/report/' + videoId, { headers: Auth.authHeader() });
                     if (res.status === 401) { Auth.logout(); return; }
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     this.modal.report = await res.json();
