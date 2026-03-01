@@ -55,6 +55,41 @@
         .hash-text { font-family: 'Space Mono', monospace; font-size: 10px; color: #4b5563; word-break: break-all; }
         .hash-text.ok { color: #4a90e2; } .hash-text.fail { color: #ef4444; }
         select option { background: #0a0a0a; color: #e5e7eb; }
+        .btn-download-sm {
+            display: inline-flex; align-items: center; gap: .3rem;
+            padding: .35rem .7rem; border: 1px solid rgba(74,222,128,.4);
+            font-family: 'Space Mono', monospace; font-size: .55rem;
+            letter-spacing: .08em; text-transform: uppercase;
+            color: #4ade80; background: rgba(74,222,128,.05);
+            cursor: pointer; transition: all .15s ease;
+        }
+        .btn-download-sm:hover {
+            border-color: #4ade80; background: rgba(74,222,128,.1);
+        }
+        .btn-download-sm svg { width: 11px; height: 11px; flex-shrink: 0; }
+        /* Modal overlay */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,.85);
+            z-index: 1000; display: flex; align-items: center; justify-content: center;
+            padding: 2rem;
+        }
+        .modal-content {
+            background: #0a0a0a; border: 1px solid rgba(74,144,226,.3);
+            max-width: 900px; width: 100%; max-height: 90vh;
+            overflow-y: auto; position: relative;
+        }
+        .modal-header {
+            position: sticky; top: 0; background: #000;
+            border-bottom: 1px solid rgba(74,144,226,.2);
+            padding: 1.5rem; z-index: 10;
+        }
+        .modal-body { padding: 1.5rem; }
+        .seg-row {
+            padding: .75rem; border: 1px solid rgba(74,144,226,.15);
+            background: #000; margin-bottom: .5rem;
+            font-family: 'Space Mono', monospace; font-size: .7rem;
+        }
+        .seg-row.tampered { border-color: rgba(220,38,38,.4); background: rgba(127,29,29,.08); }
     </style>
 </head>
 
@@ -249,13 +284,13 @@
         <!-- Log table -->
         <div class="card-bg border border-glow overflow-hidden">
             <div class="grid font-mono text-xs tracking-widest uppercase px-5 py-3 border-b"
-                 style="grid-template-columns:140px 90px 110px 1fr 100px 80px; border-color:rgba(74,144,226,.15); color:#4b5563;">
-                <span>Timestamp</span><span>Event</span><span>Camera</span><span>Detail</span><span>IP Address</span><span class="text-right">Result</span>
+                 style="grid-template-columns:140px 90px 110px 1fr 100px 120px; border-color:rgba(74,144,226,.15); color:#4b5563;">
+                <span>Timestamp</span><span>Event</span><span>Camera</span><span>Detail</span><span>IP Address</span><span class="text-right">Actions</span>
             </div>
             <template x-if="loading">
                 <div>
                     <template x-for="i in 8" :key="i">
-                        <div class="grid px-5 py-4 border-b" style="grid-template-columns:140px 90px 110px 1fr 100px 80px; border-color:rgba(74,144,226,.07);">
+                        <div class="grid px-5 py-4 border-b" style="grid-template-columns:140px 90px 110px 1fr 100px 120px; border-color:rgba(74,144,226,.07);">
                             <div class="skeleton h-3 w-28 rounded"></div><div class="skeleton h-3 w-16 rounded"></div>
                             <div class="skeleton h-3 w-20 rounded"></div><div class="skeleton h-3 w-48 rounded"></div>
                             <div class="skeleton h-3 w-24 rounded"></div><div class="skeleton h-3 w-12 rounded ml-auto"></div>
@@ -271,19 +306,27 @@
                     <template x-for="(entry, idx) in items" :key="idx">
                         <div>
                             <div class="log-row grid items-center px-5 py-3.5 border-b"
-                                 style="grid-template-columns:140px 90px 110px 1fr 100px 80px; border-color:rgba(74,144,226,.07);"
-                                 @click="toggleDetail(idx)">
-                                <div>
+                                 style="grid-template-columns:140px 90px 110px 1fr 100px 120px; border-color:rgba(74,144,226,.07);">
+                                <div @click="toggleDetail(idx)">
                                     <p class="font-mono text-xs" style="color:#d1d5db;" x-text="fmtDate(entry.timestamp)"></p>
                                     <p class="font-mono text-[10px] mt-0.5" style="color:#4b5563;" x-text="fmtRelative(entry.timestamp)"></p>
                                 </div>
                                 <span class="inline-block font-mono text-[10px] px-2 py-0.5 border tracking-widest w-fit"
-                                      :style="eventBadgeStyle(entry.event_type)" x-text="eventLabel(entry.event_type)"></span>
-                                <span class="font-mono text-xs" style="color:#4a90e2;" x-text="entry.camera_id || '—'"></span>
-                                <span class="font-mono text-xs truncate pr-4" style="color:#9ca3af;" x-text="entrySummary(entry)"></span>
-                                <span class="font-mono text-xs" style="color:#4b5563;" x-text="entry.ip_address || '—'"></span>
-                                <div class="flex justify-end">
-                                    <span class="font-mono text-[10px] px-2 py-0.5 border" :style="resultBadgeStyle(entry)" x-text="resultLabel(entry)"></span>
+                                      :style="eventBadgeStyle(entry.event_type)" x-text="eventLabel(entry.event_type)" @click="toggleDetail(idx)"></span>
+                                <span class="font-mono text-xs" style="color:#4a90e2;" x-text="entry.camera_id || '—'" @click="toggleDetail(idx)"></span>
+                                <span class="font-mono text-xs truncate pr-4" style="color:#9ca3af;" x-text="entrySummary(entry)" @click="toggleDetail(idx)"></span>
+                                <span class="font-mono text-xs" style="color:#4b5563;" x-text="entry.ip_address || '—'" @click="toggleDetail(idx)"></span>
+                                <div class="flex justify-end items-center gap-2">
+                                    <span class="font-mono text-[10px] px-2 py-0.5 border" :style="resultBadgeStyle(entry)" x-text="resultLabel(entry)" @click="toggleDetail(idx)"></span>
+                                    <template x-if="entry.event_type === 'verification' && entry.detail && entry.detail.video_id">
+                                        <button @click.stop="downloadReportForEntry(entry)" class="btn-download-sm" title="Download forensic report">
+                                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                            </svg>
+                                            PDF
+                                        </button>
+                                    </template>
                                 </div>
                             </div>
                             <div class="detail-panel px-8 py-5" x-show="openIdx === idx" x-transition>
@@ -302,6 +345,12 @@
                                                 <div x-show="entry.detail && entry.detail.segment_index != null"><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Segment</p><p class="font-mono text-xs" style="color:#d1d5db;" x-text="'#' + (entry.detail && entry.detail.segment_index)"></p></div>
                                                 <div x-show="entry.detail && entry.detail.passed != null"><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Segments passed / failed</p><p class="font-mono text-xs" style="color:#d1d5db;" x-text="entry.detail && (entry.detail.passed + ' ✓  /  ' + entry.detail.failed + ' ✗')"></p></div>
                                                 <div x-show="entry.detail && entry.detail.sha256_hash"><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">SHA-256</p><p class="hash-text" :class="entry.detail && entry.detail.result === 'pass' ? 'ok' : 'fail'" x-text="entry.detail && entry.detail.sha256_hash"></p></div>
+                                                <div x-show="entry.detail && entry.detail.video_id" class="pt-2">
+                                                    <button @click="openModal(entry)" class="px-4 py-2 border font-mono text-xs" style="border-color:#4a90e2; color:#4a90e2;"
+                                                            onmouseover="this.style.background='rgba(74,144,226,.07)'" onmouseout="this.style.background=''">
+                                                        View Full Report →
+                                                    </button>
+                                                </div>
                                             </div>
                                         </template>
                                         <template x-if="entry.event_type === 'video_started' || entry.event_type === 'video_finished'">
@@ -346,6 +395,98 @@
         </div>
     </main>
 
+    <!-- MODAL -->
+    <div x-show="modal.open" x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+         class="modal-overlay" @click.self="closeModal()">
+        <div class="modal-content" x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95">
+            <div class="modal-header flex items-center justify-between">
+                <div>
+                    <h3 class="text-xl font-bold font-mono" :style="modal.report && modal.report.integrity_ok ? 'color:#4a90e2;' : 'color:#ef4444;'"
+                        x-text="modal.report ? (modal.report.integrity_ok ? 'Verification Successful' : 'Tampering Detected') : 'Loading Report...'"></h3>
+                    <p class="font-mono text-xs mt-1" style="color:#6b7280;" x-text="modal.report ? ('Camera: ' + modal.report.camera_id + ' · ' + modal.report.verified_at) : ''"></p>
+                </div>
+                <button @click="closeModal()" class="w-8 h-8 flex items-center justify-center border transition-colors"
+                        style="border-color:#2c5f8d; color:#6b7280;"
+                        onmouseover="this.style.borderColor='#ef4444'; this.style.color='#ef4444'"
+                        onmouseout="this.style.borderColor='#2c5f8d'; this.style.color='#6b7280'">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <template x-if="modal.loading">
+                    <div class="text-center py-10">
+                        <div class="inline-block w-12 h-12 border-2 border-t-transparent rounded-full animate-spin" style="border-color:#4a90e2;"></div>
+                        <p class="font-mono text-xs mt-4" style="color:#6b7280;">Loading full report...</p>
+                    </div>
+                </template>
+                <template x-if="modal.error">
+                    <div class="text-center py-10">
+                        <p class="font-mono text-sm" style="color:#ef4444;" x-text="modal.error"></p>
+                        <button @click="closeModal()" class="mt-4 px-5 py-2 border font-mono text-xs" style="border-color:#ef4444; color:#ef4444;">Close</button>
+                    </div>
+                </template>
+                <template x-if="modal.report && !modal.loading">
+                    <div>
+                        <!-- Summary -->
+                        <div class="border p-5 mb-5" :style="modal.report.integrity_ok ? 'border-color:rgba(74,144,226,.3); background:#000;' : 'border-color:rgba(220,38,38,.3); background:rgba(127,29,29,.06);'">
+                            <h4 class="font-mono text-sm tracking-widest mb-3" :style="modal.report.integrity_ok ? 'color:#4a90e2;' : 'color:#ef4444;'">VERDICT</h4>
+                            <p class="font-mono text-xs mb-4" style="color:#9ca3af;" x-text="modal.report.verdict"></p>
+                            <div class="grid grid-cols-3 gap-4">
+                                <div><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Total Segments</p><p class="font-mono text-sm" style="color:#d1d5db;" x-text="modal.report.summary && modal.report.summary.total_segments"></p></div>
+                                <div><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">Passed / Failed</p><p class="font-mono text-sm" style="color:#d1d5db;" x-text="modal.report.summary && (modal.report.summary.passed + ' ✓  /  ' + modal.report.summary.failed + ' ✗')"></p></div>
+                                <div><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">ECDSA</p><p class="font-mono text-sm" :style="modal.report.ecdsa_available ? 'color:#4a90e2;' : 'color:#6b7280;'" x-text="modal.report.ecdsa_available ? 'Available ✓' : 'N/A'"></p></div>
+                            </div>
+                        </div>
+
+                        <!-- Segments -->
+                        <div>
+                            <h4 class="font-mono text-sm tracking-widest mb-3" style="color:#4a90e2;">SEGMENTS ANALYSIS</h4>
+                            <template x-for="seg in modal.report.segments" :key="seg.segment_index">
+                                <div class="seg-row" :class="seg.result !== 'pass' ? 'tampered' : ''">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span style="color:#d1d5db;" x-text="'Segment ' + seg.segment_index + ' (' + fmtTime(seg.start_time_secs) + ' – ' + fmtTime(seg.end_time_secs) + ')'"></span>
+                                        <span :style="seg.result === 'pass' ? 'color:#4a90e2;' : 'color:#ef4444;'" x-text="seg.result === 'pass' ? '✓ PASS' : '✗ FAIL'"></span>
+                                    </div>
+                                    <div class="text-[10px]" style="color:#6b7280;">
+                                        <span x-text="'SHA-256: ' + (seg.hash_match ? '✓' : '✗')"></span>
+                                        <span class="ml-3" x-text="'Merkle: ' + (seg.merkle_match === null ? '—' : seg.merkle_match ? '✓' : '✗')"></span>
+                                        <span class="ml-3" x-text="'ECDSA: ' + (seg.signature_valid === null ? '—' : seg.signature_valid ? '✓' : '✗')"></span>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Action buttons -->
+                        <div class="flex items-center gap-3 mt-6 pt-5 border-t" style="border-color:rgba(74,144,226,.15);">
+                            <button @click="downloadModalReport()" class="flex items-center gap-2 px-4 py-2 border font-mono text-xs"
+                                    style="border-color:#4ade80; color:#4ade80; background:rgba(74,222,128,.05);"
+                                    onmouseover="this.style.background='rgba(74,222,128,.1)'" onmouseout="this.style.background='rgba(74,222,128,.05)'">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                </svg>
+                                Download JSON Report
+                            </button>
+                            <button @click="closeModal()" class="px-4 py-2 border font-mono text-xs" style="border-color:#2c5f8d; color:#6b7280;"
+                                    onmouseover="this.style.borderColor='#4a90e2'; this.style.color='#4a90e2'"
+                                    onmouseout="this.style.borderColor='#2c5f8d'; this.style.color='#6b7280'">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
     <!-- FOOTER -->
     <footer class="border-t mt-16" style="border-color:rgba(74,144,226,.2); background:#000;">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center">
@@ -360,6 +501,7 @@
             items: [], total: 0, page: 1, perPage: 50, loading: true, error: null, openIdx: null,
             counts: { verification: 0, tampered: 0, recording: 0 },
             filter: { event_type: '', result: '', camera_id: '', date_from: '', date_to: '' },
+            modal: { open: false, loading: false, error: null, report: null },
             get totalPages() { return Math.max(1, Math.ceil(this.total / this.perPage)); },
             init() { if (typeof Auth !== 'undefined') Auth.requireAuth(); this.loadLogs(); setInterval(() => this.loadLogs(), 30_000); },
             buildURL() {
@@ -390,9 +532,103 @@
             prevPage() { if (this.page > 1) { this.page--; this.loadLogs(); } },
             nextPage() { if (this.page < this.totalPages) { this.page++; this.loadLogs(); } },
             toggleDetail(idx) { this.openIdx = this.openIdx === idx ? null : idx; },
+
+            // ── Download report directly from entry ──────────────────────
+            async downloadReportForEntry(entry) {
+                if (!entry.detail || !entry.detail.video_id) return;
+                const videoId = entry.detail.video_id;
+                try {
+                    const res = await fetch('/api/v1/verification/' + videoId, { headers: Auth.authHeader() });
+                    if (res.status === 401) { Auth.logout(); return; }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    const report = await res.json();
+                    this.downloadReportJSON(report);
+                } catch (err) {
+                    alert('Error fetching report: ' + err.message);
+                }
+            },
+
+            // ── Open modal with full report ───────────────────────────────
+            async openModal(entry) {
+                if (!entry.detail || !entry.detail.video_id) return;
+                this.modal = { open: true, loading: true, error: null, report: null };
+                try {
+                    const res = await fetch('/api/v1/verification/' + entry.detail.video_id, { headers: Auth.authHeader() });
+                    if (res.status === 401) { Auth.logout(); return; }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    this.modal.report = await res.json();
+                } catch (err) {
+                    this.modal.error = 'Error loading report: ' + err.message;
+                } finally {
+                    this.modal.loading = false;
+                }
+            },
+            closeModal() { this.modal = { open: false, loading: false, error: null, report: null }; },
+            downloadModalReport() { if (this.modal.report) this.downloadReportJSON(this.modal.report); },
+
+            // ── Generate and download JSON report ─────────────────────────
+            async downloadReportJSON(report) {
+                const reportBody = {
+                    report_metadata: {
+                        report_id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'xxxx',
+                        report_version: '1.0',
+                        generated_at: new Date().toISOString(),
+                        generated_by: 'EVIDETH Forensic Video Integrity System v2.0',
+                        standard_references: [
+                            'NIST SP 800-101r1 (Guidelines on Mobile Device Forensics)',
+                            'ISO/IEC 27037:2012 (Digital Evidence Identification and Preservation)',
+                            'ECDSA P-256 — FIPS 186-4',
+                            'SHA-256 — FIPS 180-4'
+                        ],
+                        note: 'tampered_frames excluded. Request full evidence package separately.'
+                    },
+                    subject: {
+                        video_id:        report.video_id,
+                        camera_id:       report.camera_id,
+                        verified_at:     report.verified_at,
+                        ecdsa_available: report.ecdsa_available
+                    },
+                    verdict: {
+                        integrity_ok: report.integrity_ok,
+                        result:       report.verdict,
+                        summary:      report.summary
+                    },
+                    segments: (report.segments || []).map(seg => ({
+                        segment_index:        seg.segment_index,
+                        time_range:           this.fmtTime(seg.start_time_secs) + ' – ' + this.fmtTime(seg.end_time_secs),
+                        result:               seg.result,
+                        hash_match:           seg.hash_match,
+                        computed_hash:        seg.computed_hash,
+                        stored_hash:          seg.stored_hash,
+                        merkle_match:         seg.merkle_match ?? null,
+                        computed_merkle_root: seg.computed_merkle_root ?? null,
+                        stored_merkle_root:   seg.stored_merkle_root ?? null,
+                        tampered_seconds:     (seg.second_results || []).filter(s => s.tampered).map(s => s.second_index),
+                        signature_valid:      seg.signature_valid ?? null,
+                        detail:               seg.detail || null
+                    }))
+                };
+                let contentHash = null;
+                try {
+                    const canonical = JSON.stringify(reportBody, null, 2);
+                    const encoded = new TextEncoder().encode(canonical);
+                    const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
+                    contentHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+                } catch (e) { console.warn('[EVIDETH] SHA-256 failed:', e); }
+                const finalReport = { ...reportBody, chain_of_custody: { content_sha256: contentHash, algorithm: 'SHA-256', scope: 'All fields above. tampered_frames excluded.', verification: 'Recompute SHA-256 over JSON (without chain_of_custody).' } };
+                const blob = new Blob([JSON.stringify(finalReport, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+                a.href = url; a.download = 'evideth_report_' + (report.camera_id || 'unknown') + '_' + ts + '.json';
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            },
+
             fmtDate(iso) { if (!iso) return '—'; const d = new Date(iso); return d.toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'2-digit' }) + ' ' + d.toLocaleTimeString('es-ES', { hour:'2-digit', minute:'2-digit', second:'2-digit' }); },
             fmtRelative(iso) { if (!iso) return '—'; const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000); if (diff < 60) return 'just now'; if (diff < 3600) return Math.floor(diff/60)+' min ago'; if (diff < 86400) return Math.floor(diff/3600)+' h ago'; return Math.floor(diff/86400)+' d ago'; },
             fmtDuration(secs) { if (secs == null) return '—'; const m = Math.floor(secs/60), s = secs%60; return String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')+' min'; },
+            fmtTime(secs) { if (secs == null) return '—'; const m = Math.floor(secs/60), s = secs%60; return String(m).padStart(2,'0')+':'+String(s).padStart(2,'0'); },
             eventLabel(et) { return { verification:'VERIFY', video_started:'REC START', video_finished:'REC END', segment_uploaded:'SEGMENT' }[et] ?? et.toUpperCase(); },
             eventBadgeStyle(et) {
                 const map = { verification:'border-color:rgba(74,144,226,.4); color:#4a90e2; background:rgba(74,144,226,.07);', video_started:'border-color:rgba(239,68,68,.4); color:#f87171; background:rgba(239,68,68,.07);', video_finished:'border-color:rgba(91,163,245,.3); color:#5ba3f5; background:rgba(91,163,245,.07);', segment_uploaded:'border-color:rgba(107,114,128,.4); color:#9ca3af; background:rgba(107,114,128,.07);' };
