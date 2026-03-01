@@ -4,16 +4,16 @@ EVIDETH Camera Simulator
 ========================
 Simula una cámara de seguridad:
   1. Genera vídeo sintético con OpenCV (frames con timestamp y camera ID)
-  2. Divide la grabación en segmentos de SEGMENT_DURATION segundos (30 s)
+  2. Divide la grabación en segmentos de SEGMENT_DURATION segundos
   3. Calcula el hash SHA-256 de cada segmento completo          (Nivel 1)
   4. Calcula hash SHA-256 de cada segundo del segmento con ffmpeg
   5. Construye el árbol Merkle sobre los hashes por segundo      (Nivel 2)
   6. Firma el Merkle root con ECDSA P-256 (clave local o Azure Key Vault)
-  7. Envía todo al servidor EVIDETH cada 30 s
+  7. Envía todo al servidor EVIDETH
   8. Mantiene un heartbeat cada HEARTBEAT_INTERVAL segundos
   9. Reintenta los envíos fallidos mediante una cola persistente
 
-CONVENCIAN ECDSA:
+CONVENCIN ECDSA:
     datos firmados = bytes.fromhex(merkle_root)   [32 bytes raw]
     algoritmo      = ECDSA con SHA-256 interno
     codificación   = base64url del DER signature
@@ -37,6 +37,8 @@ Variables de entorno (ver .env.example):
     RETRY_DELAY        Segundos base entre reintentos (default: 5)
     SAVE_SEGMENTS_DIR  Directorio donde copiar los segmentos generados
                        (vacío = no guardar). útil para pruebas de verificación.
+    MAX_SEGMENTS       Máximo de segmentos a generar y parar (0 = infinito).
+                       Ejemplo: MAX_SEGMENTS=1 genera 1 segmento de 30s y para.
 """
 
 import os
@@ -69,7 +71,7 @@ load_dotenv()
 API_URL            = os.environ["API_URL"].rstrip("/")
 CAMERA_API_KEY     = os.environ["CAMERA_API_KEY"]
 CAMERA_ID          = os.environ["CAMERA_ID"]
-SEGMENT_DURATION   = int(os.getenv("SEGMENT_DURATION",    "30"))   # 30 s
+SEGMENT_DURATION   = int(os.getenv("SEGMENT_DURATION",    "30"))
 FPS                = int(os.getenv("FPS",                 "25"))
 WIDTH              = int(os.getenv("WIDTH",               "1280"))
 HEIGHT             = int(os.getenv("HEIGHT",              "720"))
@@ -80,37 +82,27 @@ HEARTBEAT_INTERVAL = int(os.getenv("HEARTBEAT_INTERVAL",  "30"))
 MAX_RETRIES        = int(os.getenv("MAX_RETRIES",         "3"))
 RETRY_DELAY        = int(os.getenv("RETRY_DELAY",         "5"))
 SAVE_SEGMENTS_DIR  = os.getenv("SAVE_SEGMENTS_DIR",       "").strip()
+MAX_SEGMENTS       = int(os.getenv("MAX_SEGMENTS",        "0"))   # 0 = infinito
 
 HEADERS    = {"X-API-Key": CAMERA_API_KEY}
-_EMPTY_HASH = hashlib.sha256(b"").hexdigest()   # centinela para segundos no extraíbles
+_EMPTY_HASH = hashlib.sha256(b"").hexdigest()
 
 
-# ── Criptografía: Merkle tree (cópia exacta de app/utils/merkle.py) ──────────
-#
-# IMPORTANTE: el algoritmo debe ser idéntico al del servidor para que los
-# Merkle roots coincidan. Cualquier diferencia (orden de concatenación,
-# manejo de nodos impares, etc.) hace que la verificación falle siempre.
+# ── Merkle tree (cópia exacta de app/utils/merkle.py) ─────────────────────
 
 def _sha256_concat(left: str, right: str) -> str:
-    """SHA-256(left_bytes ‡ right_bytes). left/right son strings hex de 64 chars."""
     return hashlib.sha256(bytes.fromhex(left) + bytes.fromhex(right)).hexdigest()
 
 
 def build_merkle_root(leaf_hashes: List[str]) -> str:
-    """
-    Árbol Merkle binario à la Bitcoin: duplica el último nodo si el nivel es impar.
-    Devuelve la raíz como string hex de 64 chars.
-    Ref: Nakamoto (2008) Bitcoin Whitepaper §7.
-    """
     if not leaf_hashes:
         raise ValueError("Lista de hojas vacía")
     if len(leaf_hashes) == 1:
         return leaf_hashes[0]
-
     level = list(leaf_hashes)
     while len(level) > 1:
         if len(level) % 2 == 1:
-            level.append(level[-1])         # duplicar último si impar
+            level.append(level[-1])
         level = [
             _sha256_concat(level[i], level[i + 1])
             for i in range(0, len(level), 2)
@@ -118,13 +110,9 @@ def build_merkle_root(leaf_hashes: List[str]) -> str:
     return level[0]
 
 
-# ── Hashing ──────────────────────────────────────────
+# ── Hashing ──────────────────────────────────────────────────
 
 def sha256_file(path: str) -> str:
-    """
-    SHA-256 de un fichero, leyendo en bloques de 64 KB.
-    Devuelve string hex minúsculo de 64 chars.
-    """
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
@@ -133,23 +121,7 @@ def sha256_file(path: str) -> str:
 
 
 def extract_second_hashes(seg_path: str, duration_secs: int) -> List[str]:
-    """
-    Extrae el hash SHA-256 de cada chunk de 1 segundo dentro del segmento.
-
-    Usa ffmpeg con "-c copy" (sin recodificación) para garantizar que los bytes
-    son idénticos a los que el servidor extraerá al verificar.
-    Replicación exacta de app/services/video_processor.extract_second_hashes().
-
-    Args:
-        seg_path:      Ruta al fichero MP4 del segmento.
-        duration_secs: Duración del segmento en segundos (== SEGMENT_DURATION).
-
-    Returns:
-        Lista de ``duration_secs`` hashes SHA-256 en hex.
-        Si un segundo no se puede extraer, se usa _EMPTY_HASH como centinela.
-    """
     leaf_hashes: List[str] = []
-
     with tempfile.TemporaryDirectory(prefix="evideth_sec_") as tmp:
         for sec in range(duration_secs):
             out = os.path.join(tmp, f"sec_{sec:04d}.mp4")
@@ -172,26 +144,12 @@ def extract_second_hashes(seg_path: str, duration_secs: int) -> List[str]:
                 leaf_hashes.append(_EMPTY_HASH)
             else:
                 leaf_hashes.append(sha256_file(out))
-
     return leaf_hashes
 
 
-# ── Servicio de firma ECDSA P-256 ─────────────────────────────
+# ── CryptoService ─────────────────────────────────────────────
 
 class CryptoService:
-    """
-    Firma ECDSA P-256 del Merkle root.
-
-    CONVENCIÓN (debe coincidir con verifier.py):
-        datos firmados = bytes.fromhex(merkle_root)   ← 32 bytes raw
-        algoritmo      = ec.ECDSA(hashes.SHA256())
-        codificación   = base64url del DER signature (sin padding)
-
-    Modos soportados:
-        local  → clave PEM en PRIVATE_KEY_FILE (auto-generada si no existe)
-        azure  → Azure Key Vault con DefaultAzureCredential + ES256
-    """
-
     def __init__(self):
         if SIGNING_MODE == "azure":
             self._init_azure()
@@ -207,9 +165,7 @@ class CryptoService:
                 )
             logger.info(f"Clave privada cargada desde {key_path}")
         else:
-            self._private_key = ec.generate_private_key(
-                ec.SECP256R1(), default_backend()
-            )
+            self._private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
             key_path.parent.mkdir(parents=True, exist_ok=True)
             pem = self._private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
@@ -219,24 +175,20 @@ class CryptoService:
             key_path.write_bytes(pem)
             logger.info(f"Nueva clave ECDSA P-256 generada → {key_path}")
 
-        # Exportar clave pública para el servidor
         pub_pem = self._private_key.public_key().public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
         )
         pub_export = key_path.parent / "camera_public.pem"
         pub_export.write_bytes(pub_pem)
-
-        # Huella pública: primeros 16 hex del SHA-256 del PEM
         self.public_key_id = hashlib.sha256(pub_pem).hexdigest()[:16]
-        logger.info(f"public_key_id: {self.public_key_id}")
-        logger.info(f"Clave pública exportada → {pub_export}")
+        logger.info(f"public_key_id : {self.public_key_id}")
+        logger.info(f"Clave pública → {pub_export}")
 
     def _init_azure(self):
         from azure.identity import DefaultAzureCredential
         from azure.keyvault.keys import KeyClient
         from azure.keyvault.keys.crypto import CryptographyClient, SignatureAlgorithm
-
         vault_url   = os.environ["AZURE_VAULT_URL"]
         key_name    = os.environ["AZURE_KEY_NAME"]
         credential  = DefaultAzureCredential()
@@ -245,22 +197,11 @@ class CryptoService:
         self._crypto_client = CryptographyClient(key, credential=credential)
         self._sign_algo     = SignatureAlgorithm.es256
         self.public_key_id  = key_name
-        logger.info(f"Azure Key Vault conectado — clave: {key_name}")
+        logger.info(f"Azure Key Vault — clave: {key_name}")
 
     def sign(self, merkle_root: str) -> str:
-        """
-        Firma el Merkle root del segmento.
-
-        datos = bytes.fromhex(merkle_root)  ← 32 bytes raw del SHA-256
-        El servidor verifica con:
-            public_key.verify(sig, bytes.fromhex(merkle_root), ec.ECDSA(hashes.SHA256()))
-
-        Devuelve la firma DER en base64url.
-        """
-        data = bytes.fromhex(merkle_root)   # 32 bytes
-
+        data = bytes.fromhex(merkle_root)
         if SIGNING_MODE == "azure":
-            # Key Vault ES256 recibe el digest SHA-256 de los datos
             digest = hashlib.sha256(data).digest()
             result = self._crypto_client.sign(self._sign_algo, digest)
             return base64.urlsafe_b64encode(result.signature).decode()
@@ -269,22 +210,16 @@ class CryptoService:
             return base64.urlsafe_b64encode(sig).decode()
 
 
-# ── Cliente API ─────────────────────────────────────────
+# ── APIClient ─────────────────────────────────────────────────
 
 class APIClient:
-    """Comunicación con el backend EVIDETH con reintentos y backoff exponencial."""
-
     def start_video(self, filename: str) -> str:
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 r = requests.post(
                     f"{API_URL}/cameras/videos",
-                    json={
-                        "filename":   filename,
-                        "fps":        FPS,
-                        "resolution": f"{WIDTH}x{HEIGHT}",
-                        "codec":      "mp4v",
-                    },
+                    json={"filename": filename, "fps": FPS,
+                          "resolution": f"{WIDTH}x{HEIGHT}", "codec": "mp4v"},
                     headers=HEADERS, timeout=10,
                 )
                 r.raise_for_status()
@@ -303,19 +238,17 @@ class APIClient:
             try:
                 r = requests.post(
                     f"{API_URL}/cameras/segments",
-                    json=payload,
-                    headers=HEADERS, timeout=15,
+                    json=payload, headers=HEADERS, timeout=15,
                 )
                 if r.status_code == 409:
                     logger.warning(f"Segmento #{idx} ya registrado (409)")
                     return True
                 r.raise_for_status()
-                resp      = r.json()
-                srv_root  = resp.get("merkle_root", "N/A")
+                srv_root = r.json().get("merkle_root", "N/A")
                 logger.success(
                     f"Segmento #{idx} aceptado — "
                     f"hash: {payload['sha256_hash'][:16]}... — "
-                    f"merkle_root (servidor): {str(srv_root)[:16]}..."
+                    f"merkle_root: {str(srv_root)[:16]}..."
                 )
                 return True
             except Exception as exc:
@@ -337,72 +270,47 @@ class APIClient:
 
     def heartbeat(self) -> None:
         try:
-            r = requests.post(
-                f"{API_URL}/cameras/heartbeat",
-                headers=HEADERS, timeout=5,
-            )
+            r = requests.post(f"{API_URL}/cameras/heartbeat", headers=HEADERS, timeout=5)
             r.raise_for_status()
             logger.debug("Heartbeat OK")
         except Exception as exc:
             logger.warning(f"Heartbeat fallido: {exc}")
 
 
-# ── Generador de vídeo ────────────────────────────────────
+# ── VideoGenerator ───────────────────────────────────────────
 
 class VideoGenerator:
-    """
-    Genera vídeo sintético con OpenCV.
-    Cada frame incluye: timestamp UTC, camera ID, índice de segmento y contador.
-    """
-
-    def record_segment(
-        self,
-        out_path:      str,
-        segment_index: int,
-        start_epoch:   int,
-    ) -> None:
+    def record_segment(self, out_path: str, segment_index: int, start_epoch: int) -> None:
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(out_path, fourcc, float(FPS), (WIDTH, HEIGHT))
         if not writer.isOpened():
             raise RuntimeError(f"VideoWriter no pudo abrir: {out_path}")
-
         total_frames = FPS * SEGMENT_DURATION
         t0 = time.time()
-
         for frame_n in range(total_frames):
             abs_sec = start_epoch + frame_n // FPS
             writer.write(self._build_frame(frame_n, segment_index, abs_sec))
-
             elapsed  = time.time() - t0
             expected = frame_n / FPS
             if expected > elapsed:
                 time.sleep(expected - elapsed)
-
         writer.release()
         size_mb = os.path.getsize(out_path) / (1024 * 1024)
         logger.debug(f"Segmento {segment_index} escrito → {out_path} ({size_mb:.1f} MB)")
 
-    def _build_frame(
-        self,
-        frame_n:       int,
-        segment_index: int,
-        abs_sec:       int,
-    ) -> np.ndarray:
+    def _build_frame(self, frame_n: int, segment_index: int, abs_sec: int) -> np.ndarray:
         frame = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
-
         for y in range(0, HEIGHT, 60):
             cv2.line(frame, (0, y), (WIDTH, y), (8, 20, 8), 1)
         for x in range(0, WIDTH, 60):
             cv2.line(frame, (x, 0), (x, HEIGHT), (8, 20, 8), 1)
-
         cx, cy = WIDTH // 2, HEIGHT // 2
         pulse  = int(abs((frame_n % (FPS * 2)) - FPS) * 1.5)
         col    = (0, min(80 + pulse, 255), 0)
         cv2.circle(frame, (cx, cy), 80, col, 1)
-        cv2.circle(frame, (cx, cy), 4,  col, -1)
+        cv2.circle(frame, (cx, cy),  4, col, -1)
         cv2.line(frame, (cx - 40, cy), (cx + 40, cy), col, 1)
         cv2.line(frame, (cx, cy - 40), (cx, cy + 40), col, 1)
-
         corner_len, corner_col = 20, (0, 120, 0)
         for ox, oy, sx, sy in [
             (0, 0, 1, 1), (WIDTH-1, 0, -1, 1),
@@ -410,9 +318,8 @@ class VideoGenerator:
         ]:
             cv2.line(frame, (ox, oy), (ox + sx*corner_len, oy), corner_col, 1)
             cv2.line(frame, (ox, oy), (ox, oy + sy*corner_len), corner_col, 1)
-
         now_str = datetime.utcfromtimestamp(abs_sec).strftime("%Y-%m-%dT%H:%M:%SZ")
-        font    = cv2.FONT_HERSHEY_SIMPLEX
+        font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(frame, f"EVIDETH — {CAMERA_ID}",
                     (20, 38), font, 0.85, (0, 200, 255), 1, cv2.LINE_AA)
         cv2.putText(frame, f"SEG {segment_index:04d}  FRM {frame_n:06d}  [{WIDTH}x{HEIGHT} @ {FPS}fps]",
@@ -421,31 +328,26 @@ class VideoGenerator:
                     (20, HEIGHT-18), font, 0.55, (0, 180, 80), 1, cv2.LINE_AA)
         cv2.putText(frame, "SHA-256 · ECDSA P-256 · Merkle · EVIDETH",
                     (WIDTH-420, HEIGHT-18), font, 0.45, (40, 60, 40), 1, cv2.LINE_AA)
-
         if TAMPER_MODE and segment_index % 3 == 0:
             cv2.rectangle(frame, (cx-220, cy-40), (cx+220, cy+50), (0, 0, 180), 2)
             cv2.putText(frame, "!! TAMPERED !!",
                         (cx-175, cy+15), font, 1.4, (0, 0, 255), 3, cv2.LINE_AA)
-
         return frame
 
 
-# ── Daemon principal ───────────────────────────────────
+# ── CameraSimulator (daemon principal) ───────────────────────────
 
 class CameraSimulator:
-    """
-    Daemon principal.
-    Hilos: principal (grabar→hash→firma→enviar), heartbeat, retry.
-    """
-
     def __init__(self):
         self.api    = APIClient()
         self.crypto = CryptoService()
         self.gen    = VideoGenerator()
         self._failed: queue.Queue = queue.Queue()
         self._stop  = threading.Event()
+        self._saved_files: list  = []   # rutas de los ficheros guardados
 
     def run(self) -> None:
+        limit_str = f"{MAX_SEGMENTS} segmento(s)" if MAX_SEGMENTS > 0 else "infinito (Ctrl+C para parar)"
         logger.info("=" * 60)
         logger.info("EVIDETH Camera Simulator")
         logger.info(f"  Cámara     : {CAMERA_ID}")
@@ -453,7 +355,8 @@ class CameraSimulator:
         logger.info(f"  Segmento   : {SEGMENT_DURATION}s @ {FPS}fps {WIDTH}x{HEIGHT}")
         logger.info(f"  Firma      : {SIGNING_MODE.upper()} sobre merkle_root")
         logger.info(f"  Tamper     : {'ACTIVADO ⚠️' if TAMPER_MODE else 'desactivado'}")
-        logger.info(f"  Guardar    : {SAVE_SEGMENTS_DIR if SAVE_SEGMENTS_DIR else 'desactivado (solo temp)'}")
+        logger.info(f"  Guardar    : {SAVE_SEGMENTS_DIR if SAVE_SEGMENTS_DIR else 'desactivado'}")
+        logger.info(f"  Límite     : {limit_str}")
         logger.info("=" * 60)
 
         threading.Thread(target=self._heartbeat_loop, daemon=True, name="heartbeat").start()
@@ -464,68 +367,77 @@ class CameraSimulator:
 
         try:
             while not self._stop.is_set():
+                # Parar si se alcanzó el límite de segmentos
+                if MAX_SEGMENTS > 0 and segment_index >= MAX_SEGMENTS:
+                    logger.info(f"✅ MAX_SEGMENTS={MAX_SEGMENTS} alcanzado — simulador detenido")
+                    break
+
                 self._process_segment(segment_index, boot_epoch)
                 segment_index += 1
+
         except KeyboardInterrupt:
             logger.info("Simulador detenido (Ctrl+C)")
         finally:
             self._stop.set()
+            self._print_summary(segment_index)
+
+    def _print_summary(self, total: int) -> None:
+        """Resumen final al terminar."""
+        logger.info("=" * 60)
+        logger.info(f"RESUMEN: {total} segmento(s) generados y enviados")
+        if self._saved_files:
+            logger.info(f"Vídeos guardados en: {SAVE_SEGMENTS_DIR}")
+            for path in self._saved_files:
+                logger.info(f"  💾 {path}")
+            logger.info("")
+            logger.info("Para verificar integridad (Swagger UI):")
+            logger.info(f"  POST /api/v1/verification/upload/{{video_id}}")
+            logger.info(f"  → Adjuntar fichero .mp4 del listado anterior")
+        logger.info("=" * 60)
 
     def _process_segment(self, idx: int, boot_epoch: int) -> None:
         ts    = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         fname = f"{CAMERA_ID}_{ts}_seg{idx:04d}.mp4"
 
-        # 1. Registrar inicio de vídeo
         video_id   = self.api.start_video(fname)
         start_secs = idx * SEGMENT_DURATION
 
         with tempfile.TemporaryDirectory(prefix="evideth_sim_") as tmp:
             seg_path = os.path.join(tmp, fname)
 
-            # 2. Grabar segmento (bloquea SEGMENT_DURATION segundos)
-            logger.info(f"--- Grabando segmento {idx} ({SEGMENT_DURATION}s) ---")
+            logger.info(f"--- Grabando segmento {idx}/{MAX_SEGMENTS if MAX_SEGMENTS > 0 else '∞'} ({SEGMENT_DURATION}s) ---")
             self.gen.record_segment(seg_path, idx, boot_epoch + start_secs)
 
-            # 3. TAMPER MODE: corromper bytes antes de calcular los hashes
             if TAMPER_MODE and idx % 3 == 0:
                 self._tamper_file(seg_path)
                 logger.warning(f"[TAMPER] Segmento {idx} corrompido (demo)")
 
-            # 4. Nivel 1: SHA-256 del fichero completo
             sha256    = sha256_file(seg_path)
             file_size = os.path.getsize(seg_path)
 
-            # 5. Nivel 2: hash por segundo con ffmpeg + Merkle root
             logger.info(f"  Calculando hashes por segundo ({SEGMENT_DURATION} chunks)...")
             second_hashes = extract_second_hashes(seg_path, SEGMENT_DURATION)
             merkle_root   = build_merkle_root(second_hashes)
-
-            # 6. Firma ECDSA P-256 del Merkle root
-            signature = self.crypto.sign(merkle_root)
+            signature     = self.crypto.sign(merkle_root)
 
             logger.info(
                 f"  Segmento {idx} listo:\n"
-                f"    sha256       : {sha256[:16]}...\n"
-                f"    merkle_root  : {merkle_root[:16]}...\n"
-                f"    leaves       : {len(second_hashes)} (seg 0: {second_hashes[0][:12]}...)\n"
-                f"    firma        : {signature[:20]}..."
+                f"    sha256      : {sha256[:16]}...\n"
+                f"    merkle_root : {merkle_root[:16]}...\n"
+                f"    firma       : {signature[:20]}..."
             )
 
-            # 7. Guardar copia del segmento si SAVE_SEGMENTS_DIR está configurado
-            #    DEBE hacerse ANTES de que el TemporaryDirectory se elimine.
-            #    El fichero guardado tiene el mismo nombre que el filename enviado
-            #    al servidor, facilitando correlacionar con el video_id en BD.
+            # Guardar copia ANTES de que el TemporaryDirectory se elimine
             if SAVE_SEGMENTS_DIR:
                 os.makedirs(SAVE_SEGMENTS_DIR, exist_ok=True)
                 saved_path = os.path.join(SAVE_SEGMENTS_DIR, fname)
                 shutil.copy2(seg_path, saved_path)
+                self._saved_files.append(saved_path)
                 logger.info(
-                    f"  💾 Segmento guardado → {saved_path}\n"
-                    f"     video_id en BD : {video_id}\n"
-                    f"     Para verificar : POST /api/v1/verification/upload/{video_id}"
+                    f"  💾 Guardado → {saved_path}\n"
+                    f"     video_id  : {video_id}"
                 )
 
-            # 8. Payload completo para el servidor
             payload = {
                 "video_id":        video_id,
                 "segment_index":   idx,
@@ -539,17 +451,14 @@ class CameraSimulator:
                 "second_hashes":   second_hashes,
             }
 
-            # 9. Enviar (con reintentos internos)
             if not self.api.send_segment(payload):
                 logger.error(f"Segmento {idx} encolado para reintento")
                 self._failed.put(payload)
 
-        # 10. Finalizar vídeo
         self.api.finish_video(video_id)
 
     @staticmethod
     def _tamper_file(path: str) -> None:
-        """Invierte 128 bytes en el centro del fichero para demostrar detección."""
         size = os.path.getsize(path)
         if size < 300:
             return
@@ -583,7 +492,7 @@ class CameraSimulator:
                 self._failed.put(p)
 
 
-# ── Entry point ─────────────────────────────────────
+# ── Entry point ────────────────────────────────────────────
 
 if __name__ == "__main__":
     CameraSimulator().run()
