@@ -47,7 +47,7 @@
         ::-webkit-scrollbar-thumb { background: #4a90e2; border-radius: 4px; } ::-webkit-scrollbar-thumb:hover { background: #5ba3f5; }
         .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
         @keyframes pulseSubtle { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
-        .log-row { transition: background 0.15s ease; cursor: pointer; }
+        .log-row { transition: background 0.15s ease; }
         .log-row:hover { background: rgba(74,144,226,.04); }
         .skeleton { background: linear-gradient(90deg, #111 25%, #1a1a1a 50%, #111 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
         @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
@@ -56,17 +56,18 @@
         .hash-text.ok { color: #4a90e2; } .hash-text.fail { color: #ef4444; }
         select option { background: #0a0a0a; color: #e5e7eb; }
         .btn-download-sm {
-            display: inline-flex; align-items: center; gap: .3rem;
-            padding: .35rem .7rem; border: 1px solid rgba(74,222,128,.4);
-            font-family: 'Space Mono', monospace; font-size: .55rem;
-            letter-spacing: .08em; text-transform: uppercase;
-            color: #4ade80; background: rgba(74,222,128,.05);
-            cursor: pointer; transition: all .15s ease;
+            display: inline-flex !important; align-items: center; gap: .4rem;
+            padding: .5rem .9rem; border: 1px solid rgba(74,222,128,.5);
+            font-family: 'Space Mono', monospace; font-size: .65rem;
+            letter-spacing: .08em; text-transform: uppercase; font-weight: 600;
+            color: #4ade80; background: rgba(74,222,128,.08);
+            cursor: pointer; transition: all .2s ease;
         }
         .btn-download-sm:hover {
-            border-color: #4ade80; background: rgba(74,222,128,.1);
+            border-color: #4ade80; background: rgba(74,222,128,.15);
+            box-shadow: 0 0 8px rgba(74,222,128,.3);
         }
-        .btn-download-sm svg { width: 11px; height: 11px; flex-shrink: 0; }
+        .btn-download-sm svg { width: 13px; height: 13px; flex-shrink: 0; }
         /* Modal overlay */
         .modal-overlay {
             position: fixed; inset: 0; background: rgba(0,0,0,.85);
@@ -97,11 +98,10 @@
 
     <div class="particle-field" id="particleField"></div>
 
-    <!-- HEADER -->
+    <!-- HEADER (unchanged) -->
     <header class="relative border-b" style="border-color:#2c5f8d; background-color:#000000;">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-20">
-
                 <div class="flex items-center space-x-4 group cursor-pointer">
                     <div class="relative animate-float">
                         <img src="../../assets/images/Buho.png" alt="EVIDETH Logo" class="w-20 h-20 logo-glow object-contain">
@@ -111,7 +111,6 @@
                         <p class="text-[10px] tracking-[0.2em] uppercase font-mono" style="color:#6b7280;">Forensic System v2.0</p>
                     </div>
                 </div>
-
                 <nav class="hidden md:flex items-center space-x-8 font-mono text-sm">
                     <a href="../dashboard/dashboard.html" class="transition-colors duration-300" style="color:#6b7280;"
                        onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Dashboard</a>
@@ -121,7 +120,6 @@
                     <a href="../settings/settings.html" class="transition-colors duration-300" style="color:#6b7280;"
                        onmouseover="this.style.color='#4a90e2'" onmouseout="this.style.color='#6b7280'">Settings</a>
                 </nav>
-
                 <div class="flex items-center space-x-4">
                     <div class="hidden lg:flex items-center space-x-2 px-4 py-2 border" style="border-color:#2c5f8d; background:#000;">
                         <div class="relative w-2 h-2">
@@ -129,7 +127,6 @@
                         </div>
                         <span class="text-xs font-mono" style="color:#4a90e2;">System Online</span>
                     </div>
-
                     <div class="relative" x-data="profileMenu()" @keydown.escape.window="open = false">
                         <button @click="open = !open"
                                 class="flex items-center space-x-2 px-3 py-2 border transition-all duration-200 cursor-pointer"
@@ -284,13 +281,13 @@
         <!-- Log table -->
         <div class="card-bg border border-glow overflow-hidden">
             <div class="grid font-mono text-xs tracking-widest uppercase px-5 py-3 border-b"
-                 style="grid-template-columns:140px 90px 110px 1fr 100px 120px; border-color:rgba(74,144,226,.15); color:#4b5563;">
+                 style="grid-template-columns:140px 90px 110px 1fr 100px 130px; border-color:rgba(74,144,226,.15); color:#4b5563;">
                 <span>Timestamp</span><span>Event</span><span>Camera</span><span>Detail</span><span>IP Address</span><span class="text-right">Actions</span>
             </div>
             <template x-if="loading">
                 <div>
                     <template x-for="i in 8" :key="i">
-                        <div class="grid px-5 py-4 border-b" style="grid-template-columns:140px 90px 110px 1fr 100px 120px; border-color:rgba(74,144,226,.07);">
+                        <div class="grid px-5 py-4 border-b" style="grid-template-columns:140px 90px 110px 1fr 100px 130px; border-color:rgba(74,144,226,.07);">
                             <div class="skeleton h-3 w-28 rounded"></div><div class="skeleton h-3 w-16 rounded"></div>
                             <div class="skeleton h-3 w-20 rounded"></div><div class="skeleton h-3 w-48 rounded"></div>
                             <div class="skeleton h-3 w-24 rounded"></div><div class="skeleton h-3 w-12 rounded ml-auto"></div>
@@ -305,28 +302,36 @@
                 <div>
                     <template x-for="(entry, idx) in items" :key="idx">
                         <div>
-                            <div class="log-row grid items-center px-5 py-3.5 border-b"
-                                 style="grid-template-columns:140px 90px 110px 1fr 100px 120px; border-color:rgba(74,144,226,.07);">
-                                <div @click="toggleDetail(idx)">
+                            <div class="grid items-center px-5 py-3.5 border-b"
+                                 style="grid-template-columns:140px 90px 110px 1fr 100px 130px; border-color:rgba(74,144,226,.07);">
+                                <!-- Timestamp -->
+                                <div class="cursor-pointer" @click="toggleDetail(idx)">
                                     <p class="font-mono text-xs" style="color:#d1d5db;" x-text="fmtDate(entry.timestamp)"></p>
                                     <p class="font-mono text-[10px] mt-0.5" style="color:#4b5563;" x-text="fmtRelative(entry.timestamp)"></p>
                                 </div>
-                                <span class="inline-block font-mono text-[10px] px-2 py-0.5 border tracking-widest w-fit"
+                                <!-- Event -->
+                                <span class="inline-block font-mono text-[10px] px-2 py-0.5 border tracking-widest w-fit cursor-pointer"
                                       :style="eventBadgeStyle(entry.event_type)" x-text="eventLabel(entry.event_type)" @click="toggleDetail(idx)"></span>
-                                <span class="font-mono text-xs" style="color:#4a90e2;" x-text="entry.camera_id || '—'" @click="toggleDetail(idx)"></span>
-                                <span class="font-mono text-xs truncate pr-4" style="color:#9ca3af;" x-text="entrySummary(entry)" @click="toggleDetail(idx)"></span>
-                                <span class="font-mono text-xs" style="color:#4b5563;" x-text="entry.ip_address || '—'" @click="toggleDetail(idx)"></span>
+                                <!-- Camera -->
+                                <span class="font-mono text-xs cursor-pointer" style="color:#4a90e2;" x-text="entry.camera_id || '—'" @click="toggleDetail(idx)"></span>
+                                <!-- Detail -->
+                                <span class="font-mono text-xs truncate pr-4 cursor-pointer" style="color:#9ca3af;" x-text="entrySummary(entry)" @click="toggleDetail(idx)"></span>
+                                <!-- IP -->
+                                <span class="font-mono text-xs cursor-pointer" style="color:#4b5563;" x-text="entry.ip_address || '—'" @click="toggleDetail(idx)"></span>
+                                <!-- Actions column -->
                                 <div class="flex justify-end items-center gap-2">
-                                    <span class="font-mono text-[10px] px-2 py-0.5 border" :style="resultBadgeStyle(entry)" x-text="resultLabel(entry)" @click="toggleDetail(idx)"></span>
-                                    <template x-if="entry.event_type === 'verification' && entry.detail && entry.detail.video_id">
-                                        <button @click.stop="downloadReportForEntry(entry)" class="btn-download-sm" title="Download forensic report">
-                                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                                            </svg>
-                                            PDF
-                                        </button>
-                                    </template>
+                                    <span class="font-mono text-[10px] px-2 py-0.5 border cursor-pointer" :style="resultBadgeStyle(entry)" x-text="resultLabel(entry)" @click="toggleDetail(idx)"></span>
+                                    <!-- Download button (show for ALL verification events) -->
+                                    <button x-show="entry.event_type === 'verification'"
+                                            @click.stop="downloadReportForEntry(entry)" 
+                                            class="btn-download-sm" 
+                                            title="Download forensic report">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                        </svg>
+                                        JSON
+                                    </button>
                                 </div>
                             </div>
                             <div class="detail-panel px-8 py-5" x-show="openIdx === idx" x-transition>
@@ -395,7 +400,7 @@
         </div>
     </main>
 
-    <!-- MODAL -->
+    <!-- MODAL (unchanged, keeping previous implementation) -->
     <div x-show="modal.open" x-transition:enter="transition ease-out duration-200"
          x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
          x-transition:leave="transition ease-in duration-150"
@@ -435,7 +440,6 @@
                 </template>
                 <template x-if="modal.report && !modal.loading">
                     <div>
-                        <!-- Summary -->
                         <div class="border p-5 mb-5" :style="modal.report.integrity_ok ? 'border-color:rgba(74,144,226,.3); background:#000;' : 'border-color:rgba(220,38,38,.3); background:rgba(127,29,29,.06);'">
                             <h4 class="font-mono text-sm tracking-widest mb-3" :style="modal.report.integrity_ok ? 'color:#4a90e2;' : 'color:#ef4444;'">VERDICT</h4>
                             <p class="font-mono text-xs mb-4" style="color:#9ca3af;" x-text="modal.report.verdict"></p>
@@ -445,8 +449,6 @@
                                 <div><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#4b5563;">ECDSA</p><p class="font-mono text-sm" :style="modal.report.ecdsa_available ? 'color:#4a90e2;' : 'color:#6b7280;'" x-text="modal.report.ecdsa_available ? 'Available ✓' : 'N/A'"></p></div>
                             </div>
                         </div>
-
-                        <!-- Segments -->
                         <div>
                             <h4 class="font-mono text-sm tracking-widest mb-3" style="color:#4a90e2;">SEGMENTS ANALYSIS</h4>
                             <template x-for="seg in modal.report.segments" :key="seg.segment_index">
@@ -463,8 +465,6 @@
                                 </div>
                             </template>
                         </div>
-
-                        <!-- Action buttons -->
                         <div class="flex items-center gap-3 mt-6 pt-5 border-t" style="border-color:rgba(74,144,226,.15);">
                             <button @click="downloadModalReport()" class="flex items-center gap-2 px-4 py-2 border font-mono text-xs"
                                     style="border-color:#4ade80; color:#4ade80; background:rgba(74,222,128,.05);"
@@ -503,7 +503,11 @@
             filter: { event_type: '', result: '', camera_id: '', date_from: '', date_to: '' },
             modal: { open: false, loading: false, error: null, report: null },
             get totalPages() { return Math.max(1, Math.ceil(this.total / this.perPage)); },
-            init() { if (typeof Auth !== 'undefined') Auth.requireAuth(); this.loadLogs(); setInterval(() => this.loadLogs(), 30_000); },
+            init() { 
+                if (typeof Auth !== 'undefined') Auth.requireAuth(); 
+                this.loadLogs(); 
+                setInterval(() => this.loadLogs(), 30_000); 
+            },
             buildURL() {
                 const p = new URLSearchParams();
                 p.set('per_page', this.perPage); p.set('page', this.page);
@@ -524,6 +528,8 @@
                     this.items  = data.items  ?? [];
                     this.total  = data.total  ?? 0;
                     this.counts = data.counts ?? { verification: 0, tampered: 0, recording: 0 };
+                    // Debug: log verification entries
+                    console.log('[EVIDETH] Loaded items:', this.items.filter(e => e.event_type === 'verification'));
                 } catch(err) { this.error = 'Error loading logs: ' + err.message; }
                 finally     { this.loading = false; }
             },
@@ -533,9 +539,12 @@
             nextPage() { if (this.page < this.totalPages) { this.page++; this.loadLogs(); } },
             toggleDetail(idx) { this.openIdx = this.openIdx === idx ? null : idx; },
 
-            // ── Download report directly from entry ──────────────────────
             async downloadReportForEntry(entry) {
-                if (!entry.detail || !entry.detail.video_id) return;
+                console.log('[EVIDETH] Download clicked for:', entry);
+                if (!entry.detail || !entry.detail.video_id) {
+                    alert('No video_id available for this verification');
+                    return;
+                }
                 const videoId = entry.detail.video_id;
                 try {
                     const res = await fetch('/api/v1/verification/' + videoId, { headers: Auth.authHeader() });
@@ -548,7 +557,6 @@
                 }
             },
 
-            // ── Open modal with full report ───────────────────────────────
             async openModal(entry) {
                 if (!entry.detail || !entry.detail.video_id) return;
                 this.modal = { open: true, loading: true, error: null, report: null };
@@ -566,7 +574,6 @@
             closeModal() { this.modal = { open: false, loading: false, error: null, report: null }; },
             downloadModalReport() { if (this.modal.report) this.downloadReportJSON(this.modal.report); },
 
-            // ── Generate and download JSON report ─────────────────────────
             async downloadReportJSON(report) {
                 const reportBody = {
                     report_metadata: {
