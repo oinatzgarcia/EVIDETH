@@ -81,16 +81,17 @@ def _compare_second_hashes(
 
 
 def _extract_tampered_frames(
-    video_path:       str,
-    second_results:   List[Dict],
+    video_path:        str,
+    second_results:    List[Dict],
     stored_thumbnails: Optional[Union[str, list]],
-) -> Dict[int, Dict]:
+) -> Dict[str, Dict]:
     """
     Para cada segundo marcado como tampered, extrae:
       - current_frame:  frame del vídeo subido (manipulado)
       - original_frame: frame almacenado cuando la cámara grabó (original)
 
-    Ambos en base64 JPEG. Devuelve dict {second_index: {current_frame, original_frame}}.
+    Ambos en base64 JPEG.
+    Devuelve Dict[str, Dict] — claves str para cumplir el schema Pydantic.
     """
     # Deserializar thumbnails almacenados
     stored: list = []
@@ -103,7 +104,7 @@ def _extract_tampered_frames(
             except Exception:
                 stored = []
 
-    frames: Dict[int, Dict] = {}
+    frames: Dict[str, Dict] = {}          # <-- str keys (schema: Dict[str, TamperedFrameData])
 
     for sr in second_results:
         if not sr["tampered"]:
@@ -113,7 +114,7 @@ def _extract_tampered_frames(
         current_frame  = extract_frame_thumbnail(video_path, sec)
         original_frame = stored[sec] if sec < len(stored) else None
 
-        frames[sec] = {
+        frames[str(sec)] = {              # <-- cast a str
             "current_frame":  current_frame,
             "original_frame": original_frame,
         }
@@ -209,7 +210,7 @@ def verify_video(
             stored_merkle   = stored.merkle_root
             merkle_match    = None
             second_results  = None
-            tampered_frames: Dict[int, Dict] = {}
+            tampered_frames: Dict[str, Dict] = {}   # str keys
 
             if computed_merkle and stored_merkle:
                 merkle_match = (computed_merkle == stored_merkle)
@@ -385,7 +386,7 @@ def _make_entry(
         "stored_merkle_root":   stored.merkle_root if stored else None,
         "merkle_match":         merkle_match,
         "second_results":       second_results,
-        # Comparación visual: {"3": {"current_frame": "b64...", "original_frame": "b64..."}}
+        # Claves str para cumplir Dict[str, TamperedFrameData] del schema Pydantic
         "tampered_frames":      tampered_frames,
     }
 
