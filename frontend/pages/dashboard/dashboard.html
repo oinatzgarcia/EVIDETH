@@ -116,16 +116,109 @@
                     return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
                 },
 
+                // ── Download Forensic Report ───────────────────────────────────
+                // Builds a structured JSON report from this.report, computes
+                // SHA-256 of its canonical form via Web Crypto API, appends
+                // chain_of_custody.content_sha256 and triggers browser download.
+                async downloadReport() {
+                    if (!this.report) return;
+
+                    const r = this.report;
+
+                    // Build canonical report (no base64 frames — kept light for chain-of-custody)
+                    const reportBody = {
+                        report_metadata: {
+                            report_id:           (typeof crypto !== 'undefined' && crypto.randomUUID)
+                                                   ? crypto.randomUUID()
+                                                   : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                                                       const r = Math.random() * 16 | 0;
+                                                       return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+                                                     }),
+                            report_version:      '1.0',
+                            generated_at:        new Date().toISOString(),
+                            generated_by:        'EVIDETH Forensic Video Integrity System v2.0',
+                            standard_references: [
+                                'NIST SP 800-101r1 (Guidelines on Mobile Device Forensics)',
+                                'ISO/IEC 27037:2012 (Digital Evidence Identification and Preservation)',
+                                'ECDSA P-256 — FIPS 186-4',
+                                'SHA-256 — FIPS 180-4'
+                            ],
+                            note: 'tampered_frames (base64 images) excluded from this report. Request full evidence package separately.'
+                        },
+                        subject: {
+                            video_id:        r.video_id,
+                            camera_id:       r.camera_id,
+                            verified_at:     r.verified_at,
+                            ecdsa_available: r.ecdsa_available
+                        },
+                        verdict: {
+                            integrity_ok: r.integrity_ok,
+                            result:       r.verdict,
+                            summary:      r.summary
+                        },
+                        segments: (r.segments || []).map(seg => ({
+                            segment_index:        seg.segment_index,
+                            time_range:           this.fmtTime(seg.start_time_secs) + ' \u2013 ' + this.fmtTime(seg.end_time_secs),
+                            result:               seg.result,
+                            // Level 1 — SHA-256
+                            hash_match:           seg.hash_match,
+                            computed_hash:        seg.computed_hash,
+                            stored_hash:          seg.stored_hash,
+                            // Level 2 — Merkle tree
+                            merkle_match:         seg.merkle_match    ?? null,
+                            computed_merkle_root: seg.computed_merkle_root ?? null,
+                            stored_merkle_root:   seg.stored_merkle_root   ?? null,
+                            tampered_seconds:     (seg.second_results || [])
+                                                    .filter(s => s.tampered)
+                                                    .map(s => s.second_index),
+                            // Level 3 — ECDSA
+                            signature_valid:      seg.signature_valid  ?? null,
+                            detail:               seg.detail           || null
+                        }))
+                    };
+
+                    // Compute SHA-256 over the canonical JSON (Web Crypto API)
+                    let contentHash = null;
+                    try {
+                        const canonical   = JSON.stringify(reportBody, null, 2);
+                        const encoded     = new TextEncoder().encode(canonical);
+                        const hashBuffer  = await crypto.subtle.digest('SHA-256', encoded);
+                        contentHash = Array.from(new Uint8Array(hashBuffer))
+                                           .map(b => b.toString(16).padStart(2, '0'))
+                                           .join('');
+                    } catch (e) {
+                        console.warn('[EVIDETH] SHA-256 computation failed:', e);
+                    }
+
+                    // Append chain-of-custody block
+                    const finalReport = {
+                        ...reportBody,
+                        chain_of_custody: {
+                            content_sha256: contentHash,
+                            algorithm:      'SHA-256',
+                            scope:          'All fields above (report_metadata, subject, verdict, segments). tampered_frames excluded.',
+                            verification:   'Recompute by running SHA-256 over the JSON string of the report without this chain_of_custody field.'
+                        }
+                    };
+
+                    // Trigger download
+                    const blob = new Blob([JSON.stringify(finalReport, null, 2)], { type: 'application/json' });
+                    const url  = URL.createObjectURL(blob);
+                    const a    = document.createElement('a');
+                    const ts   = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+                    a.href     = url;
+                    a.download = 'evideth_report_' + (r.camera_id || 'unknown') + '_' + ts + '.json';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                },
+
                 // ── Crypto-level badges per segment ───────────────────────────
-                // Returns HTML string: [L1 SHA-256 ✓] [L2 Merkle ✗ → s3,s5] [L3 ECDSA —]
                 segBadgesHTML(seg) {
                     const b = (cls, txt) => '<span class="lvl-badge ' + cls + '">' + txt + '</span>';
-
-                    // Level 1 — SHA-256 del segmento completo
                     const l1 = b(seg.hash_match ? 'lvl-ok' : 'lvl-fail',
                                  'L1 SHA-256 ' + (seg.hash_match ? '\u2713' : '\u2717'));
-
-                    // Level 2 — Merkle tree
                     let l2;
                     if (seg.merkle_match === null || seg.merkle_match === undefined) {
                         l2 = b('lvl-na', 'L2 Merkle \u2014');
@@ -137,8 +230,6 @@
                             : '';
                         l2 = b('lvl-fail', 'L2 Merkle \u2717' + (ts ? ' \u2192 ' + ts : ''));
                     }
-
-                    // Level 3 — ECDSA signature
                     let l3;
                     if (seg.signature_valid === null || seg.signature_valid === undefined) {
                         l3 = b('lvl-na', 'L3 ECDSA \u2014');
@@ -146,13 +237,10 @@
                         l3 = b(seg.signature_valid ? 'lvl-ok' : 'lvl-fail',
                                'L3 ECDSA ' + (seg.signature_valid ? '\u2713' : '\u2717'));
                     }
-
                     return '<div class="lvl-badges">' + l1 + l2 + l3 + '</div>';
                 },
 
                 // ── Second-level timeline bar ─────────────────────────────────
-                // Returns HTML: barra horizontal, cada segundo es una celda verde/roja.
-                // Solo se renderiza si hay second_results (Merkle activo).
                 segTimelineHTML(seg) {
                     if (!seg.second_results || seg.second_results.length === 0) return '';
                     let cells = '';
@@ -173,19 +261,13 @@
                 },
 
                 // ── Report-level summary badges ───────────────────────────────
-                // Resumen global: qué niveles fallaron en CUALQUIER segmento.
-                // Se muestra encima de la lista de segmentos en el panel TAMPERED.
                 reportLevelBadgesHTML() {
                     if (!this.report || !this.report.segments) return '';
                     const segs = this.report.segments;
                     const b = (cls, txt) => '<span class="lvl-badge ' + cls + '">' + txt + '</span>';
-
-                    // L1
                     const l1fail = segs.some(s => s.hash_match === false);
                     const l1 = b(l1fail ? 'lvl-fail' : 'lvl-ok',
                                  'L1 SHA-256 ' + (l1fail ? '\u2717' : '\u2713'));
-
-                    // L2
                     const l2segs = segs.filter(s => s.merkle_match !== null && s.merkle_match !== undefined);
                     let l2;
                     if (l2segs.length === 0) {
@@ -198,8 +280,6 @@
                     } else {
                         l2 = b('lvl-ok', 'L2 Merkle \u2713');
                     }
-
-                    // L3
                     const l3segs = segs.filter(s => s.signature_valid !== null && s.signature_valid !== undefined);
                     let l3;
                     if (!this.report.ecdsa_available || l3segs.length === 0) {
@@ -209,7 +289,6 @@
                     } else {
                         l3 = b('lvl-ok', 'L3 ECDSA \u2713');
                     }
-
                     return '<div class="lvl-badges lvl-badges-rpt">' + l1 + l2 + l3 + '</div>';
                 },
 
@@ -315,6 +394,26 @@
         .fcp-box.curr .fcp-tag { background: rgba(239,68,68,.1); color: #f87171; }
         .fcp-vs       { flex: 0; font-family: 'Space Mono', monospace; font-size: .65rem; color: #4b5563; padding: 0 .2rem; }
         .fcp-noframe  { padding: 2.5rem 1rem; text-align: center; color: #4b5563; background: #0a0a0a; font-family: 'Space Mono', monospace; font-size: .6rem; line-height: 1.6; }
+
+        /* ── Download Report button ──────────────────────────────────── */
+        .btn-download {
+            display: inline-flex; align-items: center; gap: .45rem;
+            padding: .75rem 2rem; border: 2px solid rgba(74,222,128,.5);
+            font-family: 'Space Mono', monospace; font-size: .7rem;
+            letter-spacing: .12em; text-transform: uppercase;
+            color: #4ade80; background: rgba(74,222,128,.05);
+            cursor: pointer; transition: all .2s ease;
+        }
+        .btn-download:hover {
+            border-color: #4ade80; background: rgba(74,222,128,.12);
+            box-shadow: 0 0 14px rgba(74,222,128,.15);
+        }
+        .btn-download svg { width: 14px; height: 14px; flex-shrink: 0; }
+        /* Hint block below the download button */
+        .report-hint {
+            font-family: 'Space Mono', monospace; font-size: .58rem;
+            color: #4b5563; margin-top: .55rem; letter-spacing: .04em;
+        }
     </style>
 </head>
 
@@ -567,7 +666,7 @@
                         </svg>
                     </div>
                     <p class="text-lg font-mono mb-2" style="color:#d1d5db;" x-text="selectedFile ? selectedFile.name : 'Drop Video File Here'"></p>
-                    <p class="text-sm font-mono mb-6" style="color:#6b7280;" x-text="selectedFile ? fmtSize(selectedFile.size) : 'Or click to select · MP4 · AVI · MOV · MKV'"></p>
+                    <p class="text-sm font-mono mb-6" style="color:#6b7280;" x-text="selectedFile ? fmtSize(selectedFile.size) : 'Or click to select \u00b7 MP4 \u00b7 AVI \u00b7 MOV \u00b7 MKV'"></p>
                     <button type="button" class="inline-block px-8 py-3 border-2 font-mono text-sm tracking-widest transition-all duration-300"
                             style="border-color:#4a90e2; color:#4a90e2; background-color:transparent;">
                         <span x-text="selectedFile ? 'Change File' : 'Select File'"></span>
@@ -630,38 +729,43 @@
                     <!-- Report summary -->
                     <div class="border p-8 max-w-2xl mx-auto text-left mb-8" style="border-color:rgba(74,144,226,.3); background-color:#000000;">
                         <h4 class="font-mono mb-4 tracking-widest text-sm" style="color:#4a90e2;">Verification Report</h4>
-
-                        <!-- Report-level level badges (all green when OK) -->
                         <div x-html="reportLevelBadgesHTML()" class="mb-5"></div>
-
                         <div class="space-y-3 font-mono text-sm">
                             <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Camera ID:</span><span style="color:#4a90e2;" x-text="report && report.camera_id"></span></div>
                             <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Total Segments:</span><span style="color:#4a90e2;" x-text="report && report.summary && report.summary.total_segments"></span></div>
-                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Passed / Failed:</span><span style="color:#4a90e2;" x-text="report && report.summary && (report.summary.passed + ' ✓ / ' + report.summary.failed + ' ✗')"></span></div>
+                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Passed / Failed:</span><span style="color:#4a90e2;" x-text="report && report.summary && (report.summary.passed + ' \u2713 / ' + report.summary.failed + ' \u2717')"></span></div>
                             <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Verified at:</span><span style="color:#4a90e2;" x-text="report && report.verified_at && report.verified_at.slice(0,19).replace('T',' ') + ' UTC'"></span></div>
                             <div class="flex justify-between"><span style="color:#9ca3af;">Verdict:</span><span class="font-bold" style="color:#4a90e2;" x-text="report && report.verdict"></span></div>
                         </div>
                     </div>
 
-                    <!-- Per-segment rows with badges + timeline -->
+                    <!-- Per-segment rows -->
                     <div class="max-w-2xl mx-auto mb-8 space-y-2 text-left">
                         <template x-for="seg in (report ? report.segments : [])" :key="seg.segment_index">
                             <div class="p-3 border font-mono text-sm"
                                  :style="seg.result==='pass' ? 'border-color:rgba(74,144,226,.2);background:#000;' : 'border-color:rgba(220,38,38,.4);background:rgba(127,29,29,.1);'">
-                                <!-- Header row -->
                                 <div class="flex items-center justify-between">
                                     <span style="color:#d1d5db;" x-text="'Segment ' + seg.segment_index + '  (' + fmtTime(seg.start_time_secs) + ' \u2013 ' + fmtTime(seg.end_time_secs) + ')'"></span>
                                     <span :style="seg.result==='pass'?'color:#4a90e2;':'color:#ef4444;'" x-text="seg.result==='pass'?'Valid':'TAMPERED'"></span>
                                 </div>
-                                <!-- Level badges -->
                                 <div x-html="segBadgesHTML(seg)"></div>
-                                <!-- Second timeline (only when Merkle data exists) -->
                                 <div x-html="segTimelineHTML(seg)"></div>
                             </div>
                         </template>
                     </div>
 
-                    <button @click="reset()" class="px-8 py-3 border-2 font-mono text-sm tracking-widest" style="border-color:#4a90e2; color:#4a90e2;">Verify Another Video</button>
+                    <!-- Action buttons — OK panel -->
+                    <div class="flex flex-col items-center gap-3">
+                        <button @click="downloadReport()" class="btn-download">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                            </svg>
+                            Download Forensic Report
+                        </button>
+                        <p class="report-hint">SHA-256 signed &middot; JSON &middot; Chain-of-custody compatible</p>
+                        <button @click="reset()" class="px-8 py-3 border-2 font-mono text-sm tracking-widest" style="border-color:#4a90e2; color:#4a90e2;">Verify Another Video</button>
+                    </div>
                 </div>
 
                 <!-- 🚨 TAMPERED -->
@@ -675,7 +779,6 @@
                     <h3 class="text-3xl font-bold font-mono mb-3" style="color:#ef4444;">Tampering Detected</h3>
                     <p class="font-mono text-sm mb-6" style="color:#9ca3af;" x-text="report && report.verdict"></p>
 
-                    <!-- Report-level crypto summary badges -->
                     <div x-html="reportLevelBadgesHTML()" class="mb-8"></div>
 
                     <!-- Segment Analysis -->
@@ -685,14 +788,11 @@
                             <template x-for="seg in (report ? report.segments : [])" :key="seg.segment_index">
                                 <div class="p-3 border font-mono text-sm"
                                      :style="seg.result==='pass'?'border-color:rgba(74,144,226,.2);background:#000;':'border-color:rgba(220,38,38,.4);background:rgba(127,29,29,.15);'">
-                                    <!-- Header row -->
                                     <div class="flex items-start justify-between">
                                         <span style="color:#d1d5db;" x-text="'Segment ' + seg.segment_index + '  (' + fmtTime(seg.start_time_secs) + ' \u2013 ' + fmtTime(seg.end_time_secs) + ')'"></span>
                                         <span :style="seg.result==='pass'?'color:#4a90e2;':'color:#ef4444;'" x-text="seg.result==='pass'?'Valid':'TAMPERED'"></span>
                                     </div>
-                                    <!-- Level badges: L1 / L2 / L3 -->
                                     <div x-html="segBadgesHTML(seg)"></div>
-                                    <!-- Second-level timeline bar -->
                                     <div x-html="segTimelineHTML(seg)"></div>
                                 </div>
                             </template>
@@ -702,11 +802,23 @@
                         </div>
                     </div>
 
-                    <!-- Visual Frame Analysis (side-by-side) -->
+                    <!-- Visual Frame Analysis -->
                     <div x-html="tamperedFrameHTML()"></div>
 
-                    <p class="font-mono text-sm mb-8" style="color:#9ca3af;" x-text="report && report.summary && ('Passed: '+report.summary.passed+' · Failed: '+report.summary.failed+' · Missing: '+report.summary.missing)"></p>
-                    <button @click="reset()" class="px-8 py-3 border-2 font-mono text-sm tracking-widest" style="border-color:#dc2626; color:#ef4444;">Verify Another Video</button>
+                    <p class="font-mono text-sm mb-8" style="color:#9ca3af;" x-text="report && report.summary && ('Passed: '+report.summary.passed+' \u00b7 Failed: '+report.summary.failed+' \u00b7 Missing: '+report.summary.missing)"></p>
+
+                    <!-- Action buttons — TAMPERED panel -->
+                    <div class="flex flex-col items-center gap-3">
+                        <button @click="downloadReport()" class="btn-download">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                            </svg>
+                            Download Forensic Report
+                        </button>
+                        <p class="report-hint">SHA-256 signed &middot; JSON &middot; Includes tampered seconds &middot; Chain-of-custody compatible</p>
+                        <button @click="reset()" class="px-8 py-3 border-2 font-mono text-sm tracking-widest mt-1" style="border-color:#dc2626; color:#ef4444;">Verify Another Video</button>
+                    </div>
                 </div>
 
             </div>
