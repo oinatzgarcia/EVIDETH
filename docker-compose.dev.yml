@@ -1,0 +1,120 @@
+# EVIDETH — Docker Compose DESARROLLO LOCAL
+# ==============================================
+# Entorno completo para desarrollo:
+#   - PostgreSQL 15
+#   - Backend FastAPI + Frontend estático
+#   - Simulador de cámara (opcional)
+#
+# Uso:
+#   1. Copiar .env.example → .env (raíz del proyecto)
+#   2. docker-compose -f docker-compose.dev.yml up -d
+#   3. Acceder a http://localhost:8000
+#
+# Para crear el admin:
+#   docker-compose -f docker-compose.dev.yml exec backend python -c "
+#   from app.db.session import SessionLocal
+#   from app.db.models import User
+#   from app.core.security import get_password_hash
+#   db = SessionLocal()
+#   admin = User(
+#       email='admin@evideth.io',
+#       username='admin',
+#       full_name='EVIDETH Admin',
+#       hashed_password=get_password_hash('admin123'),
+#       is_active=True,
+#       is_superuser=True
+#   )
+#   db.add(admin)
+#   db.commit()
+#   print('✅ Admin creado: admin@evideth.io / admin123')
+#   db.close()
+#   "
+# ==============================================
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: evideth-postgres
+    environment:
+      POSTGRES_USER: evideth_user
+      POSTGRES_PASSWORD: evideth_pass
+      POSTGRES_DB: evideth_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evideth_user -d evideth_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: evideth-backend
+    env_file:
+      - .env
+    environment:
+      # Override para conexión al postgres del compose
+      DATABASE_URL: postgresql://evideth_user:evideth_pass@postgres:5432/evideth_db
+    ports:
+      - "8000:8000"
+    volumes:
+      # Desarrollo: montar código fuente para hot-reload
+      - ./app:/app/app
+      - ./frontend:/app/frontend
+      - ./alembic:/app/alembic
+      # Logs y storage temporal
+      - backend-logs:/app/logs
+      - backend-temp:/tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    command: >
+      sh -c "
+      echo '⏳ Esperando PostgreSQL...' &&
+      sleep 5 &&
+      echo '🔄 Aplicando migraciones Alembic...' &&
+      alembic upgrade head &&
+      echo '🚀 Arrancando servidor FastAPI...' &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+
+  # Simulador de cámara (OPCIONAL — comentar si no se usa)
+  # Requiere simulator/.env con API_URL=http://backend:8000/api/v1
+  camera-simulator:
+    build:
+      context: ./simulator
+      dockerfile: Dockerfile
+    container_name: evideth-cam-simulator
+    env_file:
+      - ./simulator/.env
+    environment:
+      # Override para apuntar al backend del compose
+      API_URL: http://backend:8000/api/v1
+    volumes:
+      - simulator-keys:/keys
+      # Si SAVE_SEGMENTS_DIR está configurado, montar volumen
+      - simulator-videos:/videos
+    depends_on:
+      - backend
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Comentar todo este servicio si no usas el simulador todavía
+    profiles:
+      - simulator
+
+volumes:
+  postgres-data:
+  backend-logs:
+  backend-temp:
+  simulator-keys:
+  simulator-videos:
