@@ -1,42 +1,6 @@
 #!/usr/bin/env python3
 """
 EVIDETH Camera Simulator
-========================
-Simula una cámara de seguridad:
-  1. Genera vídeo sintético con OpenCV (frames con timestamp y camera ID)
-  2. Divide la grabación en segmentos de SEGMENT_DURATION segundos
-  3. Calcula el hash SHA-256 de cada segmento completo          (Nivel 1)
-  4. Calcula hash SHA-256 de los frames RGB de cada segundo     (Nivel 2)
-  5. Construye el árbol Merkle sobre los hashes por segundo     (Nivel 2)
-  6. Firma el Merkle root con ECDSA P-256 (clave local o Azure Key Vault)
-  7. Envía todo al servidor EVIDETH
-  8. Mantiene un heartbeat cada HEARTBEAT_INTERVAL segundos
-  9. Reintenta los envíos fallidos mediante una cola persistente
-
-CONVENCION ECDSA:
-    datos firmados = bytes.fromhex(merkle_root)   [32 bytes raw]
-    algoritmo      = ECDSA con SHA-256 interno
-    codificacion   = base64url del DER signature
-    Verificacion en servidor:
-        public_key.verify(sig, bytes.fromhex(merkle_root), ec.ECDSA(hashes.SHA256()))
-
-VARIABLES DE ENTORNO (ver .env.example):
-    API_URL            URL base del backend
-    CAMERA_API_KEY     X-API-Key de esta camara
-    CAMERA_ID          Identificador de camara
-    SEGMENT_DURATION   Segundos por segmento (default: 30)
-    FPS                Frames por segundo     (default: 25)
-    WIDTH / HEIGHT     Resolucion del frame   (default: 1280x720)
-    SIGNING_MODE       'local' | 'azure'      (default: local)
-    PRIVATE_KEY_FILE   Ruta clave PEM         (SIGNING_MODE=local)
-    AZURE_VAULT_URL    URL del Key Vault      (SIGNING_MODE=azure)
-    AZURE_KEY_NAME     Nombre de la clave     (SIGNING_MODE=azure)
-    TAMPER_MODE        'true' corrompe 1 de cada 3 segmentos para la demo
-    HEARTBEAT_INTERVAL Segundos entre heartbeats (default: 30)
-    MAX_RETRIES        Reintentos por peticion (default: 3)
-    RETRY_DELAY        Segundos base entre reintentos (default: 5)
-    SAVE_SEGMENTS_DIR  Directorio donde copiar los segmentos generados
-    MAX_SEGMENTS       Maximo de segmentos a generar (0 = infinito)
 """
 
 import os
@@ -50,7 +14,7 @@ import subprocess
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import cv2
 import numpy as np
@@ -88,11 +52,10 @@ HEADERS     = {"X-API-Key": CAMERA_API_KEY}
 _EMPTY_HASH = hashlib.sha256(b"").hexdigest()
 
 
-# ── Merkle tree ───────────────────────────────────────────────
+# ── Merkle ─────────────────────────────────────────────────
 
 def _sha256_concat(left: str, right: str) -> str:
     return hashlib.sha256(bytes.fromhex(left) + bytes.fromhex(right)).hexdigest()
-
 
 def build_merkle_root(leaf_hashes: List[str]) -> str:
     if not leaf_hashes:
@@ -103,14 +66,11 @@ def build_merkle_root(leaf_hashes: List[str]) -> str:
     while len(level) > 1:
         if len(level) % 2 == 1:
             level.append(level[-1])
-        level = [
-            _sha256_concat(level[i], level[i + 1])
-            for i in range(0, len(level), 2)
-        ]
+        level = [_sha256_concat(level[i], level[i+1]) for i in range(0, len(level), 2)]
     return level[0]
 
 
-# ── Hashing ─────────────────────────────────────────────────
+# ── Hashing y frames ───────────────────────────────────────────
 
 def sha256_file(path: str) -> str:
     h = hashlib.sha256()
@@ -121,36 +81,47 @@ def sha256_file(path: str) -> str:
 
 
 def extract_second_hashes(seg_path: str, duration_secs: int) -> List[str]:
-    """
-    Hash SHA-256 de los frames RGB decodificados de cada segundo.
-
-    Usa ffmpeg para decodificar y volcar los pixeles crudos RGB24 por stdout.
-    Al hashear los pixels (no el contenedor MP4), el resultado es identico
-    en cualquier plataforma/version de ffmpeg para el mismo contenido de video.
-
-    Este metodo es simetrico con el del verificador (video_processor.py),
-    garantizando que los hashes almacenados son reproducibles en verificacion.
-    """
-    hashes: List[str] = []
-
+    """Hash SHA-256 de pixels RGB decodificados por segundo (plataforma-independiente)."""
+    hashes_list: List[str] = []
     for sec in range(duration_secs):
         cmd = [
-            "ffmpeg",
-            "-i",       seg_path,
-            "-ss",      str(sec),
-            "-t",       "1",
-            "-f",       "rawvideo",  # sin contenedor, solo pixels
-            "-pix_fmt", "rgb24",    # formato canonico y consistente
-            "pipe:1",
+            "ffmpeg", "-i", seg_path,
+            "-ss", str(sec), "-t", "1",
+            "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1",
         ]
         r = subprocess.run(cmd, capture_output=True)
         if r.returncode != 0 or not r.stdout:
-            logger.warning(f"  segundo {sec}: no extraible -> usando centinela")
-            hashes.append(_EMPTY_HASH)
+            logger.warning(f"  segundo {sec}: no extraible -> centinela")
+            hashes_list.append(_EMPTY_HASH)
         else:
-            hashes.append(hashlib.sha256(r.stdout).hexdigest())
+            hashes_list.append(hashlib.sha256(r.stdout).hexdigest())
+    return hashes_list
 
-    return hashes
+
+def extract_frame_thumbnails(seg_path: str, duration_secs: int, quality: int = 5) -> List[Optional[str]]:
+    """
+    Extrae un frame JPEG del centro de cada segundo del segmento.
+    Devuelve lista de strings base64 (o None si falla la extraccion).
+    quality: 1=mejor, 31=peor. 5 da ~20-40 KB a 1280x720.
+    """
+    thumbnails: List[Optional[str]] = []
+    for sec in range(duration_secs):
+        cmd = [
+            "ffmpeg", "-y",
+            "-i",       seg_path,
+            "-ss",      f"{sec}.5",
+            "-vframes", "1",
+            "-f",       "image2",
+            "-vcodec",  "mjpeg",
+            "-q:v",     str(quality),
+            "pipe:1",
+        ]
+        r = subprocess.run(cmd, capture_output=True)
+        if r.returncode == 0 and r.stdout:
+            thumbnails.append(base64.b64encode(r.stdout).decode())
+        else:
+            thumbnails.append(None)
+    return thumbnails
 
 
 # ── CryptoService ──────────────────────────────────────────────
@@ -179,7 +150,7 @@ class CryptoService:
                 encryption_algorithm=serialization.NoEncryption(),
             )
             key_path.write_bytes(pem)
-            logger.info(f"Nueva clave ECDSA P-256 generada -> {key_path}")
+            logger.info(f"Nueva clave ECDSA P-256 -> {key_path}")
 
         pub_pem = self._private_key.public_key().public_bytes(
             encoding=serialization.Encoding.PEM,
@@ -195,11 +166,11 @@ class CryptoService:
         from azure.identity import DefaultAzureCredential
         from azure.keyvault.keys import KeyClient
         from azure.keyvault.keys.crypto import CryptographyClient, SignatureAlgorithm
-        vault_url   = os.environ["AZURE_VAULT_URL"]
-        key_name    = os.environ["AZURE_KEY_NAME"]
-        credential  = DefaultAzureCredential()
-        key_client  = KeyClient(vault_url=vault_url, credential=credential)
-        key         = key_client.get_key(key_name)
+        vault_url  = os.environ["AZURE_VAULT_URL"]
+        key_name   = os.environ["AZURE_KEY_NAME"]
+        credential = DefaultAzureCredential()
+        key_client = KeyClient(vault_url=vault_url, credential=credential)
+        key        = key_client.get_key(key_name)
         self._crypto_client = CryptographyClient(key, credential=credential)
         self._sign_algo     = SignatureAlgorithm.es256
         self.public_key_id  = key_name
@@ -229,9 +200,7 @@ class APIClient:
                     headers=HEADERS, timeout=10,
                 )
                 r.raise_for_status()
-                video_id = r.json()["id"]
-                logger.info(f"Video registrado: {video_id}")
-                return video_id
+                return r.json()["id"]
             except Exception as exc:
                 logger.warning(f"start_video intento {attempt}/{MAX_RETRIES}: {exc}")
                 if attempt < MAX_RETRIES:
@@ -244,20 +213,17 @@ class APIClient:
             try:
                 r = requests.post(
                     f"{API_URL}/cameras/segments",
-                    json=payload, headers=HEADERS, timeout=15,
+                    json=payload, headers=HEADERS, timeout=30,
                 )
                 if r.status_code == 409:
                     logger.warning(f"Segmento #{idx} ya registrado (409)")
                     return True
                 if not r.ok:
-                    try:
-                        err_body = r.json()
-                    except Exception:
-                        err_body = r.text[:500]
+                    try:    err_body = r.json()
+                    except: err_body = r.text[:500]
                     logger.warning(
                         f"send_segment #{idx} intento {attempt}/{MAX_RETRIES}: "
-                        f"{r.status_code} {r.reason}\n"
-                        f"  +-- Body: {err_body}"
+                        f"{r.status_code}\n  +-- {err_body}"
                     )
                     if attempt < MAX_RETRIES:
                         time.sleep(RETRY_DELAY * attempt)
@@ -365,10 +331,10 @@ class CameraSimulator:
         self.gen    = VideoGenerator()
         self._failed: queue.Queue = queue.Queue()
         self._stop  = threading.Event()
-        self._saved_files: list  = []
+        self._saved_files: list   = []
 
     def run(self) -> None:
-        limit_str = f"{MAX_SEGMENTS} segmento(s)" if MAX_SEGMENTS > 0 else "infinito (Ctrl+C para parar)"
+        limit_str = f"{MAX_SEGMENTS} segmento(s)" if MAX_SEGMENTS > 0 else "infinito (Ctrl+C)"
         logger.info("=" * 60)
         logger.info("EVIDETH Camera Simulator")
         logger.info(f"  Camara     : {CAMERA_ID}")
@@ -389,7 +355,7 @@ class CameraSimulator:
         try:
             while not self._stop.is_set():
                 if MAX_SEGMENTS > 0 and segment_index >= MAX_SEGMENTS:
-                    logger.info(f"MAX_SEGMENTS={MAX_SEGMENTS} alcanzado -- simulador detenido")
+                    logger.info(f"\u2705 MAX_SEGMENTS={MAX_SEGMENTS} alcanzado -- simulador detenido")
                     break
                 self._process_segment(segment_index, boot_epoch)
                 segment_index += 1
@@ -405,7 +371,7 @@ class CameraSimulator:
         if self._saved_files:
             logger.info(f"Videos guardados en: {SAVE_SEGMENTS_DIR}")
             for path in self._saved_files:
-                logger.info(f"  {path}")
+                logger.info(f"  \U0001f4be {path}")
             logger.info("")
             logger.info("Para verificar integridad (Swagger UI):")
             logger.info("  POST /api/v1/verification/upload/{video_id}")
@@ -442,6 +408,9 @@ class CameraSimulator:
             merkle_root   = build_merkle_root(second_hashes)
             signature     = self.crypto.sign(merkle_root)
 
+            logger.info(f"  Extrayendo thumbnails ({SEGMENT_DURATION} frames)...")
+            frame_thumbnails = extract_frame_thumbnails(seg_path, SEGMENT_DURATION)
+
             logger.info(
                 f"  Segmento {idx} listo:\n"
                 f"    sha256      : {sha256[:16]}...\n"
@@ -455,21 +424,22 @@ class CameraSimulator:
                 shutil.copy2(seg_path, saved_path)
                 self._saved_files.append(saved_path)
                 logger.info(
-                    f"  Guardado -> {saved_path}\n"
+                    f"  \U0001f4be Guardado -> {saved_path}\n"
                     f"     video_id  : {video_id}"
                 )
 
             payload = {
-                "video_id":        video_id,
-                "segment_index":   idx,
-                "start_time_secs": start_secs,
-                "end_time_secs":   start_secs + SEGMENT_DURATION,
-                "sha256_hash":     sha256,
-                "ecdsa_signature": signature,
-                "public_key_id":   self.crypto.public_key_id,
-                "file_size_bytes": file_size,
-                "merkle_root":     merkle_root,
-                "second_hashes":   second_hashes,
+                "video_id":          video_id,
+                "segment_index":     idx,
+                "start_time_secs":   start_secs,
+                "end_time_secs":     start_secs + SEGMENT_DURATION,
+                "sha256_hash":       sha256,
+                "ecdsa_signature":   signature,
+                "public_key_id":     self.crypto.public_key_id,
+                "file_size_bytes":   file_size,
+                "merkle_root":       merkle_root,
+                "second_hashes":     second_hashes,
+                "frame_thumbnails":  frame_thumbnails,   # <-- nuevo
             }
 
             if not self.api.send_segment(payload):

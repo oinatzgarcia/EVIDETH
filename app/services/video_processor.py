@@ -1,3 +1,4 @@
+import base64
 import subprocess
 import hashlib
 import math
@@ -5,7 +6,7 @@ import os
 import json
 import tempfile
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from app.utils.merkle import build_merkle_root
 
@@ -42,25 +43,20 @@ def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
     """
     Hash SHA-256 de los frames RGB decodificados de cada segundo.
 
-    En lugar de hashear ficheros MP4 de 1s (cuyos bytes de contenedor
-    varian entre versiones/plataformas de ffmpeg), se extraen los pixels
-    crudos RGB24 via stdout. El contenido decodificado es identico
-    en cualquier plataforma para el mismo fichero de entrada.
-
-    Este metodo es el mismo que usa el simulador, garantizando que
-    los hashes son comparables independientemente del SO o version ffmpeg.
+    Usa ffmpeg -f rawvideo -pix_fmt rgb24 para obtener los pixels puros,
+    eliminando diferencias de contenedor entre plataformas/versiones ffmpeg.
     """
     hashes: List[str] = []
 
     for sec in range(duration_secs):
         cmd = [
             "ffmpeg",
-            "-i",      segment_path,
-            "-ss",     str(sec),
-            "-t",      "1",
-            "-f",      "rawvideo",   # pixeles crudos, sin contenedor
-            "-pix_fmt", "rgb24",    # formato de pixel canonico
-            "pipe:1",               # volcar por stdout
+            "-i",       segment_path,
+            "-ss",      str(sec),
+            "-t",       "1",
+            "-f",       "rawvideo",
+            "-pix_fmt", "rgb24",
+            "pipe:1",
         ]
         r = subprocess.run(cmd, capture_output=True)
         if r.returncode != 0 or not r.stdout:
@@ -71,14 +67,42 @@ def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
     return hashes
 
 
+def extract_frame_thumbnail(video_path: str, second: int, quality: int = 5) -> Optional[str]:
+    """
+    Extrae un frame JPEG del centro del segundo indicado.
+    Devuelve la imagen codificada en base64, o None si falla.
+
+    Args:
+        video_path: Ruta al fichero de vídeo.
+        second:     Segundo del que extraer el frame (0-indexed).
+        quality:    Calidad JPEG ffmpeg (1=mejor, 31=peor). 5 da ~20-40 KB
+                    por frame a resolución 1280x720.
+
+    Returns:
+        String base64 del JPEG, o None si ffmpeg no puede extraer el frame.
+    """
+    cmd = [
+        "ffmpeg", "-y",
+        "-i",       video_path,
+        "-ss",      f"{second}.5",   # centro del segundo
+        "-vframes", "1",
+        "-f",       "image2",
+        "-vcodec",  "mjpeg",
+        "-q:v",     str(quality),
+        "pipe:1",
+    ]
+    r = subprocess.run(cmd, capture_output=True)
+    if r.returncode != 0 or not r.stdout:
+        return None
+    return base64.b64encode(r.stdout).decode()
+
+
 def segment_video(video_path: str, output_dir: str) -> List[Dict]:
     """
-    Divide el video en segmentos logicos de SEGMENT_DURATION segundos.
+    Divide el video en segmentos lógicos de SEGMENT_DURATION segundos.
 
-    Para videos de un unico segmento (duracion <= SEGMENT_DURATION),
-    se hashea el fichero original directamente sin re-extraerlo con ffmpeg,
-    garantizando que el sha256 (Nivel 1) sea identico al almacenado
-    por el simulador.
+    Para videos de un único segmento (duración <= SEGMENT_DURATION),
+    se hashea el fichero original directamente sin re-extraerlo con ffmpeg.
     """
     duration = get_video_duration(video_path)
     total_logical_segments = math.ceil(duration / SEGMENT_DURATION)
@@ -92,14 +116,10 @@ def segment_video(video_path: str, output_dir: str) -> List[Dict]:
         is_complete  = seg_duration >= SEGMENT_DURATION
 
         if total_logical_segments == 1:
-            # Video de un unico segmento: usar el fichero original sin re-extraer.
-            # El simulador hashea este mismo fichero directamente, por lo que
-            # el sha256 es comparable.
             work_path   = video_path
             sha256_hash = calculate_sha256(work_path)
             file_size   = os.path.getsize(work_path)
         else:
-            # Multi-segmento: extraer la porcion con ffmpeg.
             work_path = os.path.join(output_dir, f"segment_{segment_index:04d}.mp4")
             cmd = [
                 "ffmpeg", "-y",
@@ -118,7 +138,6 @@ def segment_video(video_path: str, output_dir: str) -> List[Dict]:
             sha256_hash = calculate_sha256(work_path)
             file_size   = os.path.getsize(work_path)
 
-        # Nivel 2: raw-frame hashes + Merkle root
         second_hashes = extract_second_hashes(work_path, int(seg_duration))
         merkle_root   = build_merkle_root(second_hashes)
 
