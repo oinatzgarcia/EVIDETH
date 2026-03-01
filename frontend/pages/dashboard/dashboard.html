@@ -63,6 +63,29 @@
         @keyframes scan-local { 0% { top: 0; } 100% { top: 100%; } }
         .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
         @keyframes pulseSubtle { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+
+        /* ── Frame Comparison Panel ───────────────────────────────────── */
+        .fcp-wrap    { max-width: 42rem; margin: 0 auto 1.5rem auto;
+                       border: 1px solid rgba(239,68,68,.2); background: #000; padding: 1.5rem; }
+        .fcp-header  { border-left: 2px solid rgba(239,68,68,.5); padding-left: .75rem; margin-bottom: 1.25rem; }
+        .fcp-title   { font-family: 'Space Mono', monospace; font-size: .7rem;
+                       letter-spacing: .12em; text-transform: uppercase; color: #ef4444; }
+        .fcp-sub     { font-family: 'Space Mono', monospace; font-size: .6rem; color: #6b7280; margin-top: .25rem; }
+        .fcp-pair    { margin-bottom: 1.25rem; }
+        .fcp-pair:last-child { margin-bottom: 0; }
+        .fcp-pair-lbl{ font-family: 'Space Mono', monospace; font-size: .65rem;
+                       color: #9ca3af; letter-spacing: .08em; text-transform: uppercase; margin-bottom: .5rem; }
+        .fcp-row     { display: flex; align-items: center; gap: .75rem; }
+        .fcp-box     { flex: 1; overflow: hidden; }
+        .fcp-box img { width: 100%; display: block; }
+        .fcp-box.orig{ border: 1px solid rgba(74,144,226,.5); }
+        .fcp-box.curr{ border: 1px solid rgba(239,68,68,.65); }
+        .fcp-tag     { padding: .25rem .5rem; font-family: 'Space Mono', monospace; font-size: .6rem; letter-spacing: .04em; }
+        .fcp-box.orig .fcp-tag { background: rgba(74,144,226,.12); color: #5ba3f5; }
+        .fcp-box.curr .fcp-tag { background: rgba(239,68,68,.1);  color: #f87171; }
+        .fcp-vs      { flex: 0; font-family: 'Space Mono', monospace; font-size: .65rem; color: #4b5563; padding: 0 .2rem; }
+        .fcp-noframe { padding: 2.5rem 1rem; text-align: center; color: #4b5563; background: #0a0a0a;
+                       font-family: 'Space Mono', monospace; font-size: .6rem; line-height: 1.6; }
     </style>
 </head>
 
@@ -132,6 +155,48 @@
         if (secs == null) return '\u2014';
         const m = Math.floor(secs / 60), s = secs % 60;
         return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+    },
+
+    /* ── Genera el HTML del panel side-by-side de frames tamperizados ── */
+    tamperedFrameHTML() {
+        if (!this.report || !this.report.segments) return '';
+        const pairs = [];
+        for (const seg of this.report.segments) {
+            const frames = seg.tampered_frames;
+            if (!frames || Object.keys(frames).length === 0) continue;
+            for (const [secIdx, data] of Object.entries(frames)) {
+                const origHTML = data.original_frame
+                    ? `<img src="data:image/jpeg;base64,${data.original_frame}" alt="Frame original segundo ${secIdx}">`
+                    : `<div class="fcp-noframe">Original no disponible<br>Regenera con el simulador</div>`;
+                const currHTML = data.current_frame
+                    ? `<img src="data:image/jpeg;base64,${data.current_frame}" alt="Frame actual segundo ${secIdx}">`
+                    : `<div class="fcp-noframe">Frame no extraible</div>`;
+                pairs.push(`
+                    <div class="fcp-pair">
+                        <p class="fcp-pair-lbl">Seg ${seg.segment_index} &mdash; Second <strong style="color:#ef4444;">${secIdx}</strong></p>
+                        <div class="fcp-row">
+                            <div class="fcp-box orig">
+                                <div class="fcp-tag">&#9679; ORIGINAL (stored)</div>
+                                ${origHTML}
+                            </div>
+                            <div class="fcp-vs">VS</div>
+                            <div class="fcp-box curr">
+                                <div class="fcp-tag">&#9679; CURRENT (uploaded)</div>
+                                ${currHTML}
+                            </div>
+                        </div>
+                    </div>`);
+            }
+        }
+        if (pairs.length === 0) return '';
+        return `
+            <div class="fcp-wrap">
+                <div class="fcp-header">
+                    <p class="fcp-title">Visual Frame Analysis</p>
+                    <p class="fcp-sub">Comparaci&oacute;n frame a frame &middot; segundos manipulados</p>
+                </div>
+                ${pairs.join('')}
+            </div>`;
     }
 }">
 
@@ -183,18 +248,15 @@
                                 class="flex items-center space-x-2 px-3 py-2 border transition-all duration-200 cursor-pointer"
                                 style="border-color:#2c5f8d; background:#000;"
                                 onmouseover="this.style.borderColor='#4a90e2'" onmouseout="this.style.borderColor='#2c5f8d'">
-                            <!-- Avatar initials -->
                             <div class="w-8 h-8 flex items-center justify-center border text-xs font-mono font-bold flex-shrink-0"
                                  style="border-color:#4a90e2; color:#4a90e2; background:rgba(74,144,226,.1);"
                                  x-text="initials()"></div>
-                            <!-- Name + role -->
                             <div class="hidden lg:block text-left leading-tight">
                                 <p class="text-xs font-mono font-semibold truncate max-w-[130px]" style="color:#e5e7eb;" x-text="fullName()"></p>
                                 <p class="text-[10px] font-mono uppercase tracking-widest"
                                    :style="isAdmin ? 'color:#f59e0b;' : 'color:#6b7280;'"
                                    x-text="role()"></p>
                             </div>
-                            <!-- Chevron -->
                             <svg class="w-3 h-3 transition-transform duration-200 flex-shrink-0"
                                  :class="open ? 'rotate-180' : ''"
                                  style="color:#6b7280;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -214,7 +276,6 @@
                              class="absolute right-0 mt-2 w-64 border z-50"
                              style="background:#0a0a0a; border-color:#2c5f8d; top:100%; transform-origin:top right;">
 
-                            <!-- User info -->
                             <div class="px-4 py-4 border-b" style="border-color:rgba(74,144,226,.15);">
                                 <div class="flex items-center space-x-3">
                                     <div class="w-10 h-10 flex items-center justify-center border text-sm font-mono font-bold flex-shrink-0"
@@ -234,7 +295,6 @@
                                 </div>
                             </div>
 
-                            <!-- Logout -->
                             <div class="py-1">
                                 <button @click="logout()"
                                         class="w-full px-4 py-3 text-left font-mono text-xs flex items-center space-x-3 transition-colors duration-150"
@@ -245,13 +305,12 @@
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                               d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
                                     </svg>
-                                    <span>Cerrar sesión</span>
+                                    <span>Cerrar sesi&oacute;n</span>
                                 </button>
                             </div>
 
                         </div>
                     </div>
-                    <!-- End profile dropdown -->
 
                 </div>
             </div>
@@ -275,7 +334,7 @@
                 <span class="text-glow" style="color:#4a90e2;">Verification System</span>
             </h2>
             <p class="font-mono text-sm tracking-wide" style="color:#9ca3af;">
-                SHA-256 Hashing · ECDSA P-256 Signatures · Forensic Grade
+                SHA-256 Hashing &middot; ECDSA P-256 Signatures &middot; Forensic Grade
             </p>
         </div>
 
@@ -290,10 +349,10 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                         </svg>
                     </div>
-                    <span class="text-xs font-mono" style="color:#4a90e2;">↑ 12.5%</span>
+                    <span class="text-xs font-mono" style="color:#4a90e2;">&uarr; 12.5%</span>
                 </div>
                 <h3 class="text-xs font-mono mb-2 tracking-widest uppercase" style="color:#9ca3af;">Verifications</h3>
-                <p class="text-4xl font-bold font-mono" id="stat-verifs-total" style="color:#4a90e2;">—</p>
+                <p class="text-4xl font-bold font-mono" id="stat-verifs-total" style="color:#4a90e2;">&mdash;</p>
                 <div class="mt-3 h-px" style="background:linear-gradient(to right, #4a90e2, transparent);"></div>
             </div>
 
@@ -308,7 +367,7 @@
                 </div>
                 <h3 class="text-xs font-mono mb-2 tracking-widest uppercase" style="color:#9ca3af;">Cameras Online</h3>
                 <p class="text-4xl font-bold font-mono" style="color:#4a90e2;">
-                    <span id="stat-cameras-online">—</span><span id="stat-cameras-total" class="text-xl" style="color:#6b7280;">/—</span>
+                    <span id="stat-cameras-online">&mdash;</span><span id="stat-cameras-total" class="text-xl" style="color:#6b7280;">/&mdash;</span>
                 </p>
                 <div class="mt-3 h-px" style="background:linear-gradient(to right, #4a90e2, transparent);"></div>
             </div>
@@ -320,10 +379,10 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                         </svg>
                     </div>
-                    <span class="text-xs font-mono" style="color:#ef4444;">↓ 5.2%</span>
+                    <span class="text-xs font-mono" style="color:#ef4444;">&darr; 5.2%</span>
                 </div>
                 <h3 class="text-xs font-mono mb-2 tracking-widest uppercase" style="color:#9ca3af;">Threats Detected</h3>
-                <p class="text-4xl font-bold font-mono" id="stat-threats" style="color:#ef4444;">—</p>
+                <p class="text-4xl font-bold font-mono" id="stat-threats" style="color:#ef4444;">&mdash;</p>
                 <div class="mt-3 h-px" style="background:linear-gradient(to right, rgba(220,38,38,.4), transparent);"></div>
             </div>
 
@@ -334,10 +393,10 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
                         </svg>
                     </div>
-                    <span id="stat-integrity-badge" class="text-xs font-mono" style="color:#6b7280;">—</span>
+                    <span id="stat-integrity-badge" class="text-xs font-mono" style="color:#6b7280;">&mdash;</span>
                 </div>
                 <h3 class="text-xs font-mono mb-2 tracking-widest uppercase" style="color:#9ca3af;">Integrity Rate</h3>
-                <p class="text-4xl font-bold font-mono" style="color:#4a90e2;"><span id="stat-integrity-rate">—</span></p>
+                <p class="text-4xl font-bold font-mono" style="color:#4a90e2;"><span id="stat-integrity-rate">&mdash;</span></p>
                 <div class="mt-3 h-1" style="background-color:#1f2937;">
                     <div id="stat-integrity-bar" class="h-full transition-all duration-1000" style="width:0%; background-color:#4a90e2;"></div>
                 </div>
@@ -369,7 +428,7 @@
                                class="w-full bg-black border px-4 py-3 font-mono text-sm focus:outline-none transition-colors"
                                style="border-color:#2c5f8d; color:#e5e7eb;"
                                onfocus="this.style.borderColor='#4a90e2'" onblur="this.style.borderColor='#2c5f8d'" />
-                        <p class="mt-1 font-mono text-xs" style="color:#6b7280;">ID físico de la cámara (campo <code>camera_id</code>)</p>
+                        <p class="mt-1 font-mono text-xs" style="color:#6b7280;">ID f&iacute;sico de la c&aacute;mara (campo <code>camera_id</code>)</p>
                     </div>
                     <div>
                         <label class="block font-mono text-xs tracking-widest uppercase mb-2" style="color:#9ca3af;">Video DB ID</label>
@@ -391,7 +450,7 @@
                         </svg>
                     </div>
                     <p class="text-lg font-mono mb-2" style="color:#d1d5db;" x-text="selectedFile ? selectedFile.name : 'Drop Video File Here'"></p>
-                    <p class="text-sm font-mono mb-6" style="color:#6b7280;" x-text="selectedFile ? fmtSize(selectedFile.size) : 'Or click to select · MP4 · AVI · MOV · MKV'"></p>
+                    <p class="text-sm font-mono mb-6" style="color:#6b7280;" x-text="selectedFile ? fmtSize(selectedFile.size) : 'Or click to select &middot; MP4 &middot; AVI &middot; MOV &middot; MKV'"></p>
                     <button type="button" class="inline-block px-8 py-3 border-2 font-mono text-sm tracking-widest transition-all duration-300"
                             style="border-color:#4a90e2; color:#4a90e2; background-color:transparent;">
                         <span x-text="selectedFile ? 'Change File' : 'Select File'"></span>
@@ -416,7 +475,7 @@
                     </svg>
                 </div>
                 <h3 class="text-2xl font-bold font-mono mb-2 text-glow" style="color:#4a90e2;">Analyzing Video Integrity</h3>
-                <p class="font-mono text-sm mb-10" style="color:#9ca3af;">Segmenting · SHA-256 · Merkle tree · ECDSA</p>
+                <p class="font-mono text-sm mb-10" style="color:#9ca3af;">Segmenting &middot; SHA-256 &middot; Merkle tree &middot; ECDSA</p>
                 <div class="max-w-md mx-auto space-y-3 text-left">
                     <div class="flex items-center space-x-3 font-mono text-sm"><span style="color:#4a90e2;">&#9656;</span><span style="color:#9ca3af;">Extracting metadata</span><span class="ml-auto" style="color:#4a90e2;">OK</span></div>
                     <div class="flex items-center space-x-3 font-mono text-sm"><span class="pulse-dot" style="color:#4a90e2;">&#9656;</span><span style="color:#d1d5db;">Segmenting into 30 s chunks</span><span class="ml-auto" style="color:#6b7280;">...</span></div>
@@ -439,6 +498,7 @@
 
             <!-- Result -->
             <div x-show="report" x-transition>
+
                 <!-- OK -->
                 <div x-show="integrityOk()" class="py-10 text-center">
                     <div class="inline-flex items-center justify-center w-24 h-24 border-2 mb-8 relative" style="border-color:#4a90e2;">
@@ -448,13 +508,13 @@
                         </svg>
                     </div>
                     <h3 class="text-3xl font-bold font-mono mb-3 text-glow" style="color:#4a90e2;">Verification Successful</h3>
-                    <p class="font-mono text-sm mb-10" style="color:#9ca3af;">All cryptographic checks passed · Video integrity confirmed</p>
+                    <p class="font-mono text-sm mb-10" style="color:#9ca3af;">All cryptographic checks passed &middot; Video integrity confirmed</p>
                     <div class="border p-8 max-w-2xl mx-auto text-left mb-8" style="border-color:rgba(74,144,226,.3); background-color:#000000;">
                         <h4 class="font-mono mb-6 tracking-widest text-sm" style="color:#4a90e2;">Verification Report</h4>
                         <div class="space-y-3 font-mono text-sm">
                             <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Camera ID:</span><span style="color:#4a90e2;" x-text="report && report.camera_id"></span></div>
                             <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Total Segments:</span><span style="color:#4a90e2;" x-text="report && report.summary && report.summary.total_segments"></span></div>
-                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Passed / Failed:</span><span style="color:#4a90e2;" x-text="report && report.summary && (report.summary.passed + ' ✓ / ' + report.summary.failed + ' ✗')"></span></div>
+                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Passed / Failed:</span><span style="color:#4a90e2;" x-text="report && report.summary && (report.summary.passed + ' \u2713 / ' + report.summary.failed + ' \u2717')"></span></div>
                             <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Verified at:</span><span style="color:#4a90e2;" x-text="report && report.verified_at && report.verified_at.slice(0,19).replace('T',' ') + ' UTC'"></span></div>
                             <div class="flex justify-between"><span style="color:#9ca3af;">Verdict:</span><span class="font-bold" style="color:#4a90e2;" x-text="report && report.verdict"></span></div>
                         </div>
@@ -463,7 +523,7 @@
                         <template x-for="seg in (report ? report.segments : [])" :key="seg.segment_index">
                             <div class="flex items-center justify-between p-3 border font-mono text-sm"
                                  :style="seg.result==='pass' ? 'border-color:rgba(74,144,226,.2);background:#000;' : 'border-color:rgba(220,38,38,.4);background:rgba(127,29,29,.1);'">
-                                <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' – '+fmtTime(seg.end_time_secs)+')'"></span>
+                                <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' \u2013 '+fmtTime(seg.end_time_secs)+')'"></span>
                                 <span :style="seg.result==='pass'?'color:#4a90e2;':'color:#ef4444;'" x-text="seg.result==='pass'?'Valid':'TAMPERED'"></span>
                             </div>
                         </template>
@@ -481,14 +541,16 @@
                     </div>
                     <h3 class="text-3xl font-bold font-mono mb-3" style="color:#ef4444;">Tampering Detected</h3>
                     <p class="font-mono text-sm mb-10" style="color:#9ca3af;" x-text="report && report.verdict"></p>
-                    <div class="border p-8 max-w-2xl mx-auto text-left mb-8" style="border-color:rgba(220,38,38,.3); background:#000;">
+
+                    <!-- Segment Analysis -->
+                    <div class="border p-8 max-w-2xl mx-auto text-left mb-6" style="border-color:rgba(220,38,38,.3); background:#000;">
                         <h4 class="font-mono mb-4 tracking-widest text-sm" style="color:#ef4444;">Segment Analysis</h4>
                         <div class="space-y-2">
                             <template x-for="seg in (report ? report.segments : [])" :key="seg.segment_index">
                                 <div class="flex items-center justify-between p-3 border font-mono text-sm"
                                      :style="seg.result==='pass'?'border-color:rgba(74,144,226,.2);background:#000;':'border-color:rgba(220,38,38,.4);background:rgba(127,29,29,.15);'">
                                     <div>
-                                        <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' – '+fmtTime(seg.end_time_secs)+')'"></span>
+                                        <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' \u2013 '+fmtTime(seg.end_time_secs)+')'"></span>
                                         <span x-show="seg.second_results && seg.second_results.some(s=>s.tampered)" class="block text-xs mt-1" style="color:#f87171;" x-text="'Tampered seconds: ['+seg.second_results.filter(s=>s.tampered).map(s=>s.second_index).join(', ')+']'"></span>
                                     </div>
                                     <span :style="seg.result==='pass'?'color:#4a90e2;':'color:#ef4444;'" x-text="seg.result==='pass'?'Valid':'TAMPERED'"></span>
@@ -496,12 +558,17 @@
                             </template>
                         </div>
                         <div class="mt-6 p-4 border" style="background:rgba(127,29,29,.08); border-color:rgba(220,38,38,.3);">
-                            <p class="text-xs font-mono" style="color:#9ca3af;">⚠ This video cannot be used as forensic evidence due to detected integrity violations.</p>
+                            <p class="text-xs font-mono" style="color:#9ca3af;">&warning; This video cannot be used as forensic evidence due to detected integrity violations.</p>
                         </div>
                     </div>
-                    <p class="font-mono text-sm mb-8" style="color:#9ca3af;" x-text="report && report.summary && ('Passed: '+report.summary.passed+' · Failed: '+report.summary.failed+' · Missing: '+report.summary.missing)"></p>
+
+                    <!-- Visual Frame Analysis (side-by-side) -->
+                    <div x-html="tamperedFrameHTML()"></div>
+
+                    <p class="font-mono text-sm mb-8" style="color:#9ca3af;" x-text="report && report.summary && ('Passed: '+report.summary.passed+' &middot; Failed: '+report.summary.failed+' &middot; Missing: '+report.summary.missing)"></p>
                     <button @click="reset()" class="px-8 py-3 border-2 font-mono text-sm tracking-widest" style="border-color:#dc2626; color:#ef4444;">Verify Another Video</button>
                 </div>
+
             </div>
         </div>
 
@@ -534,8 +601,8 @@
     <!-- FOOTER -->
     <footer class="border-t mt-16" style="border-color:rgba(74,144,226,.2); background:#000;">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center">
-            <p class="font-mono text-xs tracking-widest mb-2" style="color:#6b7280;">EVIDETH © 2026 · Forensic Video Integrity Verification System</p>
-            <p class="font-mono text-xs" style="color:#4b5563;">Powered by SHA-256 Hashing · ECDSA P-256 Digital Signatures · Azure Cloud</p>
+            <p class="font-mono text-xs tracking-widest mb-2" style="color:#6b7280;">EVIDETH &copy; 2026 &middot; Forensic Video Integrity Verification System</p>
+            <p class="font-mono text-xs" style="color:#4b5563;">Powered by SHA-256 Hashing &middot; ECDSA P-256 Digital Signatures &middot; Azure Cloud</p>
         </div>
     </footer>
 
@@ -573,22 +640,22 @@
             if (!container) return;
             if (!items.length) { container.innerHTML = `<div class="p-8 text-center font-mono text-sm" style="color:#6b7280;">No hay actividad reciente.</div>`; return; }
             container.innerHTML = items.map(entry => {
-                const et = entry.event_type, detail = entry.detail || {}, cam = entry.camera_id || '—';
+                const et = entry.event_type, detail = entry.detail || {}, cam = entry.camera_id || '\u2014';
                 let borderColor, iconColor, iconPath, badgeText, mainText, subText;
                 if (et === 'verification') {
                     const r = detail.result;
                     if (r === 'pass')       { borderColor='rgba(74,144,226,.2)';  iconColor='#4a90e2'; iconPath='M5 13l4 4L19 7'; badgeText='Verified'; }
                     else if (r === 'fail')  { borderColor='rgba(220,38,38,.2)';   iconColor='#ef4444'; iconPath='M6 18L18 6M6 6l12 12'; badgeText='Tampered'; }
                     else                   { borderColor='rgba(234,179,8,.2)';    iconColor='#eab308'; iconPath='M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z'; badgeText='Error'; }
-                    const seg = detail.segment_index != null ? ' · Seg ' + detail.segment_index : '';
-                    mainText = 'Camera ' + cam + seg; subText = 'Verification · ' + (entry.ip_address || 'local');
+                    const seg = detail.segment_index != null ? ' \u00b7 Seg ' + detail.segment_index : '';
+                    mainText = 'Camera ' + cam + seg; subText = 'Verification \u00b7 ' + (entry.ip_address || 'local');
                 } else if (et === 'video_started') {
                     borderColor='rgba(74,144,226,.2)'; iconColor='#5ba3f5'; iconPath='M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z';
-                    badgeText='Recording'; mainText = detail.filename || ('Video · ' + cam); subText = 'Camera ' + cam + ' · Started';
+                    badgeText='Recording'; mainText = detail.filename || ('Video \u00b7 ' + cam); subText = 'Camera ' + cam + ' \u00b7 Started';
                 } else if (et === 'video_finished') {
                     borderColor='rgba(74,144,226,.2)'; iconColor='#4a90e2'; iconPath='M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'; badgeText='Completed';
-                    const dur = detail.duration_secs, dStr = dur != null ? ' · ' + Math.floor(dur/60) + ':' + String(dur%60).padStart(2,'0') + ' min' : '';
-                    mainText = detail.filename || ('Video · ' + cam); subText = 'Camera ' + cam + dStr;
+                    const dur = detail.duration_secs, dStr = dur != null ? ' \u00b7 ' + Math.floor(dur/60) + ':' + String(dur%60).padStart(2,'0') + ' min' : '';
+                    mainText = detail.filename || ('Video \u00b7 ' + cam); subText = 'Camera ' + cam + dStr;
                 } else {
                     borderColor='rgba(74,144,226,.1)'; iconColor='#6b7280'; iconPath='M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4'; badgeText='Segment';
                     mainText = 'Segment ' + (detail.segment_index != null ? detail.segment_index : '?') + ' uploaded'; subText = 'Camera ' + cam;
@@ -598,7 +665,7 @@
         }
 
         function fmtRelative(isoStr) {
-            if (!isoStr) return '—';
+            if (!isoStr) return '\u2014';
             const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
             if (diff < 60)    return 'just now';
             if (diff < 3600)  return Math.floor(diff / 60) + ' min ago';
