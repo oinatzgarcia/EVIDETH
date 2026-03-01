@@ -27,7 +27,7 @@ class TamperedFrameData(BaseModel):
     - current_frame:  frame extraído del vídeo subido por el usuario (manipulado).
     - original_frame: frame almacenado por la cámara en el momento de la grabación
                       (original, referencia forense).
-    
+
     Ambos pueden ser None si no hay información disponible (p.ej. el simulador
     no había guardado thumbnails o ffmpeg no puede extraer el frame).
     """
@@ -69,6 +69,16 @@ class VerificationReport(BaseModel):
     camera_id:    str
     integrity_ok: bool
     verdict:      str            # "ÍNTEGRO" | "MANIPULADO O INCOMPLETO"
+
+    # True si la cámara tiene clave pública registrada (firma ECDSA disponible).
+    # Si es False, el Nivel 3 se omite en la verificación.
+    ecdsa_available: bool = False
+
     summary:      dict
     segments:     List[SegmentVerificationResult]
     verified_at:  str
+
+    # Campos opcionales presentes solo en el caso de rechazo anticipado
+    # (p.ej. file_hash_mismatch antes de procesar segmentos)
+    reason: Optional[str] = None
+    detail: Optional[str] = None
