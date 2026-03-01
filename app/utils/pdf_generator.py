@@ -9,24 +9,29 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    PageBreak, HRFlowable
+    PageBreak, HRFlowable, Image
 )
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from datetime import datetime
 import hashlib
 from io import BytesIO
+from pathlib import Path
+import os
 
 
 class ForensicPDFGenerator:
     """Generate forensic-grade PDF reports for video verification"""
     
-    # EVIDETH Brand Colors
-    COLOR_PRIMARY = colors.HexColor('#4a90e2')
+    # EVIDETH Brand Colors - Updated to match web design
+    COLOR_PRIMARY = colors.HexColor('#1e3a5f')  # Darker blue matching web
     COLOR_SUCCESS = colors.HexColor('#10b981')
     COLOR_DANGER = colors.HexColor('#ef4444')
     COLOR_WARNING = colors.HexColor('#f59e0b')
     COLOR_DARK = colors.HexColor('#0a0a0a')
     COLOR_GRAY = colors.HexColor('#6b7280')
+    
+    # Logo path
+    LOGO_PATH = Path(__file__).parent.parent.parent / "frontend" / "assets" / "images" / "Buho.png"
     
     def __init__(self):
         self.styles = getSampleStyleSheet()
@@ -111,8 +116,19 @@ class ForensicPDFGenerator:
         """Generate forensic report cover page"""
         elements = []
         
-        # Classification banner
-        elements.append(Spacer(1, 1*cm))
+        # Add logo if exists
+        if self.LOGO_PATH.exists():
+            try:
+                logo = Image(str(self.LOGO_PATH), width=3*cm, height=3*cm)
+                logo.hAlign = 'CENTER'
+                elements.append(logo)
+                elements.append(Spacer(1, 0.5*cm))
+            except Exception as e:
+                # If logo fails to load, continue without it
+                print(f"Warning: Could not load logo: {e}")
+                elements.append(Spacer(1, 1*cm))
+        else:
+            elements.append(Spacer(1, 1*cm))
         
         # Title
         elements.append(Paragraph(
@@ -400,7 +416,7 @@ class ForensicPDFGenerator:
         """Add header and footer to each page"""
         canvas.saveState()
         
-        # Header
+        # Header with darker blue
         canvas.setFillColor(self.COLOR_PRIMARY)
         canvas.rect(0, A4[1] - 2*cm, A4[0], 2*cm, fill=True, stroke=False)
         
