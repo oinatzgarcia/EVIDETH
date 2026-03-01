@@ -9,7 +9,7 @@
     <script src="../../assets/js/auth.js"></script>
     <script src="../../assets/js/profile-menu.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -43,6 +43,120 @@
         }
     </script>
 
+    <!-- Alpine.js component definition (must be before alpine defer script) -->
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('dashApp', () => ({
+                form:         { camera_id: '', video_db_id: '' },
+                selectedFile: null,
+                verifying:    false,
+                report:       null,
+                apiError:     null,
+
+                init() {
+                    if (typeof Auth !== 'undefined') Auth.requireAuth();
+                    loadStats();
+                    loadActivityLog();
+                },
+
+                onFileSelected(event) {
+                    this.selectedFile = event.target.files[0] || null;
+                    this.report   = null;
+                    this.apiError = null;
+                },
+
+                canSubmit() {
+                    return this.selectedFile &&
+                           this.form.camera_id.trim() !== '' &&
+                           this.form.video_db_id.trim() !== '' &&
+                           !this.verifying;
+                },
+
+                async uploadAndVerify() {
+                    if (!this.canSubmit()) return;
+                    this.verifying = true;
+                    this.report    = null;
+                    this.apiError  = null;
+                    try {
+                        const fd = new FormData();
+                        fd.append('video',       this.selectedFile);
+                        fd.append('camera_id',   this.form.camera_id.trim());
+                        fd.append('video_db_id', this.form.video_db_id.trim());
+                        const res = await fetch('/api/v1/verification/upload', {
+                            method: 'POST', headers: Auth.authHeader(), body: fd
+                        });
+                        if (res.status === 401) { Auth.logout(); return; }
+                        const data = await res.json();
+                        if (!res.ok) { this.apiError = data.detail || ('HTTP ' + res.status); return; }
+                        this.report = data;
+                    } catch (err) {
+                        this.apiError = 'Error de red: ' + err.message;
+                    } finally {
+                        this.verifying = false;
+                    }
+                },
+
+                reset() {
+                    this.report = null; this.apiError = null; this.verifying = false; this.selectedFile = null;
+                    this.form = { camera_id: '', video_db_id: '' };
+                    const fi = document.getElementById('fileInput'); if (fi) fi.value = '';
+                },
+
+                integrityOk() { return this.report && this.report.integrity_ok; },
+
+                fmtSize(bytes) {
+                    if (!bytes) return '\u2014';
+                    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+                    return (bytes / 1048576).toFixed(1) + ' MB';
+                },
+
+                fmtTime(secs) {
+                    if (secs == null) return '\u2014';
+                    const m = Math.floor(secs / 60), s = secs % 60;
+                    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+                },
+
+                /* Frame comparison panel — safe to use template literals here */
+                tamperedFrameHTML() {
+                    if (!this.report || !this.report.segments) return '';
+                    const pairs = [];
+                    for (const seg of this.report.segments) {
+                        const frames = seg.tampered_frames;
+                        if (!frames || Object.keys(frames).length === 0) continue;
+                        for (const [secIdx, fdata] of Object.entries(frames)) {
+                            const origHTML = fdata.original_frame
+                                ? `<img src="data:image/jpeg;base64,${fdata.original_frame}" alt="Frame original seg ${seg.segment_index} sec ${secIdx}" style="width:100%;display:block;">`
+                                : '<div class="fcp-noframe">Original no disponible</div>';
+                            const currHTML = fdata.current_frame
+                                ? `<img src="data:image/jpeg;base64,${fdata.current_frame}" alt="Frame actual seg ${seg.segment_index} sec ${secIdx}" style="width:100%;display:block;">`
+                                : '<div class="fcp-noframe">Frame no extraible</div>';
+                            pairs.push(
+                                '<div class="fcp-pair">'
+                                + '<p class="fcp-pair-lbl">Seg ' + seg.segment_index + ' &mdash; Second <strong style="color:#ef4444;">' + secIdx + '</strong></p>'
+                                + '<div class="fcp-row">'
+                                +   '<div class="fcp-box orig"><div class="fcp-tag">&#9679; ORIGINAL (stored)</div>' + origHTML + '</div>'
+                                +   '<div class="fcp-vs">VS</div>'
+                                +   '<div class="fcp-box curr"><div class="fcp-tag">&#9679; CURRENT (uploaded)</div>' + currHTML + '</div>'
+                                + '</div>'
+                                + '</div>'
+                            );
+                        }
+                    }
+                    if (pairs.length === 0) return '';
+                    return '<div class="fcp-wrap">'
+                        + '<div class="fcp-header">'
+                        +   '<p class="fcp-title">Visual Frame Analysis</p>'
+                        +   '<p class="fcp-sub">Comparaci&oacute;n frame a frame &middot; segundos manipulados</p>'
+                        + '</div>'
+                        + pairs.join('')
+                        + '</div>';
+                }
+            }));
+        });
+    </script>
+
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Rajdhani', sans-serif; background: #000000; color: #ffffff; overflow-x: hidden; }
@@ -63,142 +177,27 @@
         @keyframes scan-local { 0% { top: 0; } 100% { top: 100%; } }
         .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
         @keyframes pulseSubtle { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
-
-        /* ── Frame Comparison Panel ───────────────────────────────────── */
-        .fcp-wrap    { max-width: 42rem; margin: 0 auto 1.5rem auto;
-                       border: 1px solid rgba(239,68,68,.2); background: #000; padding: 1.5rem; }
-        .fcp-header  { border-left: 2px solid rgba(239,68,68,.5); padding-left: .75rem; margin-bottom: 1.25rem; }
-        .fcp-title   { font-family: 'Space Mono', monospace; font-size: .7rem;
-                       letter-spacing: .12em; text-transform: uppercase; color: #ef4444; }
-        .fcp-sub     { font-family: 'Space Mono', monospace; font-size: .6rem; color: #6b7280; margin-top: .25rem; }
-        .fcp-pair    { margin-bottom: 1.25rem; }
+        /* Frame Comparison Panel */
+        .fcp-wrap     { max-width: 42rem; margin: 0 auto 1.5rem auto; border: 1px solid rgba(239,68,68,.2); background: #000; padding: 1.5rem; }
+        .fcp-header   { border-left: 2px solid rgba(239,68,68,.5); padding-left: .75rem; margin-bottom: 1.25rem; }
+        .fcp-title    { font-family: 'Space Mono', monospace; font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: #ef4444; }
+        .fcp-sub      { font-family: 'Space Mono', monospace; font-size: .6rem; color: #6b7280; margin-top: .25rem; }
+        .fcp-pair     { margin-bottom: 1.25rem; }
         .fcp-pair:last-child { margin-bottom: 0; }
-        .fcp-pair-lbl{ font-family: 'Space Mono', monospace; font-size: .65rem;
-                       color: #9ca3af; letter-spacing: .08em; text-transform: uppercase; margin-bottom: .5rem; }
-        .fcp-row     { display: flex; align-items: center; gap: .75rem; }
-        .fcp-box     { flex: 1; overflow: hidden; }
-        .fcp-box img { width: 100%; display: block; }
-        .fcp-box.orig{ border: 1px solid rgba(74,144,226,.5); }
-        .fcp-box.curr{ border: 1px solid rgba(239,68,68,.65); }
-        .fcp-tag     { padding: .25rem .5rem; font-family: 'Space Mono', monospace; font-size: .6rem; letter-spacing: .04em; }
+        .fcp-pair-lbl { font-family: 'Space Mono', monospace; font-size: .65rem; color: #9ca3af; letter-spacing: .08em; text-transform: uppercase; margin-bottom: .5rem; }
+        .fcp-row      { display: flex; align-items: center; gap: .75rem; }
+        .fcp-box      { flex: 1; overflow: hidden; }
+        .fcp-box.orig { border: 1px solid rgba(74,144,226,.5); }
+        .fcp-box.curr { border: 1px solid rgba(239,68,68,.65); }
+        .fcp-tag      { padding: .25rem .5rem; font-family: 'Space Mono', monospace; font-size: .6rem; letter-spacing: .04em; }
         .fcp-box.orig .fcp-tag { background: rgba(74,144,226,.12); color: #5ba3f5; }
-        .fcp-box.curr .fcp-tag { background: rgba(239,68,68,.1);  color: #f87171; }
-        .fcp-vs      { flex: 0; font-family: 'Space Mono', monospace; font-size: .65rem; color: #4b5563; padding: 0 .2rem; }
-        .fcp-noframe { padding: 2.5rem 1rem; text-align: center; color: #4b5563; background: #0a0a0a;
-                       font-family: 'Space Mono', monospace; font-size: .6rem; line-height: 1.6; }
+        .fcp-box.curr .fcp-tag { background: rgba(239,68,68,.1); color: #f87171; }
+        .fcp-vs       { flex: 0; font-family: 'Space Mono', monospace; font-size: .65rem; color: #4b5563; padding: 0 .2rem; }
+        .fcp-noframe  { padding: 2.5rem 1rem; text-align: center; color: #4b5563; background: #0a0a0a; font-family: 'Space Mono', monospace; font-size: .6rem; line-height: 1.6; }
     </style>
 </head>
 
-<body class="subtle-grid" x-data="{
-    form: { camera_id: '', video_db_id: '' },
-    selectedFile:  null,
-    verifying:     false,
-    report:        null,
-    apiError:      null,
-
-    init() {
-        if (typeof Auth !== 'undefined') Auth.requireAuth();
-        loadStats();
-        loadActivityLog();
-    },
-
-    onFileSelected(event) {
-        this.selectedFile = event.target.files[0] || null;
-        this.report    = null;
-        this.apiError  = null;
-    },
-
-    canSubmit() {
-        return this.selectedFile &&
-               this.form.camera_id.trim() !== '' &&
-               this.form.video_db_id.trim() !== '' &&
-               !this.verifying;
-    },
-
-    async uploadAndVerify() {
-        if (!this.canSubmit()) return;
-        this.verifying = true;
-        this.report    = null;
-        this.apiError  = null;
-        try {
-            const fd = new FormData();
-            fd.append('video',       this.selectedFile);
-            fd.append('camera_id',   this.form.camera_id.trim());
-            fd.append('video_db_id', this.form.video_db_id.trim());
-            const res = await fetch('/api/v1/verification/upload', {
-                method: 'POST', headers: Auth.authHeader(), body: fd
-            });
-            if (res.status === 401) { Auth.logout(); return; }
-            const data = await res.json();
-            if (!res.ok) { this.apiError = data.detail || ('HTTP ' + res.status); return; }
-            this.report = data;
-        } catch (err) {
-            this.apiError = 'Error de red: ' + err.message;
-        } finally {
-            this.verifying = false;
-        }
-    },
-
-    reset() {
-        this.report = null; this.apiError = null; this.verifying = false; this.selectedFile = null;
-        this.form = { camera_id: '', video_db_id: '' };
-        const fi = document.getElementById('fileInput'); if (fi) fi.value = '';
-    },
-
-    integrityOk()  { return this.report && this.report.integrity_ok; },
-    fmtSize(bytes) {
-        if (!bytes) return '\u2014';
-        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-        return (bytes / 1048576).toFixed(1) + ' MB';
-    },
-    fmtTime(secs) {
-        if (secs == null) return '\u2014';
-        const m = Math.floor(secs / 60), s = secs % 60;
-        return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
-    },
-
-    /* ── Genera el HTML del panel side-by-side de frames tamperizados ── */
-    tamperedFrameHTML() {
-        if (!this.report || !this.report.segments) return '';
-        const pairs = [];
-        for (const seg of this.report.segments) {
-            const frames = seg.tampered_frames;
-            if (!frames || Object.keys(frames).length === 0) continue;
-            for (const [secIdx, data] of Object.entries(frames)) {
-                const origHTML = data.original_frame
-                    ? `<img src="data:image/jpeg;base64,${data.original_frame}" alt="Frame original segundo ${secIdx}">`
-                    : `<div class="fcp-noframe">Original no disponible<br>Regenera con el simulador</div>`;
-                const currHTML = data.current_frame
-                    ? `<img src="data:image/jpeg;base64,${data.current_frame}" alt="Frame actual segundo ${secIdx}">`
-                    : `<div class="fcp-noframe">Frame no extraible</div>`;
-                pairs.push(`
-                    <div class="fcp-pair">
-                        <p class="fcp-pair-lbl">Seg ${seg.segment_index} &mdash; Second <strong style="color:#ef4444;">${secIdx}</strong></p>
-                        <div class="fcp-row">
-                            <div class="fcp-box orig">
-                                <div class="fcp-tag">&#9679; ORIGINAL (stored)</div>
-                                ${origHTML}
-                            </div>
-                            <div class="fcp-vs">VS</div>
-                            <div class="fcp-box curr">
-                                <div class="fcp-tag">&#9679; CURRENT (uploaded)</div>
-                                ${currHTML}
-                            </div>
-                        </div>
-                    </div>`);
-            }
-        }
-        if (pairs.length === 0) return '';
-        return `
-            <div class="fcp-wrap">
-                <div class="fcp-header">
-                    <p class="fcp-title">Visual Frame Analysis</p>
-                    <p class="fcp-sub">Comparaci&oacute;n frame a frame &middot; segundos manipulados</p>
-                </div>
-                ${pairs.join('')}
-            </div>`;
-    }
-}">
+<body class="subtle-grid" x-data="dashApp()">
 
     <div class="particle-field" id="particleField"></div>
 
@@ -243,7 +242,6 @@
                     <!-- Profile dropdown -->
                     <div class="relative" x-data="profileMenu()" @keydown.escape.window="open = false">
 
-                        <!-- Trigger -->
                         <button @click="open = !open"
                                 class="flex items-center space-x-2 px-3 py-2 border transition-all duration-200 cursor-pointer"
                                 style="border-color:#2c5f8d; background:#000;"
@@ -264,7 +262,6 @@
                             </svg>
                         </button>
 
-                        <!-- Dropdown panel -->
                         <div x-show="open"
                              @click.outside="open = false"
                              x-transition:enter="transition ease-out duration-150"
@@ -308,7 +305,6 @@
                                     <span>Cerrar sesi&oacute;n</span>
                                 </button>
                             </div>
-
                         </div>
                     </div>
 
@@ -450,7 +446,7 @@
                         </svg>
                     </div>
                     <p class="text-lg font-mono mb-2" style="color:#d1d5db;" x-text="selectedFile ? selectedFile.name : 'Drop Video File Here'"></p>
-                    <p class="text-sm font-mono mb-6" style="color:#6b7280;" x-text="selectedFile ? fmtSize(selectedFile.size) : 'Or click to select &middot; MP4 &middot; AVI &middot; MOV &middot; MKV'"></p>
+                    <p class="text-sm font-mono mb-6" style="color:#6b7280;" x-text="selectedFile ? fmtSize(selectedFile.size) : 'Or click to select · MP4 · AVI · MOV · MKV'"></p>
                     <button type="button" class="inline-block px-8 py-3 border-2 font-mono text-sm tracking-widest transition-all duration-300"
                             style="border-color:#4a90e2; color:#4a90e2; background-color:transparent;">
                         <span x-text="selectedFile ? 'Change File' : 'Select File'"></span>
@@ -514,7 +510,7 @@
                         <div class="space-y-3 font-mono text-sm">
                             <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Camera ID:</span><span style="color:#4a90e2;" x-text="report && report.camera_id"></span></div>
                             <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Total Segments:</span><span style="color:#4a90e2;" x-text="report && report.summary && report.summary.total_segments"></span></div>
-                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Passed / Failed:</span><span style="color:#4a90e2;" x-text="report && report.summary && (report.summary.passed + ' \u2713 / ' + report.summary.failed + ' \u2717')"></span></div>
+                            <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Passed / Failed:</span><span style="color:#4a90e2;" x-text="report && report.summary && (report.summary.passed + ' ✓ / ' + report.summary.failed + ' ✗')"></span></div>
                             <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Verified at:</span><span style="color:#4a90e2;" x-text="report && report.verified_at && report.verified_at.slice(0,19).replace('T',' ') + ' UTC'"></span></div>
                             <div class="flex justify-between"><span style="color:#9ca3af;">Verdict:</span><span class="font-bold" style="color:#4a90e2;" x-text="report && report.verdict"></span></div>
                         </div>
@@ -523,7 +519,7 @@
                         <template x-for="seg in (report ? report.segments : [])" :key="seg.segment_index">
                             <div class="flex items-center justify-between p-3 border font-mono text-sm"
                                  :style="seg.result==='pass' ? 'border-color:rgba(74,144,226,.2);background:#000;' : 'border-color:rgba(220,38,38,.4);background:rgba(127,29,29,.1);'">
-                                <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' \u2013 '+fmtTime(seg.end_time_secs)+')'"></span>
+                                <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' – '+fmtTime(seg.end_time_secs)+')'"></span>
                                 <span :style="seg.result==='pass'?'color:#4a90e2;':'color:#ef4444;'" x-text="seg.result==='pass'?'Valid':'TAMPERED'"></span>
                             </div>
                         </template>
@@ -550,7 +546,7 @@
                                 <div class="flex items-center justify-between p-3 border font-mono text-sm"
                                      :style="seg.result==='pass'?'border-color:rgba(74,144,226,.2);background:#000;':'border-color:rgba(220,38,38,.4);background:rgba(127,29,29,.15);'">
                                     <div>
-                                        <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' \u2013 '+fmtTime(seg.end_time_secs)+')'"></span>
+                                        <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' – '+fmtTime(seg.end_time_secs)+')'"></span>
                                         <span x-show="seg.second_results && seg.second_results.some(s=>s.tampered)" class="block text-xs mt-1" style="color:#f87171;" x-text="'Tampered seconds: ['+seg.second_results.filter(s=>s.tampered).map(s=>s.second_index).join(', ')+']'"></span>
                                     </div>
                                     <span :style="seg.result==='pass'?'color:#4a90e2;':'color:#ef4444;'" x-text="seg.result==='pass'?'Valid':'TAMPERED'"></span>
@@ -558,14 +554,14 @@
                             </template>
                         </div>
                         <div class="mt-6 p-4 border" style="background:rgba(127,29,29,.08); border-color:rgba(220,38,38,.3);">
-                            <p class="text-xs font-mono" style="color:#9ca3af;">&warning; This video cannot be used as forensic evidence due to detected integrity violations.</p>
+                            <p class="text-xs font-mono" style="color:#9ca3af;">&#9888; This video cannot be used as forensic evidence due to detected integrity violations.</p>
                         </div>
                     </div>
 
                     <!-- Visual Frame Analysis (side-by-side) -->
                     <div x-html="tamperedFrameHTML()"></div>
 
-                    <p class="font-mono text-sm mb-8" style="color:#9ca3af;" x-text="report && report.summary && ('Passed: '+report.summary.passed+' &middot; Failed: '+report.summary.failed+' &middot; Missing: '+report.summary.missing)"></p>
+                    <p class="font-mono text-sm mb-8" style="color:#9ca3af;" x-text="report && report.summary && ('Passed: '+report.summary.passed+' · Failed: '+report.summary.failed+' · Missing: '+report.summary.missing)"></p>
                     <button @click="reset()" class="px-8 py-3 border-2 font-mono text-sm tracking-widest" style="border-color:#dc2626; color:#ef4444;">Verify Another Video</button>
                 </div>
 
@@ -638,7 +634,7 @@
         function renderActivityLog(items) {
             const container = document.getElementById('activity-log-list');
             if (!container) return;
-            if (!items.length) { container.innerHTML = `<div class="p-8 text-center font-mono text-sm" style="color:#6b7280;">No hay actividad reciente.</div>`; return; }
+            if (!items.length) { container.innerHTML = '<div class="p-8 text-center font-mono text-sm" style="color:#6b7280;">No hay actividad reciente.</div>'; return; }
             container.innerHTML = items.map(entry => {
                 const et = entry.event_type, detail = entry.detail || {}, cam = entry.camera_id || '\u2014';
                 let borderColor, iconColor, iconPath, badgeText, mainText, subText;
@@ -660,7 +656,15 @@
                     borderColor='rgba(74,144,226,.1)'; iconColor='#6b7280'; iconPath='M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4'; badgeText='Segment';
                     mainText = 'Segment ' + (detail.segment_index != null ? detail.segment_index : '?') + ' uploaded'; subText = 'Camera ' + cam;
                 }
-                return `<div class="flex items-center justify-between p-4 border transition-all duration-300" style="border-color:${borderColor}; background:#000;"><div class="flex items-center space-x-4"><div class="w-8 h-8 border flex items-center justify-center flex-shrink-0" style="border-color:${iconColor}44;"><svg class="w-4 h-4" style="color:${iconColor};" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${iconPath}"/></svg></div><div class="min-w-0"><p class="font-mono text-sm truncate" style="color:#e5e7eb;">${mainText}</p><p class="font-mono text-xs" style="color:#6b7280;">${subText}</p></div></div><div class="text-right flex-shrink-0 ml-4"><span class="font-mono text-xs" style="color:${iconColor};">${badgeText}</span><p class="font-mono text-xs mt-1" style="color:#6b7280;">${fmtRelative(entry.timestamp)}</p></div></div>`;
+                return '<div class="flex items-center justify-between p-4 border transition-all duration-300" style="border-color:' + borderColor + '; background:#000;">'
+                     + '<div class="flex items-center space-x-4">'
+                     + '<div class="w-8 h-8 border flex items-center justify-center flex-shrink-0" style="border-color:' + iconColor + '44;">'
+                     + '<svg class="w-4 h-4" style="color:' + iconColor + ';" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="' + iconPath + '"/></svg>'
+                     + '</div>'
+                     + '<div class="min-w-0"><p class="font-mono text-sm truncate" style="color:#e5e7eb;">' + mainText + '</p>'
+                     + '<p class="font-mono text-xs" style="color:#6b7280;">' + subText + '</p></div></div>'
+                     + '<div class="text-right flex-shrink-0 ml-4"><span class="font-mono text-xs" style="color:' + iconColor + ';">' + badgeText + '</span>'
+                     + '<p class="font-mono text-xs mt-1" style="color:#6b7280;">' + fmtRelative(entry.timestamp) + '</p></div></div>';
             }).join('');
         }
 
