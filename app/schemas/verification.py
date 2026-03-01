@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 
 
@@ -18,6 +18,21 @@ class SecondHashResult(BaseModel):
     stored_hash:   Optional[str] = None  # SHA-256 almacenado (generado por la cámara)
     hash_match:    bool             # True si computed_hash == stored_hash
     tampered:      bool             # True si hash_match == False
+
+
+class TamperedFrameData(BaseModel):
+    """
+    Par de imágenes JPEG (en base64) de un segundo manipulado.
+
+    - current_frame:  frame extraído del vídeo subido por el usuario (manipulado).
+    - original_frame: frame almacenado por la cámara en el momento de la grabación
+                      (original, referencia forense).
+    
+    Ambos pueden ser None si no hay información disponible (p.ej. el simulador
+    no había guardado thumbnails o ffmpeg no puede extraer el frame).
+    """
+    current_frame:  Optional[str] = None  # JPEG codificado en base64
+    original_frame: Optional[str] = None  # JPEG codificado en base64
 
 
 class SegmentVerificationResult(BaseModel):
@@ -41,6 +56,12 @@ class SegmentVerificationResult(BaseModel):
     stored_merkle_root:   Optional[str]                  = None
     merkle_match:         Optional[bool]                 = None
     second_results:       Optional[List[SecondHashResult]] = None  # Solo si hay discrepancia
+
+    # ── Nivel 2 visual: frames de los segundos manipulados ────────────────
+    # Claves: índice del segundo (como str al serializar a JSON).
+    # Valor:  par {current_frame, original_frame} en base64 JPEG.
+    # Solo se incluye cuando hay segundos manipulados detectados.
+    tampered_frames: Optional[Dict[str, TamperedFrameData]] = None
 
 
 class VerificationReport(BaseModel):
