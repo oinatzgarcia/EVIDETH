@@ -577,7 +577,7 @@
                 }
                 
                 try {
-                    const res = await fetch('/api/v1/verification/' + videoId + '/report', { 
+                    const res = await fetch('/api/v1/verification/report/' + videoId + '/pdf', {
                         headers: Auth.authHeader() 
                     });
                     if (res.status === 401) { Auth.logout(); return; }
@@ -641,7 +641,7 @@
             async downloadModalPDF() {
                 if (!this.modal.report || !this.modal.report.video_id) return;
                 try {
-                    const res = await fetch('/api/v1/verification/' + this.modal.report.video_id + '/report', {
+                    const res = await fetch('/api/v1/verification/report/' + this.modal.report.video_id + '/pdf', {
                         headers: Auth.authHeader()
                     });
                     if (res.status === 401) { Auth.logout(); return; }
