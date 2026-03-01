@@ -1,7 +1,7 @@
 import hashlib
 import base64
 import json
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.exceptions import InvalidSignature
@@ -75,12 +75,17 @@ def _get_camera_public_key(camera_id: str, db: Session) -> Optional[str]:
 
 
 def _compare_second_hashes(
-    computed_seconds:   List[str],
-    stored_seconds_json: Optional[str],
+    computed_seconds:    List[str],
+    stored_seconds_json: Optional[Union[str, list]],
 ) -> Optional[List[Dict]]:
     """
     Compara los hashes por segundo del vídeo verificado vs. los almacenados.
     Permite identificar exactamente qué segundos fueron manipulados.
+
+    NOTA: stored_seconds_json puede ser:
+      - list  → SQLAlchemy ya deserializó el campo JSONB automáticamente.
+      - str   → Legacy o almacenado como texto plano (se hace json.loads).
+      - None  → No hay datos de Nivel 2 disponibles.
 
     Returns:
         Lista de dicts {second_index, computed_hash, stored_hash, hash_match, tampered},
@@ -89,10 +94,15 @@ def _compare_second_hashes(
     if not stored_seconds_json:
         return None
 
-    stored_seconds = json.loads(stored_seconds_json)
-    results        = []
-    count          = max(len(computed_seconds), len(stored_seconds))
-    empty          = hashlib.sha256(b"").hexdigest()
+    # JSONB → SQLAlchemy devuelve list directamente; str → deserializar
+    if isinstance(stored_seconds_json, list):
+        stored_seconds = stored_seconds_json
+    else:
+        stored_seconds = json.loads(stored_seconds_json)
+
+    results = []
+    count   = max(len(computed_seconds), len(stored_seconds))
+    empty   = hashlib.sha256(b"").hexdigest()
 
     for i in range(count):
         comp  = computed_seconds[i] if i < len(computed_seconds) else empty
@@ -273,12 +283,11 @@ def verify_video(
             ]
 
             if hash_match and merkle_match is not False and signature_valid is not False:
-                # Todo correcto (o datos incompletos pero lo que hay es válido)
                 passed += 1
                 result  = "pass"
                 stored.status = SegmentStatus.VALID
 
-                parts = ["\u2713 Íntegro"]
+                parts = ["✓ Íntegro"]
                 if merkle_match is True:
                     parts.append("Merkle OK")
                 if signature_valid is True:
@@ -288,7 +297,6 @@ def verify_video(
                 detail = " — ".join(parts)
 
             elif hash_match and merkle_match is False:
-                # Hash OK pero Merkle difiere — anomalía forense
                 failed += 1
                 result  = "fail"
                 stored.status = SegmentStatus.INVALID
@@ -298,7 +306,6 @@ def verify_video(
                 )
 
             elif signature_valid is False:
-                # Firma inválida — posible suplantación
                 failed += 1
                 result  = "fail"
                 stored.status = SegmentStatus.INVALID
@@ -308,7 +315,6 @@ def verify_video(
                 )
 
             else:
-                # Hash no coincide — manipulación confirmada
                 failed += 1
                 result  = "fail"
                 stored.status = SegmentStatus.INVALID
@@ -349,6 +355,10 @@ def verify_video(
                 total   += 1
                 results.append({
                     "segment_index":        seg.segment_index,
+                    "start_time_secs":      None,
+                    "end_time_secs":        None,
+                    "duration_secs":        None,
+                    "complete":             False,
                     "computed_hash":        None,
                     "stored_hash":          seg.sha256_hash,
                     "hash_match":           False,
