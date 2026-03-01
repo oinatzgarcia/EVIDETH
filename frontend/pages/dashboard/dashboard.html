@@ -128,8 +128,15 @@
             });
             if (res.status === 401) { Auth.logout(); return; }
             if (!res.ok) {
-                const errorData = await res.json();
-                alert('Error descargando PDF: ' + (errorData.detail || 'HTTP ' + res.status));
+                const errorText = await res.text();
+                let errorMsg = 'HTTP ' + res.status;
+                try {
+                    const errorData = JSON.parse(errorText);
+                    errorMsg = errorData.detail || errorMsg;
+                } catch (e) {
+                    errorMsg = errorText || errorMsg;
+                }
+                alert('Error downloading PDF: ' + errorMsg);
                 return;
             }
             const blob = await res.blob();
@@ -144,7 +151,7 @@
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
         } catch (err) {
-            alert('Error descargando PDF: ' + err.message);
+            alert('Error downloading PDF: ' + err.message);
         } finally {
             this.downloadingPDF = false;
         }
