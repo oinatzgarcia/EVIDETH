@@ -116,7 +116,104 @@
                     return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
                 },
 
-                /* Frame comparison panel — safe to use template literals here */
+                // ── Crypto-level badges per segment ───────────────────────────
+                // Returns HTML string: [L1 SHA-256 ✓] [L2 Merkle ✗ → s3,s5] [L3 ECDSA —]
+                segBadgesHTML(seg) {
+                    const b = (cls, txt) => '<span class="lvl-badge ' + cls + '">' + txt + '</span>';
+
+                    // Level 1 — SHA-256 del segmento completo
+                    const l1 = b(seg.hash_match ? 'lvl-ok' : 'lvl-fail',
+                                 'L1 SHA-256 ' + (seg.hash_match ? '\u2713' : '\u2717'));
+
+                    // Level 2 — Merkle tree
+                    let l2;
+                    if (seg.merkle_match === null || seg.merkle_match === undefined) {
+                        l2 = b('lvl-na', 'L2 Merkle \u2014');
+                    } else if (seg.merkle_match) {
+                        l2 = b('lvl-ok', 'L2 Merkle \u2713');
+                    } else {
+                        const ts = seg.second_results
+                            ? seg.second_results.filter(s => s.tampered).map(s => 's' + s.second_index).join(',')
+                            : '';
+                        l2 = b('lvl-fail', 'L2 Merkle \u2717' + (ts ? ' \u2192 ' + ts : ''));
+                    }
+
+                    // Level 3 — ECDSA signature
+                    let l3;
+                    if (seg.signature_valid === null || seg.signature_valid === undefined) {
+                        l3 = b('lvl-na', 'L3 ECDSA \u2014');
+                    } else {
+                        l3 = b(seg.signature_valid ? 'lvl-ok' : 'lvl-fail',
+                               'L3 ECDSA ' + (seg.signature_valid ? '\u2713' : '\u2717'));
+                    }
+
+                    return '<div class="lvl-badges">' + l1 + l2 + l3 + '</div>';
+                },
+
+                // ── Second-level timeline bar ─────────────────────────────────
+                // Returns HTML: barra horizontal, cada segundo es una celda verde/roja.
+                // Solo se renderiza si hay second_results (Merkle activo).
+                segTimelineHTML(seg) {
+                    if (!seg.second_results || seg.second_results.length === 0) return '';
+                    let cells = '';
+                    for (const s of seg.second_results) {
+                        const cls = s.tampered ? 'tl-sec tl-bad' : 'tl-sec tl-ok';
+                        const tip = 's' + s.second_index + (s.tampered ? ' \u2717' : ' \u2713');
+                        cells += '<div class="' + cls + '" title="' + tip + '">'
+                               + '<span class="tl-lbl">' + s.second_index + '</span></div>';
+                    }
+                    const tampCnt = seg.second_results.filter(s => s.tampered).length;
+                    const okCnt   = seg.second_results.length - tampCnt;
+                    return '<div class="tl-wrap">'
+                         + '<div class="tl-bar">' + cells + '</div>'
+                         + '<div class="tl-legend">'
+                         +   '<span class="tl-leg-ok">\u2713 ' + okCnt   + ' intact</span>'
+                         +   '<span class="tl-leg-bad">\u2717 ' + tampCnt + ' tampered</span>'
+                         + '</div></div>';
+                },
+
+                // ── Report-level summary badges ───────────────────────────────
+                // Resumen global: qué niveles fallaron en CUALQUIER segmento.
+                // Se muestra encima de la lista de segmentos en el panel TAMPERED.
+                reportLevelBadgesHTML() {
+                    if (!this.report || !this.report.segments) return '';
+                    const segs = this.report.segments;
+                    const b = (cls, txt) => '<span class="lvl-badge ' + cls + '">' + txt + '</span>';
+
+                    // L1
+                    const l1fail = segs.some(s => s.hash_match === false);
+                    const l1 = b(l1fail ? 'lvl-fail' : 'lvl-ok',
+                                 'L1 SHA-256 ' + (l1fail ? '\u2717' : '\u2713'));
+
+                    // L2
+                    const l2segs = segs.filter(s => s.merkle_match !== null && s.merkle_match !== undefined);
+                    let l2;
+                    if (l2segs.length === 0) {
+                        l2 = b('lvl-na', 'L2 Merkle \u2014');
+                    } else if (l2segs.some(s => !s.merkle_match)) {
+                        const failIds = segs
+                            .filter(s => s.merkle_match === false)
+                            .map(s => 'seg\u202f' + s.segment_index).join(', ');
+                        l2 = b('lvl-fail', 'L2 Merkle \u2717 \u2192 ' + failIds);
+                    } else {
+                        l2 = b('lvl-ok', 'L2 Merkle \u2713');
+                    }
+
+                    // L3
+                    const l3segs = segs.filter(s => s.signature_valid !== null && s.signature_valid !== undefined);
+                    let l3;
+                    if (!this.report.ecdsa_available || l3segs.length === 0) {
+                        l3 = b('lvl-na', 'L3 ECDSA \u2014');
+                    } else if (l3segs.some(s => !s.signature_valid)) {
+                        l3 = b('lvl-fail', 'L3 ECDSA \u2717');
+                    } else {
+                        l3 = b('lvl-ok', 'L3 ECDSA \u2713');
+                    }
+
+                    return '<div class="lvl-badges lvl-badges-rpt">' + l1 + l2 + l3 + '</div>';
+                },
+
+                // ── Visual frame comparison panel ─────────────────────────────
                 tamperedFrameHTML() {
                     if (!this.report || !this.report.segments) return '';
                     const pairs = [];
@@ -177,7 +274,31 @@
         @keyframes scan-local { 0% { top: 0; } 100% { top: 100%; } }
         .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
         @keyframes pulseSubtle { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
-        /* Frame Comparison Panel */
+
+        /* ── Crypto level badges ──────────────────────────────────────── */
+        .lvl-badges     { display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.45rem; }
+        .lvl-badges-rpt { margin:0 0 1rem 0; justify-content:center; }
+        .lvl-badge  { font-family:'Space Mono',monospace; font-size:.58rem; letter-spacing:.07em;
+                      padding:.18rem .5rem; border:1px solid; text-transform:uppercase; white-space:nowrap; }
+        .lvl-ok   { color:#4ade80; border-color:rgba(74,222,128,.35);  background:rgba(74,222,128,.06); }
+        .lvl-fail { color:#f87171; border-color:rgba(248,113,113,.45); background:rgba(248,113,113,.08); }
+        .lvl-na   { color:#6b7280; border-color:rgba(107,114,128,.2);  background:transparent; }
+
+        /* ── Second-level timeline bar ────────────────────────────────── */
+        .tl-wrap  { margin-top:.55rem; }
+        .tl-bar   { display:flex; gap:2px; height:20px; }
+        .tl-sec   { flex:1; min-width:10px; max-width:30px; display:flex; align-items:center;
+                    justify-content:center; cursor:default; transition:opacity .15s; }
+        .tl-sec:hover { opacity:.7; }
+        .tl-ok    { background:rgba(74,222,128,.2);  border:1px solid rgba(74,222,128,.35); }
+        .tl-bad   { background:rgba(248,113,113,.28); border:1px solid rgba(248,113,113,.5); }
+        .tl-lbl   { font-family:'Space Mono',monospace; font-size:.42rem; color:rgba(255,255,255,.45);
+                    line-height:1; pointer-events:none; }
+        .tl-legend{ display:flex; gap:.8rem; margin-top:.3rem; }
+        .tl-leg-ok { font-family:'Space Mono',monospace; font-size:.53rem; color:rgba(74,222,128,.65); }
+        .tl-leg-bad{ font-family:'Space Mono',monospace; font-size:.53rem; color:rgba(248,113,113,.7); }
+
+        /* ── Frame Comparison Panel ──────────────────────────────────── */
         .fcp-wrap     { max-width: 42rem; margin: 0 auto 1.5rem auto; border: 1px solid rgba(239,68,68,.2); background: #000; padding: 1.5rem; }
         .fcp-header   { border-left: 2px solid rgba(239,68,68,.5); padding-left: .75rem; margin-bottom: 1.25rem; }
         .fcp-title    { font-family: 'Space Mono', monospace; font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: #ef4444; }
@@ -495,7 +616,7 @@
             <!-- Result -->
             <div x-show="report" x-transition>
 
-                <!-- OK -->
+                <!-- ✅ OK -->
                 <div x-show="integrityOk()" class="py-10 text-center">
                     <div class="inline-flex items-center justify-center w-24 h-24 border-2 mb-8 relative" style="border-color:#4a90e2;">
                         <div class="absolute inset-0 border-2 animate-pulse-subtle" style="border-color:rgba(74,144,226,.5);"></div>
@@ -505,8 +626,14 @@
                     </div>
                     <h3 class="text-3xl font-bold font-mono mb-3 text-glow" style="color:#4a90e2;">Verification Successful</h3>
                     <p class="font-mono text-sm mb-10" style="color:#9ca3af;">All cryptographic checks passed &middot; Video integrity confirmed</p>
+
+                    <!-- Report summary -->
                     <div class="border p-8 max-w-2xl mx-auto text-left mb-8" style="border-color:rgba(74,144,226,.3); background-color:#000000;">
-                        <h4 class="font-mono mb-6 tracking-widest text-sm" style="color:#4a90e2;">Verification Report</h4>
+                        <h4 class="font-mono mb-4 tracking-widest text-sm" style="color:#4a90e2;">Verification Report</h4>
+
+                        <!-- Report-level level badges (all green when OK) -->
+                        <div x-html="reportLevelBadgesHTML()" class="mb-5"></div>
+
                         <div class="space-y-3 font-mono text-sm">
                             <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Camera ID:</span><span style="color:#4a90e2;" x-text="report && report.camera_id"></span></div>
                             <div class="flex justify-between pb-2 border-b" style="border-color:rgba(74,144,226,.2);"><span style="color:#9ca3af;">Total Segments:</span><span style="color:#4a90e2;" x-text="report && report.summary && report.summary.total_segments"></span></div>
@@ -515,19 +642,29 @@
                             <div class="flex justify-between"><span style="color:#9ca3af;">Verdict:</span><span class="font-bold" style="color:#4a90e2;" x-text="report && report.verdict"></span></div>
                         </div>
                     </div>
+
+                    <!-- Per-segment rows with badges + timeline -->
                     <div class="max-w-2xl mx-auto mb-8 space-y-2 text-left">
                         <template x-for="seg in (report ? report.segments : [])" :key="seg.segment_index">
-                            <div class="flex items-center justify-between p-3 border font-mono text-sm"
+                            <div class="p-3 border font-mono text-sm"
                                  :style="seg.result==='pass' ? 'border-color:rgba(74,144,226,.2);background:#000;' : 'border-color:rgba(220,38,38,.4);background:rgba(127,29,29,.1);'">
-                                <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' – '+fmtTime(seg.end_time_secs)+')'"></span>
-                                <span :style="seg.result==='pass'?'color:#4a90e2;':'color:#ef4444;'" x-text="seg.result==='pass'?'Valid':'TAMPERED'"></span>
+                                <!-- Header row -->
+                                <div class="flex items-center justify-between">
+                                    <span style="color:#d1d5db;" x-text="'Segment ' + seg.segment_index + '  (' + fmtTime(seg.start_time_secs) + ' \u2013 ' + fmtTime(seg.end_time_secs) + ')'"></span>
+                                    <span :style="seg.result==='pass'?'color:#4a90e2;':'color:#ef4444;'" x-text="seg.result==='pass'?'Valid':'TAMPERED'"></span>
+                                </div>
+                                <!-- Level badges -->
+                                <div x-html="segBadgesHTML(seg)"></div>
+                                <!-- Second timeline (only when Merkle data exists) -->
+                                <div x-html="segTimelineHTML(seg)"></div>
                             </div>
                         </template>
                     </div>
+
                     <button @click="reset()" class="px-8 py-3 border-2 font-mono text-sm tracking-widest" style="border-color:#4a90e2; color:#4a90e2;">Verify Another Video</button>
                 </div>
 
-                <!-- TAMPERED -->
+                <!-- 🚨 TAMPERED -->
                 <div x-show="report && !report.integrity_ok" class="py-10 text-center">
                     <div class="inline-flex items-center justify-center w-24 h-24 border-2 mb-8 relative" style="border-color:#ef4444;">
                         <div class="absolute inset-0 border-2 animate-pulse" style="border-color:rgba(239,68,68,.5);"></div>
@@ -536,20 +673,27 @@
                         </svg>
                     </div>
                     <h3 class="text-3xl font-bold font-mono mb-3" style="color:#ef4444;">Tampering Detected</h3>
-                    <p class="font-mono text-sm mb-10" style="color:#9ca3af;" x-text="report && report.verdict"></p>
+                    <p class="font-mono text-sm mb-6" style="color:#9ca3af;" x-text="report && report.verdict"></p>
+
+                    <!-- Report-level crypto summary badges -->
+                    <div x-html="reportLevelBadgesHTML()" class="mb-8"></div>
 
                     <!-- Segment Analysis -->
                     <div class="border p-8 max-w-2xl mx-auto text-left mb-6" style="border-color:rgba(220,38,38,.3); background:#000;">
                         <h4 class="font-mono mb-4 tracking-widest text-sm" style="color:#ef4444;">Segment Analysis</h4>
-                        <div class="space-y-2">
+                        <div class="space-y-3">
                             <template x-for="seg in (report ? report.segments : [])" :key="seg.segment_index">
-                                <div class="flex items-center justify-between p-3 border font-mono text-sm"
+                                <div class="p-3 border font-mono text-sm"
                                      :style="seg.result==='pass'?'border-color:rgba(74,144,226,.2);background:#000;':'border-color:rgba(220,38,38,.4);background:rgba(127,29,29,.15);'">
-                                    <div>
-                                        <span style="color:#d1d5db;" x-text="'Segment '+seg.segment_index+'  ('+fmtTime(seg.start_time_secs)+' – '+fmtTime(seg.end_time_secs)+')'"></span>
-                                        <span x-show="seg.second_results && seg.second_results.some(s=>s.tampered)" class="block text-xs mt-1" style="color:#f87171;" x-text="'Tampered seconds: ['+seg.second_results.filter(s=>s.tampered).map(s=>s.second_index).join(', ')+']'"></span>
+                                    <!-- Header row -->
+                                    <div class="flex items-start justify-between">
+                                        <span style="color:#d1d5db;" x-text="'Segment ' + seg.segment_index + '  (' + fmtTime(seg.start_time_secs) + ' \u2013 ' + fmtTime(seg.end_time_secs) + ')'"></span>
+                                        <span :style="seg.result==='pass'?'color:#4a90e2;':'color:#ef4444;'" x-text="seg.result==='pass'?'Valid':'TAMPERED'"></span>
                                     </div>
-                                    <span :style="seg.result==='pass'?'color:#4a90e2;':'color:#ef4444;'" x-text="seg.result==='pass'?'Valid':'TAMPERED'"></span>
+                                    <!-- Level badges: L1 / L2 / L3 -->
+                                    <div x-html="segBadgesHTML(seg)"></div>
+                                    <!-- Second-level timeline bar -->
+                                    <div x-html="segTimelineHTML(seg)"></div>
                                 </div>
                             </template>
                         </div>
