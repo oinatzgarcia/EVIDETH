@@ -256,15 +256,17 @@ class ForensicPDFGenerator:
         return elements
     
     def _generate_segment_table(self, data: dict) -> list:
-        """Generate detailed segment verification table"""
+        """Generate detailed segment verification table with hash comparison"""
         elements = []
         
         elements.append(Paragraph("Segment Analysis", self.styles['SectionHeader']))
         
         segments = data.get('segments', [])
         
-        # Table header
-        table_data = [['#', 'Time Range', 'Hash (SHA-256)', 'Status']]
+        # Main segment summary table
+        table_data = [['#', 'Time Range', 'Status', 'Signature Valid']]
+        
+        failed_segments = []  # Store failed segments for detailed analysis
         
         for seg in segments:
             seg_num = str(seg.get('segment_index', '?'))
@@ -272,15 +274,16 @@ class ForensicPDFGenerator:
             end = seg.get('end_time_secs', 0)
             time_range = f"{self._format_time(start)} - {self._format_time(end)}"
             
-            hash_val = seg.get('hash', 'N/A')
-            # Truncate hash for display
-            hash_display = f"{hash_val[:16]}...{hash_val[-16:]}" if len(hash_val) > 40 else hash_val
-            
             status = "✓ PASS" if seg.get('result') == 'pass' else "✗ FAIL"
+            sig_valid = "✓" if seg.get('signature_valid') else "✗"
             
-            table_data.append([seg_num, time_range, hash_display, status])
+            table_data.append([seg_num, time_range, status, sig_valid])
+            
+            # Store failed segments for detailed breakdown
+            if seg.get('result') != 'pass':
+                failed_segments.append(seg)
         
-        seg_table = Table(table_data, colWidths=[1.5*cm, 4*cm, 8*cm, 2.5*cm])
+        seg_table = Table(table_data, colWidths=[1.5*cm, 5*cm, 3*cm, 3.5*cm])
         seg_table.setStyle(TableStyle([
             # Header styling
             ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_PRIMARY),
@@ -289,10 +292,9 @@ class ForensicPDFGenerator:
             ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
             
             # Body styling
-            ('FONT', (0, 1), (-1, -1), 'Helvetica', 8),
-            ('FONT', (2, 1), (2, -1), 'Courier', 7),
+            ('FONT', (0, 1), (-1, -1), 'Helvetica', 9),
             ('ALIGN', (0, 1), (0, -1), 'CENTER'),
-            ('ALIGN', (3, 1), (3, -1), 'CENTER'),
+            ('ALIGN', (2, 1), (3, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             
             # Grid
@@ -300,16 +302,70 @@ class ForensicPDFGenerator:
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')]),
             
             # Padding
-            ('LEFTPADDING', (0, 0), (-1, -1), 6),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
             ('TOPPADDING', (0, 0), (-1, -1), 6),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
         ]))
         
         elements.append(seg_table)
-        elements.append(Spacer(1, 0.5*cm))
+        elements.append(Spacer(1, 0.8*cm))
+        
+        # Add detailed hash comparison for failed segments
+        if failed_segments:
+            elements.append(Paragraph(
+                "<b>Tampered Segments - Hash Comparison</b>",
+                self.styles['Heading3']
+            ))
+            elements.append(Spacer(1, 0.3*cm))
+            
+            for seg in failed_segments:
+                seg_num = seg.get('segment_index', '?')
+                hash_expected = seg.get('hash_expected', 'N/A')
+                hash_calculated = seg.get('hash_calculated', 'N/A')
+                
+                # Segment header
+                elements.append(Paragraph(
+                    f"<b>Segment #{seg_num}</b>",
+                    self.styles['Normal']
+                ))
+                
+                # Hash comparison table
+                hash_comparison = [
+                    ["Hash Type", "Value"],
+                    ["Expected (Original)", self._format_hash_display(hash_expected)],
+                    ["Calculated (Current)", self._format_hash_display(hash_calculated)]
+                ]
+                
+                hash_table = Table(hash_comparison, colWidths=[4*cm, 12*cm])
+                hash_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#fee2e2')),
+                    ('FONT', (0, 0), (-1, 0), 'Helvetica-Bold', 8),
+                    ('FONT', (0, 1), (0, -1), 'Helvetica-Bold', 7),
+                    ('FONT', (1, 1), (1, -1), 'Courier', 6),
+                    ('GRID', (0, 0), (-1, -1), 0.5, self.COLOR_DANGER),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                    ('TEXTCOLOR', (1, 2), (1, 2), self.COLOR_DANGER),  # Calculated hash in red
+                ]))
+                
+                elements.append(hash_table)
+                elements.append(Spacer(1, 0.4*cm))
         
         return elements
+    
+    def _format_hash_display(self, hash_val: str) -> str:
+        """Format hash for display: first 32 chars + ... + last 32 chars"""
+        if not hash_val or hash_val == 'N/A':
+            return 'N/A'
+        if len(hash_val) <= 64:
+            return hash_val
+        # SHA-256 is 64 chars, display first 32 and last 32 with ellipsis
+        return f"{hash_val[:32]}...{hash_val[-32:]}"
     
     def _generate_chain_of_custody(self, data: dict) -> list:
         """Generate chain of custody section"""
@@ -362,6 +418,9 @@ class ForensicPDFGenerator:
         Each segment was independently hashed and verified against the digitally signed
         reference hash stored at the time of video capture. Any modification to the video
         content would result in a hash mismatch, indicating tampering.
+        
+        For tampered segments, both the expected (original) hash and the calculated (current)
+        hash are provided to demonstrate the cryptographic mismatch and enable forensic analysis.
         """
         
         elements.append(Paragraph(crypto_text, self.styles['Normal']))
