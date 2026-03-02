@@ -142,6 +142,8 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
                 "hash":            seg.sha256_hash,
                 "hash_calculated": latest_verification.computed_hash,
                 "hash_expected":   seg.sha256_hash,
+                # ── fix: expose hash_match so the frontend L1 badge renders correctly ──
+                "hash_match":      latest_verification.hash_match,
                 "signature_valid": latest_verification.signature_valid,
                 "verified_at":     latest_verification.verified_at.isoformat() if latest_verification.verified_at else None,
             }
@@ -154,6 +156,7 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
                 "hash":            seg.sha256_hash,
                 "hash_calculated": None,
                 "hash_expected":   seg.sha256_hash,
+                "hash_match":      None,
                 "signature_valid": None,
                 "verified_at":     None,
             }
