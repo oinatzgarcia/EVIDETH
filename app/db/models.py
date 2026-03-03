@@ -9,7 +9,7 @@ import uuid
 import enum
 
 
-# ── Enums ───────────────────────────────────────────────────────────
+# ── Enums ───────────────────────────────────────────────────────────────────
 
 class UserRole(str, enum.Enum):
     ADMIN   = "admin"
@@ -34,7 +34,7 @@ class VerificationResult(str, enum.Enum):
     ERROR   = "error"
 
 
-# ── User ────────────────────────────────────────────────────────
+# ── User ──────────────────────────────────────────────────────────────────
 
 class User(Base):
     __tablename__ = "users"
@@ -56,7 +56,7 @@ class User(Base):
         return f"<User {self.email} [{self.role}]>"
 
 
-# ── Camera ─────────────────────────────────────────────────────
+# ── Camera ──────────────────────────────────────────────────────────────────
 
 class Camera(Base):
     __tablename__ = "cameras"
@@ -81,7 +81,7 @@ class Camera(Base):
         return f"<Camera {self.camera_id} @ {self.location}>"
 
 
-# ── Video ────────────────────────────────────────────────────────
+# ── Video ──────────────────────────────────────────────────────────────────
 
 class Video(Base):
     __tablename__ = "videos"
@@ -114,7 +114,7 @@ class Video(Base):
         return f"<Video {self.filename} [{self.status}]>"
 
 
-# ── Segment ─────────────────────────────────────────────────────
+# ── Segment ───────────────────────────────────────────────────────────────────
 
 class Segment(Base):
     __tablename__ = "segments"
@@ -126,16 +126,16 @@ class Segment(Base):
     end_time_secs   = Column(Integer, nullable=False)
     file_size_bytes = Column(Integer)
 
-    # ── Criptografía Nivel 1 ───────────────────────────────────
+    # ── Criptografía Nivel 1 ───────────────────────────────────────
     sha256_hash     = Column(String(64), nullable=False)
     ecdsa_signature = Column(Text)
     public_key_id   = Column(String(255))
 
-    # ── Criptografía Nivel 2: árbol Merkle ──────────────────────
+    # ── Criptografía Nivel 2: árbol Merkle ─────────────────────────
     merkle_root     = Column(String(64))
     second_hashes   = Column(Text)  # JSON: ["h0", "h1", ..., "h29"]
 
-    # ── Thumbnails por segundo (JPEG base64) ─────────────────────
+    # ── Thumbnails por segundo (JPEG base64) ──────────────────────────
     # Un frame JPEG (base64) por cada segundo del segmento.
     # Permite comparación visual original vs tamperizado al verificar.
     # ~20-40 KB/frame a 1280x720 JPEG quality 5.
@@ -156,7 +156,7 @@ class Segment(Base):
         return f"<Segment #{self.segment_index} [{self.status}] video={self.video_id}>"
 
 
-# ── Verification ───────────────────────────────────────────────
+# ── Verification ───────────────────────────────────────────────────────────────────
 
 class Verification(Base):
     __tablename__ = "verifications"
@@ -170,6 +170,13 @@ class Verification(Base):
 
     computed_hash       = Column(String(64))
     stored_hash         = Column(String(64))
+
+    # ── Nivel 2-BD: consistencia interna del registro almacenado ──────────
+    # True  → second_hashes en BD reconstituyen correctamente el merkle_root
+    # False → ¡ALERTA! El registro en BD es internamente inconsistente
+    #          (manipulación directa de BD detectada)
+    # None  → No verificable (segmento sin second_hashes o merkle_root)
+    db_merkle_consistent = Column(Boolean, nullable=True)
 
     verified_at         = Column(DateTime(timezone=True), server_default=func.now())
     ip_address          = Column(String(45))
