@@ -138,10 +138,13 @@ def verify_video(
     """
     Verificación de integridad con 4 niveles criptográficos.
 
-    Nivel 0 — Hash del fichero completo (si disponible)
-    Nivel 1 — SHA-256 del segmento
-    Nivel 2 — Árbol Merkle por segundo + comparación visual de frames
-    Nivel 3 — Firma ECDSA P-256 del Merkle root
+    Nivel 0    — Hash del fichero completo (si disponible)
+    Nivel 1    — SHA-256 del segmento de 30 s
+    Nivel 2-DB — Consistencia interna del registro almacenado en BD:
+                 build_merkle_root(stored.second_hashes) == stored.merkle_root
+                 Detecta manipulación directa de la base de datos.
+    Nivel 2    — Árbol Merkle por segundo + comparación visual de frames
+    Nivel 3    — Firma ECDSA P-256 del Merkle root
 
     Args:
         progress_cb: Optional callback(pct: int, message: str) called after
@@ -218,12 +221,38 @@ def verify_video(
                     hash_match=False, signature_valid=None,
                     merkle_match=None, second_results=None,
                     tampered_frames={},
+                    db_merkle_consistent=None,
                     result="fail",
                     detail="Segmento no encontrado en base de datos",
                 )
                 _save_verification(db, None, entry, verified_by_id, ip_address, user_agent)
                 results.append(entry)
                 continue
+
+            # ── Nivel 2-DB: consistencia interna del registro almacenado ────
+            # Verifica que build_merkle_root(stored.second_hashes) == stored.merkle_root
+            # Un fallo aquí indica manipulación directa de la base de datos,
+            # independientemente de si el vídeo subido es íntegro o no.
+            db_merkle_consistent: Optional[bool] = None
+            db_consistency_detail = ""
+
+            if stored.second_hashes and stored.merkle_root:
+                try:
+                    sh = stored.second_hashes
+                    if isinstance(sh, str):
+                        sh = json.loads(sh)
+                    recomputed_stored_root = build_merkle_root(sh)
+                    db_merkle_consistent   = (recomputed_stored_root == stored.merkle_root)
+                    if not db_merkle_consistent:
+                        db_consistency_detail = (
+                            f"⚠ ALERTA INTEGRIDAD BD: second_hashes reconstruyen "
+                            f"root={recomputed_stored_root[:16]}… pero "
+                            f"stored.merkle_root={stored.merkle_root[:16]}… "
+                            "— posible manipulación del registro de base de datos."
+                        )
+                except Exception as e:
+                    db_merkle_consistent  = False
+                    db_consistency_detail = f"Error reconstruyendo raíz Merkle almacenada: {e}"
 
             # ── Nivel 1 ─────────────────────────────────────────────
             hash_match = computed["sha256_hash"] == stored.sha256_hash
@@ -277,7 +306,23 @@ def verify_video(
                 s["second_index"] for s in (second_results or []) if s["tampered"]
             ]
 
-            if hash_match and merkle_match is not False and signature_valid is not False:
+            # Prioridad 0: inconsistencia interna de BD
+            # Se evalúa antes que L1/L2/L3 porque si la BD está comprometida
+            # los checks de comparación contra ella pierden valor forense.
+            # Nota: L3 ECDSA se sigue ejecutando para enriquecer el diagnóstico:
+            #   - L3 válida + L2-DB falla → solo second_hashes fue alterado en BD
+            #   - L3 inválida + L2-DB falla → también merkle_root fue alterado en BD
+            if db_merkle_consistent is False:
+                failed += 1
+                result  = "fail"
+                stored.status = SegmentStatus.INVALID
+                detail = db_consistency_detail
+                if signature_valid is True:
+                    detail += " (L3 ECDSA válida → solo second_hashes fue alterado en BD)"
+                elif signature_valid is False:
+                    detail += " (L3 ECDSA también inválida → merkle_root también fue alterado en BD)"
+
+            elif hash_match and merkle_match is not False and signature_valid is not False:
                 passed += 1
                 result  = "pass"
                 stored.status = SegmentStatus.VALID
@@ -324,6 +369,7 @@ def verify_video(
                 hash_match=hash_match, signature_valid=signature_valid,
                 merkle_match=merkle_match, second_results=second_results,
                 tampered_frames=tampered_frames,
+                db_merkle_consistent=db_merkle_consistent,
                 result=result, detail=detail,
             )
             _save_verification(db, stored, entry, verified_by_id, ip_address, user_agent)
@@ -354,6 +400,7 @@ def verify_video(
                     "merkle_match":         None,
                     "second_results":       None,
                     "tampered_frames":      {},
+                    "db_merkle_consistent": None,
                 })
 
         _cb(96, "Building final report…")
@@ -383,16 +430,17 @@ def verify_video(
 
 
 def _make_entry(
-    idx:             int,
-    computed:        Dict,
-    stored:          Optional[object],
-    hash_match:      bool,
-    signature_valid: Optional[bool],
-    merkle_match:    Optional[bool],
-    second_results:  Optional[List],
-    tampered_frames: Dict,
-    result:          str,
-    detail:          str,
+    idx:                  int,
+    computed:             Dict,
+    stored:               Optional[object],
+    hash_match:           bool,
+    signature_valid:      Optional[bool],
+    merkle_match:         Optional[bool],
+    second_results:       Optional[List],
+    tampered_frames:      Dict,
+    db_merkle_consistent: Optional[bool],
+    result:               str,
+    detail:               str,
 ) -> Dict:
     return {
         "segment_index":        idx,
@@ -411,6 +459,7 @@ def _make_entry(
         "merkle_match":         merkle_match,
         "second_results":       second_results,
         "tampered_frames":      tampered_frames,
+        "db_merkle_consistent": db_merkle_consistent,
     }
 
 
