@@ -1,7 +1,7 @@
 import hashlib
 import base64
 import json
-from typing import List, Dict, Optional, Union
+from typing import Callable, List, Dict, Optional, Union
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.exceptions import InvalidSignature
@@ -93,7 +93,6 @@ def _extract_tampered_frames(
     Ambos en base64 JPEG.
     Devuelve Dict[str, Dict] — claves str para cumplir el schema Pydantic.
     """
-    # Deserializar thumbnails almacenados
     stored: list = []
     if stored_thumbnails:
         if isinstance(stored_thumbnails, list):
@@ -104,7 +103,7 @@ def _extract_tampered_frames(
             except Exception:
                 stored = []
 
-    frames: Dict[str, Dict] = {}          # <-- str keys (schema: Dict[str, TamperedFrameData])
+    frames: Dict[str, Dict] = {}
 
     for sr in second_results:
         if not sr["tampered"]:
@@ -114,13 +113,17 @@ def _extract_tampered_frames(
         current_frame  = extract_frame_thumbnail(video_path, sec)
         original_frame = stored[sec] if sec < len(stored) else None
 
-        frames[str(sec)] = {              # <-- cast a str
+        frames[str(sec)] = {
             "current_frame":  current_frame,
             "original_frame": original_frame,
         }
 
     return frames
 
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def verify_video(
     video_path:     str,
@@ -130,6 +133,7 @@ def verify_video(
     verified_by_id: Optional[str] = None,
     ip_address:     Optional[str] = None,
     user_agent:     Optional[str] = None,
+    progress_cb:    Optional[Callable[[int, str], None]] = None,
 ) -> Dict:
     """
     Verificación de integridad con 4 niveles criptográficos.
@@ -138,7 +142,19 @@ def verify_video(
     Nivel 1 — SHA-256 del segmento
     Nivel 2 — Árbol Merkle por segundo + comparación visual de frames
     Nivel 3 — Firma ECDSA P-256 del Merkle root
+
+    Args:
+        progress_cb: Optional callback(pct: int, message: str) called after
+                     each segment is verified. pct ranges from 10 to 95;
+                     the caller is responsible for setting 0 (start) and
+                     100 (finish).
     """
+    def _cb(pct: int, msg: str):
+        if progress_cb:
+            progress_cb(pct, msg)
+
+    _cb(2, "Loading stored segments…")
+
     stored_segments = (
         db.query(Segment)
         .filter(Segment.video_id == video_db_id)
@@ -152,6 +168,7 @@ def verify_video(
     stored_file_hash = getattr(video_record, "file_hash", None) if video_record else None
 
     if stored_file_hash:
+        _cb(4, "Checking whole-file hash…")
         import hashlib as _hl
         with open(video_path, "rb") as f:
             computed_file_hash = _hl.sha256(f.read()).hexdigest()
@@ -174,14 +191,20 @@ def verify_video(
     temp_dir = tempfile.mkdtemp(prefix="evideth_verify_")
 
     try:
+        _cb(8, "Segmenting video into 30 s chunks…")
         computed_segments = segment_video(video_path, temp_dir)
 
         results = []
         total   = passed = failed = missing = 0
+        n_segs  = len(computed_segments)
 
-        for computed in computed_segments:
+        for i, computed in enumerate(computed_segments):
             idx    = computed["segment_index"]
             total += 1
+
+            # Real per-segment progress: maps segment i to range 10..90
+            seg_pct = int(10 + 80 * (i + 1) / max(n_segs, 1))
+            _cb(seg_pct, f"Verifying segment {i + 1}/{n_segs} — SHA-256 + Merkle + ECDSA…")
 
             stored = next(
                 (s for s in stored_segments if s.segment_index == idx), None
@@ -202,15 +225,15 @@ def verify_video(
                 results.append(entry)
                 continue
 
-            # ── Nivel 1 ───────────────────────────────────────────────
+            # ── Nivel 1 ─────────────────────────────────────────────
             hash_match = computed["sha256_hash"] == stored.sha256_hash
 
-            # ── Nivel 2 ───────────────────────────────────────────────
+            # ── Nivel 2 ─────────────────────────────────────────────
             computed_merkle = computed.get("merkle_root")
             stored_merkle   = stored.merkle_root
             merkle_match    = None
             second_results  = None
-            tampered_frames: Dict[str, Dict] = {}   # str keys
+            tampered_frames: Dict[str, Dict] = {}
 
             if computed_merkle and stored_merkle:
                 merkle_match = (computed_merkle == stored_merkle)
@@ -219,7 +242,6 @@ def verify_video(
                         computed.get("second_hashes", []),
                         stored.second_hashes,
                     )
-                    # Comparación visual: extraer frames de los segundos tamperizados
                     if second_results:
                         work_path = computed.get("file_path", video_path)
                         if os.path.exists(work_path):
@@ -229,7 +251,7 @@ def verify_video(
                                 stored_thumbnails = stored.frame_thumbnails,
                             )
 
-            # ── Nivel 3 ───────────────────────────────────────────────
+            # ── Nivel 3 ─────────────────────────────────────────────
             signature_valid = None
             sig_detail      = ""
 
@@ -250,7 +272,7 @@ def verify_video(
                     else "⚠ Firma ECDSA INVÁLIDA"
                 )
 
-            # ── Resultado final ────────────────────────────────────
+            # ── Resultado final ─────────────────────────────────────────
             tampered_secs = [
                 s["second_index"] for s in (second_results or []) if s["tampered"]
             ]
@@ -260,8 +282,8 @@ def verify_video(
                 result  = "pass"
                 stored.status = SegmentStatus.VALID
                 parts = ["✓ Íntegro"]
-                if merkle_match is True:  parts.append("Merkle OK")
-                if signature_valid is True: parts.append("ECDSA OK")
+                if merkle_match is True:      parts.append("Merkle OK")
+                if signature_valid is True:   parts.append("ECDSA OK")
                 elif signature_valid is None: parts.append(sig_detail)
                 detail = " — ".join(parts)
 
@@ -307,6 +329,7 @@ def verify_video(
             _save_verification(db, stored, entry, verified_by_id, ip_address, user_agent)
             results.append(entry)
 
+        _cb(92, "Committing results to database…")
         db.commit()
 
         computed_indices = {s["segment_index"] for s in computed_segments}
@@ -333,6 +356,7 @@ def verify_video(
                     "tampered_frames":      {},
                 })
 
+        _cb(96, "Building final report…")
         integrity_ok = (failed == 0 and missing == 0)
         return {
             "video_id":        video_db_id,
@@ -386,7 +410,6 @@ def _make_entry(
         "stored_merkle_root":   stored.merkle_root if stored else None,
         "merkle_match":         merkle_match,
         "second_results":       second_results,
-        # Claves str para cumplir Dict[str, TamperedFrameData] del schema Pydantic
         "tampered_frames":      tampered_frames,
     }
 
