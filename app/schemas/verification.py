@@ -42,7 +42,7 @@ class SegmentVerificationResult(BaseModel):
     duration_secs:   Optional[int]  = None
     complete:        Optional[bool] = None
 
-    # ── Nivel 1: hash del segmento completo (30 s) ────────────────────────
+    # ── Nivel 1: hash del segmento completo (30 s) ────────────────────
     computed_hash:   Optional[str]  = None
     stored_hash:     Optional[str]  = None
     hash_match:      bool
@@ -50,14 +50,23 @@ class SegmentVerificationResult(BaseModel):
     result:          str             # "pass" | "fail" | "error"
     detail:          Optional[str]  = None
 
-    # ── Nivel 2: árbol Merkle (granularidad de segundo) ───────────────────
+    # ── Nivel 2-DB: consistencia interna del registro almacenado en BD ───
+    # Verifica que build_merkle_root(stored.second_hashes) == stored.merkle_root.
+    # Detecta manipulación directa de la base de datos, independientemente
+    # de si el vídeo subido es íntegro o no.
+    #   True  → BD íntegra para este segmento
+    #   False → ¡ALERTA! El registro en BD es internamente inconsistente
+    #   None  → No verificable (segmento sin second_hashes o merkle_root)
+    db_merkle_consistent: Optional[bool] = None
+
+    # ── Nivel 2: árbol Merkle (granularidad de segundo) ───────────────
     # Solo se incluye cuando hay datos Merkle almacenados (daemon implementado)
     computed_merkle_root: Optional[str]                  = None
     stored_merkle_root:   Optional[str]                  = None
     merkle_match:         Optional[bool]                 = None
     second_results:       Optional[List[SecondHashResult]] = None  # Solo si hay discrepancia
 
-    # ── Nivel 2 visual: frames de los segundos manipulados ────────────────
+    # ── Nivel 2 visual: frames de los segundos manipulados ────────────
     # Claves: índice del segundo (como str al serializar a JSON).
     # Valor:  par {current_frame, original_frame} en base64 JPEG.
     # Solo se incluye cuando hay segundos manipulados detectados.
