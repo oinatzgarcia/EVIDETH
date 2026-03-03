@@ -254,10 +254,10 @@ def verify_video(
                     db_merkle_consistent  = False
                     db_consistency_detail = f"Error reconstruyendo raíz Merkle almacenada: {e}"
 
-            # ── Nivel 1 ─────────────────────────────────────────────
+            # ── Nivel 1 ─────────────────────────────────────────────────
             hash_match = computed["sha256_hash"] == stored.sha256_hash
 
-            # ── Nivel 2 ─────────────────────────────────────────────
+            # ── Nivel 2 ─────────────────────────────────────────────────
             computed_merkle = computed.get("merkle_root")
             stored_merkle   = stored.merkle_root
             merkle_match    = None
@@ -280,7 +280,7 @@ def verify_video(
                                 stored_thumbnails = stored.frame_thumbnails,
                             )
 
-            # ── Nivel 3 ─────────────────────────────────────────────
+            # ── Nivel 3 ─────────────────────────────────────────────────
             signature_valid = None
             sig_detail      = ""
 
@@ -301,7 +301,7 @@ def verify_video(
                     else "⚠ Firma ECDSA INVÁLIDA"
                 )
 
-            # ── Resultado final ─────────────────────────────────────────
+            # ── Resultado final ─────────────────────────────────────────────────
             tampered_secs = [
                 s["second_index"] for s in (second_results or []) if s["tampered"]
             ]
@@ -474,19 +474,24 @@ def _save_verification(
     if segment is None:
         return
     verification = Verification(
-        segment_id      = segment.id,
-        result          = (
+        segment_id           = segment.id,
+        result               = (
             VerificationResult.PASS if result["result"] == "pass"
             else VerificationResult.FAIL
         ),
-        hash_match      = result["hash_match"],
-        signature_valid = result["signature_valid"],
-        computed_hash   = result["computed_hash"],
-        stored_hash     = result["stored_hash"],
-        error_message   = result.get("detail") if result["result"] != "pass" else None,
-        verified_by_id  = verified_by_id,
-        ip_address      = ip_address,
-        user_agent      = user_agent,
-        verified_at     = datetime.now(timezone.utc),
+        hash_match           = result["hash_match"],
+        signature_valid      = result["signature_valid"],
+        computed_hash        = result["computed_hash"],
+        stored_hash          = result["stored_hash"],
+        # ── L2-BD: persiste el resultado de consistencia interna de BD ──────
+        # None  → no había datos Merkle en BD para verificar
+        # True  → second_hashes reconstruyen correctamente el merkle_root
+        # False → inconsistencia detectada: posible manipulación de BD
+        db_merkle_consistent = result.get("db_merkle_consistent"),
+        error_message        = result.get("detail") if result["result"] != "pass" else None,
+        verified_by_id       = verified_by_id,
+        ip_address           = ip_address,
+        user_agent           = user_agent,
+        verified_at          = datetime.now(timezone.utc),
     )
     db.add(verification)
