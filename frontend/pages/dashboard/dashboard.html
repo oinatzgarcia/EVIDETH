@@ -142,9 +142,13 @@
                             if (j.status === 'done') {
                                 clearInterval(this._pollTimer);
                                 this._pollTimer  = null;
-                                this.progress    = 99;
-                                this.progressMsg = 'Loading report…';
-                                await this._loadReport(j.result && j.result.video_id);
+                                this.progress    = 100;
+                                this.progressMsg = 'Verification complete';
+                                // Use the full enriched report from the job result directly.
+                                // The backend includes second_results, tampered_frames and
+                                // merkle_match which are transient (not persisted to DB) and
+                                // would be lost if we fetched GET /report/{video_id} instead.
+                                this.report    = j.result;
                                 this.verifying = false;
                             }
 
@@ -160,7 +164,10 @@
                     }, 1000);
                 },
 
-                // ── Fetch full report JSON once job is done ────────────────
+                // ── Kept for potential external / direct use ──────────────────
+                // Note: this endpoint does NOT return second_results / tampered_frames
+                // (those fields are transient and not persisted to DB). Use only for
+                // re-loading historical reports where L2 timeline data is not needed.
                 async _loadReport(videoId) {
                     if (!videoId) { this.apiError = 'Job finished but no video_id returned.'; return; }
                     try {
@@ -394,7 +401,7 @@
         .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
         @keyframes pulseSubtle { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
 
-        /* ── Progress bar ─────────────────────────────────────────── */
+        /* ── Progress bar ──────────────────────────────────────────── */
         .progress-track {
             height: 6px;
             background: #1f2937;
@@ -419,7 +426,7 @@
         }
         @keyframes shimmer { 0% { left: -100%; } 100% { left: 100%; } }
 
-        /* ── Segment dots row ─────────────────────────────────────── */
+        /* ── Segment dots row ────────────────────────────────────────── */
         .seg-dot-row { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; margin-top:.75rem; }
         .seg-dot {
             width: 10px; height: 10px;
@@ -431,7 +438,7 @@
         .seg-dot.done   { background: rgba(74,144,226,.5);  border-color: #4a90e2; }
         .seg-dot.active { background: rgba(91,163,245,.3);  border-color: #5ba3f5; animation: pulseSubtle 1s ease-in-out infinite; }
 
-        /* ── Crypto level badges ───────────────────────────────────── */
+        /* ── Crypto level badges ─────────────────────────────────────── */
         .lvl-badges     { display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.45rem; }
         .lvl-badges-rpt { margin:0 0 1rem 0; justify-content:center; }
         .lvl-badge  { font-family:'Space Mono',monospace; font-size:.58rem; letter-spacing:.07em;
@@ -440,7 +447,7 @@
         .lvl-fail { color:#f87171; border-color:rgba(248,113,113,.45); background:rgba(248,113,113,.08); }
         .lvl-na   { color:#6b7280; border-color:rgba(107,114,128,.2);  background:transparent; }
 
-        /* ── Second-level timeline bar ─────────────────────────────── */
+        /* ── Second-level timeline bar ───────────────────────────────── */
         .tl-wrap  { margin-top:.55rem; }
         .tl-bar   { display:flex; gap:2px; height:20px; }
         .tl-sec   { flex:1; min-width:10px; max-width:30px; display:flex; align-items:center;
@@ -457,7 +464,7 @@
         .tl-leg-ok { font-family:'Space Mono',monospace; font-size:.53rem; color:rgba(74,222,128,.65); }
         .tl-leg-bad{ font-family:'Space Mono',monospace; font-size:.53rem; color:rgba(248,113,113,.7); }
 
-        /* ── Frame hover tooltip ──────────────────────────────────── */
+        /* ── Frame hover tooltip ──────────────────────────────────────── */
         #frame-tip {
             position: fixed; z-index: 9999; display: none; pointer-events: none;
             width: 220px; background: #000;
@@ -477,7 +484,7 @@
             font-family: 'Space Mono', monospace; font-size: .55rem; line-height: 1.6;
         }
 
-        /* ── Frame Comparison Panel ───────────────────────────────── */
+        /* ── Frame Comparison Panel ────────────────────────────────────── */
         .fcp-wrap     { max-width: 42rem; margin: 0 auto 1.5rem auto; border: 1px solid rgba(239,68,68,.2); background: #000; padding: 1.5rem; }
         .fcp-header   { border-left: 2px solid rgba(239,68,68,.5); padding-left: .75rem; margin-bottom: 1.25rem; }
         .fcp-title    { font-family: 'Space Mono', monospace; font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: #ef4444; }
@@ -702,7 +709,7 @@
                 <div class="font-mono text-xs" style="color:#6b7280;"><span style="color:#4a90e2;">&#9679;</span> System Ready</div>
             </div>
 
-            <!-- ── Form: idle ───────────────────────────────────────────────── -->
+            <!-- ── Form: idle ─────────────────────────────────────────────────── -->
             <div x-show="!verifying && !report && !apiError">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                     <div>
@@ -749,7 +756,7 @@
                 </div>
             </div>
 
-            <!-- ── Processing: real-time progress bar ───────────────────────── -->
+            <!-- ── Processing: real-time progress bar ──────────────────────────────── -->
             <div x-show="verifying" x-transition class="py-12 text-center">
 
                 <!-- Icon -->
@@ -788,7 +795,7 @@
                 </button>
             </div>
 
-            <!-- ── API Error ───────────────────────────────────────────────── -->
+            <!-- ── API Error ─────────────────────────────────────────────────── -->
             <div x-show="apiError" x-transition class="py-10 text-center">
                 <div class="inline-flex items-center justify-center w-20 h-20 border-2 mb-6" style="border-color:#f59e0b;">
                     <svg class="w-10 h-10" style="color:#f59e0b;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -800,7 +807,7 @@
                 <button @click="reset()" class="px-8 py-3 border-2 font-mono text-sm tracking-widest" style="border-color:#f59e0b; color:#f59e0b;">Try Again</button>
             </div>
 
-            <!-- ── Result ─────────────────────────────────────────────────── -->
+            <!-- ── Result ─────────────────────────────────────────────────────────── -->
             <div x-show="report" x-transition>
 
                 <!-- ✅ OK -->
