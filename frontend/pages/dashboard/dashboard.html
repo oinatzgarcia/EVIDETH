@@ -54,7 +54,7 @@
                 apiError:       null,
                 downloadingPDF: false,
 
-                // ── Progress state (async polling) ───────────────────────
+                // ── Progress state (async polling) ─────────────────────
                 progress:    0,
                 progressMsg: '',
                 _pollTimer:  null,
@@ -78,7 +78,7 @@
                            !this.verifying;
                 },
 
-                // ── Upload + kick off async job ──────────────────────────
+                // ── Upload + kick off async job ──────────────────────
                 async uploadAndVerify() {
                     if (!this.canSubmit()) return;
 
@@ -119,7 +119,7 @@
                     }
                 },
 
-                // ── Polling job status every 1 s ───────────────────────────
+                // ── Polling job status every 1 s ────────────────────────
                 _startPolling(jobId) {
                     if (this._pollTimer) clearInterval(this._pollTimer);
 
@@ -249,11 +249,26 @@
                     return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
                 },
 
-                // ── Crypto-level badges per segment ────────────────────────
+                // ── Crypto-level badges per segment ──────────────────────
                 segBadgesHTML(seg) {
                     const b = (cls, txt) => '<span class="lvl-badge ' + cls + '">' + txt + '</span>';
+
+                    // L1: SHA-256 del segmento completo
                     const l1 = b(seg.hash_match ? 'lvl-ok' : 'lvl-fail',
                                  'L1 SHA-256 ' + (seg.hash_match ? '\u2713' : '\u2717'));
+
+                    // L2-DB: consistencia interna del registro almacenado en BD
+                    // True  → BD íntegra  |  False → ALERTA BD comprometida  |  None → no aplica
+                    let l2db;
+                    if (seg.db_merkle_consistent === null || seg.db_merkle_consistent === undefined) {
+                        l2db = b('lvl-na', 'L2-BD \u2014');
+                    } else if (seg.db_merkle_consistent) {
+                        l2db = b('lvl-ok', 'L2-BD \u2713');
+                    } else {
+                        l2db = b('lvl-fail lvl-alert', 'L2-BD \u2717 \u26a0 DB');
+                    }
+
+                    // L2: árbol Merkle (vídeo subido vs BD)
                     let l2;
                     if (seg.merkle_match === null || seg.merkle_match === undefined) {
                         l2 = b('lvl-na', 'L2 Merkle \u2014');
@@ -265,6 +280,8 @@
                             : '';
                         l2 = b('lvl-fail', 'L2 Merkle \u2717' + (ts ? ' \u2192 ' + ts : ''));
                     }
+
+                    // L3: firma ECDSA P-256
                     let l3;
                     if (seg.signature_valid === null || seg.signature_valid === undefined) {
                         l3 = b('lvl-na', 'L3 ECDSA \u2014');
@@ -272,10 +289,11 @@
                         l3 = b(seg.signature_valid ? 'lvl-ok' : 'lvl-fail',
                                'L3 ECDSA ' + (seg.signature_valid ? '\u2713' : '\u2717'));
                     }
-                    return '<div class="lvl-badges">' + l1 + l2 + l3 + '</div>';
+
+                    return '<div class="lvl-badges">' + l1 + l2db + l2 + l3 + '</div>';
                 },
 
-                // ── Second-level timeline bar ──────────────────────────────
+                // ── Second-level timeline bar ───────────────────────────
                 segTimelineHTML(seg) {
                     if (!seg.second_results || seg.second_results.length === 0) return '';
                     let cells = '';
@@ -307,14 +325,32 @@
                          + '</div></div>';
                 },
 
-                // ── Report-level summary badges ────────────────────────────
+                // ── Report-level summary badges ──────────────────────────
                 reportLevelBadgesHTML() {
                     if (!this.report || !this.report.segments) return '';
                     const segs = this.report.segments;
                     const b = (cls, txt) => '<span class="lvl-badge ' + cls + '">' + txt + '</span>';
+
+                    // L1
                     const l1fail = segs.some(s => s.hash_match === false);
                     const l1 = b(l1fail ? 'lvl-fail' : 'lvl-ok',
                                  'L1 SHA-256 ' + (l1fail ? '\u2717' : '\u2713'));
+
+                    // L2-DB: alerta si algún segmento tiene BD comprometida
+                    const l2dbSegs = segs.filter(s => s.db_merkle_consistent !== null && s.db_merkle_consistent !== undefined);
+                    let l2db;
+                    if (l2dbSegs.length === 0) {
+                        l2db = b('lvl-na', 'L2-BD \u2014');
+                    } else if (l2dbSegs.some(s => s.db_merkle_consistent === false)) {
+                        const failIds = segs
+                            .filter(s => s.db_merkle_consistent === false)
+                            .map(s => 'seg\u202f' + s.segment_index).join(', ');
+                        l2db = b('lvl-fail lvl-alert', 'L2-BD \u2717 \u26a0 DB \u2192 ' + failIds);
+                    } else {
+                        l2db = b('lvl-ok', 'L2-BD \u2713');
+                    }
+
+                    // L2 Merkle
                     const l2segs = segs.filter(s => s.merkle_match !== null && s.merkle_match !== undefined);
                     let l2;
                     if (l2segs.length === 0) {
@@ -327,6 +363,8 @@
                     } else {
                         l2 = b('lvl-ok', 'L2 Merkle \u2713');
                     }
+
+                    // L3 ECDSA
                     const l3segs = segs.filter(s => s.signature_valid !== null && s.signature_valid !== undefined);
                     let l3;
                     if (!this.report.ecdsa_available || l3segs.length === 0) {
@@ -336,10 +374,11 @@
                     } else {
                         l3 = b('lvl-ok', 'L3 ECDSA \u2713');
                     }
-                    return '<div class="lvl-badges lvl-badges-rpt">' + l1 + l2 + l3 + '</div>';
+
+                    return '<div class="lvl-badges lvl-badges-rpt">' + l1 + l2db + l2 + l3 + '</div>';
                 },
 
-                // ── Visual frame comparison panel ────────────────────────────
+                // ── Visual frame comparison panel ────────────────────────
                 tamperedFrameHTML() {
                     if (!this.report || !this.report.segments) return '';
                     const pairs = [];
@@ -401,7 +440,7 @@
         .pulse-dot { animation: pulseSubtle 2s ease-in-out infinite; }
         @keyframes pulseSubtle { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
 
-        /* ── Progress bar ──────────────────────────────────────────── */
+        /* ── Progress bar ────────────────────────────────────────────── */
         .progress-track {
             height: 6px;
             background: #1f2937;
@@ -426,7 +465,7 @@
         }
         @keyframes shimmer { 0% { left: -100%; } 100% { left: 100%; } }
 
-        /* ── Segment dots row ────────────────────────────────────────── */
+        /* ── Segment dots row ──────────────────────────────────────────────── */
         .seg-dot-row { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; margin-top:.75rem; }
         .seg-dot {
             width: 10px; height: 10px;
@@ -438,16 +477,22 @@
         .seg-dot.done   { background: rgba(74,144,226,.5);  border-color: #4a90e2; }
         .seg-dot.active { background: rgba(91,163,245,.3);  border-color: #5ba3f5; animation: pulseSubtle 1s ease-in-out infinite; }
 
-        /* ── Crypto level badges ─────────────────────────────────────── */
+        /* ── Crypto level badges ──────────────────────────────────────────────── */
         .lvl-badges     { display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.45rem; }
         .lvl-badges-rpt { margin:0 0 1rem 0; justify-content:center; }
         .lvl-badge  { font-family:'Space Mono',monospace; font-size:.58rem; letter-spacing:.07em;
                       padding:.18rem .5rem; border:1px solid; text-transform:uppercase; white-space:nowrap; }
-        .lvl-ok   { color:#4ade80; border-color:rgba(74,222,128,.35);  background:rgba(74,222,128,.06); }
-        .lvl-fail { color:#f87171; border-color:rgba(248,113,113,.45); background:rgba(248,113,113,.08); }
-        .lvl-na   { color:#6b7280; border-color:rgba(107,114,128,.2);  background:transparent; }
+        .lvl-ok     { color:#4ade80; border-color:rgba(74,222,128,.35);  background:rgba(74,222,128,.06); }
+        .lvl-fail   { color:#f87171; border-color:rgba(248,113,113,.45); background:rgba(248,113,113,.08); }
+        .lvl-na     { color:#6b7280; border-color:rgba(107,114,128,.2);  background:transparent; }
+        /* lvl-alert: parpadeo para alertas críticas de BD comprometida */
+        .lvl-alert  { animation: alertPulse 1.2s ease-in-out infinite; }
+        @keyframes alertPulse {
+            0%, 100% { opacity: 1;   box-shadow: 0 0 4px rgba(248,113,113,.4); }
+            50%       { opacity: .65; box-shadow: 0 0 10px rgba(248,113,113,.8); }
+        }
 
-        /* ── Second-level timeline bar ───────────────────────────────── */
+        /* ── Second-level timeline bar ──────────────────────────────────────────── */
         .tl-wrap  { margin-top:.55rem; }
         .tl-bar   { display:flex; gap:2px; height:20px; }
         .tl-sec   { flex:1; min-width:10px; max-width:30px; display:flex; align-items:center;
@@ -464,7 +509,7 @@
         .tl-leg-ok { font-family:'Space Mono',monospace; font-size:.53rem; color:rgba(74,222,128,.65); }
         .tl-leg-bad{ font-family:'Space Mono',monospace; font-size:.53rem; color:rgba(248,113,113,.7); }
 
-        /* ── Frame hover tooltip ──────────────────────────────────────── */
+        /* ── Frame hover tooltip ─────────────────────────────────────────────────── */
         #frame-tip {
             position: fixed; z-index: 9999; display: none; pointer-events: none;
             width: 220px; background: #000;
@@ -484,7 +529,7 @@
             font-family: 'Space Mono', monospace; font-size: .55rem; line-height: 1.6;
         }
 
-        /* ── Frame Comparison Panel ────────────────────────────────────── */
+        /* ── Frame Comparison Panel ────────────────────────────────────────────────── */
         .fcp-wrap     { max-width: 42rem; margin: 0 auto 1.5rem auto; border: 1px solid rgba(239,68,68,.2); background: #000; padding: 1.5rem; }
         .fcp-header   { border-left: 2px solid rgba(239,68,68,.5); padding-left: .75rem; margin-bottom: 1.25rem; }
         .fcp-title    { font-family: 'Space Mono', monospace; font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: #ef4444; }
@@ -709,7 +754,7 @@
                 <div class="font-mono text-xs" style="color:#6b7280;"><span style="color:#4a90e2;">&#9679;</span> System Ready</div>
             </div>
 
-            <!-- ── Form: idle ─────────────────────────────────────────────────── -->
+            <!-- ── Form: idle ─────────────────────────────────────────────────────── -->
             <div x-show="!verifying && !report && !apiError">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                     <div>
@@ -756,7 +801,7 @@
                 </div>
             </div>
 
-            <!-- ── Processing: real-time progress bar ──────────────────────────────── -->
+            <!-- ── Processing: real-time progress bar ────────────────────────────────────── -->
             <div x-show="verifying" x-transition class="py-12 text-center">
 
                 <!-- Icon -->
@@ -795,7 +840,7 @@
                 </button>
             </div>
 
-            <!-- ── API Error ─────────────────────────────────────────────────── -->
+            <!-- ── API Error ─────────────────────────────────────────────────────────── -->
             <div x-show="apiError" x-transition class="py-10 text-center">
                 <div class="inline-flex items-center justify-center w-20 h-20 border-2 mb-6" style="border-color:#f59e0b;">
                     <svg class="w-10 h-10" style="color:#f59e0b;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -807,7 +852,7 @@
                 <button @click="reset()" class="px-8 py-3 border-2 font-mono text-sm tracking-widest" style="border-color:#f59e0b; color:#f59e0b;">Try Again</button>
             </div>
 
-            <!-- ── Result ─────────────────────────────────────────────────────────── -->
+            <!-- ── Result ─────────────────────────────────────────────────────────────────── -->
             <div x-show="report" x-transition>
 
                 <!-- ✅ OK -->
