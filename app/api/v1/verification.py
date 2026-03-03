@@ -142,10 +142,13 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
                 "hash":            seg.sha256_hash,
                 "hash_calculated": latest_verification.computed_hash,
                 "hash_expected":   seg.sha256_hash,
-                # ── fix: expose hash_match so the frontend L1 badge renders correctly ──
                 "hash_match":      latest_verification.hash_match,
                 "signature_valid": latest_verification.signature_valid,
                 "verified_at":     latest_verification.verified_at.isoformat() if latest_verification.verified_at else None,
+                # L2 fields not persisted in DB — will be None when loading from historical report
+                "merkle_match":    None,
+                "second_results":  None,
+                "tampered_frames": {},
             }
         else:
             segment_data = {
@@ -159,6 +162,9 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
                 "hash_match":      None,
                 "signature_valid": None,
                 "verified_at":     None,
+                "merkle_match":    None,
+                "second_results":  None,
+                "tampered_frames": {},
             }
         segments_detail.append(segment_data)
     missing_segments = total_segments - (passed_segments + failed_segments)
@@ -189,6 +195,7 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
         "created_at":    video.created_at.isoformat() if video.created_at else None,
         "integrity_ok":  integrity_ok,
         "verdict":       verdict,
+        "ecdsa_available": False,  # not tracked at report level; use segment.signature_valid
         "summary": {
             "total_segments": total_segments,
             "passed":         passed_segments,
@@ -315,7 +322,7 @@ def export_verifications(
     )
 
 
-# ── 3. Upload síncrono (sin cambios) ───────────────────────────────────
+# ── 3. Upload síncrono ─────────────────────────────────────────────
 
 @router.post(
     "/upload",
@@ -367,16 +374,11 @@ async def upload_and_verify(
             pass
 
 
-# ── 3b. Upload asíncrono con progreso (NUEVO) ───────────────────────────
+# ── 3b. Upload asíncrono con progreso ─────────────────────────────────
 
 @router.post(
     "/upload_async",
     summary="Subir video para verificación (asíncrono con progreso)",
-    description="""
-Equivalente a `/upload` pero devuelve un `job_id` inmediatamente (HTTP 202).
-Usa `GET /verification/jobs/{job_id}` para consultar el progreso cada ~1 s.
-Cuando `status == 'done'` recupera el reporte con `GET /verification/report/{video_id}`.
-    """,
     status_code=202,
 )
 async def upload_and_verify_async(
@@ -387,7 +389,6 @@ async def upload_and_verify_async(
     db:          Session    = Depends(get_db),
     current_user            = Depends(require_analyst)
 ):
-    # ── Validación rápida antes de soltar el hilo ────────────────────────
     if video.size is not None and video.size > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Fichero demasiado grande. Máximo: 2 GB")
     ext = _validate_video_file(video)
@@ -403,14 +404,11 @@ async def upload_and_verify_async(
     if not video_db:
         raise HTTPException(status_code=404, detail="Video no encontrado en BD")
 
-    # ── Guardar fichero en disco antes de lanzar el hilo ─────────────────
-    # (el file-object del UploadFile no es accesible desde otro hilo)
     temp_dir   = tempfile.mkdtemp(prefix="evideth_async_")
     video_path = os.path.join(temp_dir, f"upload{ext}")
     with open(video_path, "wb") as f:
         shutil.copyfileobj(video.file, f)
 
-    # ── Crear job y capturar datos immutables del request ─────────────────
     job_id     = str(uuid4())
     user_id    = str(current_user.id)
     ip_address = request.client.host if request.client else None
@@ -420,10 +418,6 @@ async def upload_and_verify_async(
     JOB_STORE.update(job_id, status="running", progress=1, message="File saved, starting analysis…")
 
     def run_job():
-        """
-        Background thread: abre su propia sesión DB para que el
-        cierre de la sesión del request no afecte al procesado.
-        """
         bg_db = SessionLocal()
         try:
             def cb(pct: int, msg: str):
@@ -439,17 +433,57 @@ async def upload_and_verify_async(
                 user_agent=user_agent,
                 progress_cb=cb,
             )
+
+            # ── Build full enriched report ─────────────────────────────────────
+            # second_results, tampered_frames and merkle_match are computed
+            # in memory inside verify_video() and are NOT persisted to DB.
+            # We must carry them through the job result so the frontend can
+            # render the per-second timeline and the frame comparison panel.
+            video_record = bg_db.query(Video).filter(Video.id == video_db_id).first()
+            full_report = {
+                "video_id":        report["video_id"],
+                "camera_id":       report["camera_id"],
+                "integrity_ok":    report["integrity_ok"],
+                "verdict":         report["verdict"],
+                "ecdsa_available": report.get("ecdsa_available", False),
+                "summary":         report["summary"],
+                "verified_at":     report["verified_at"],
+                "filename":        video_record.filename if video_record else None,
+                "duration_secs":   video_record.duration_secs if video_record else None,
+                "created_at":      (
+                    video_record.created_at.isoformat()
+                    if video_record and video_record.created_at else None
+                ),
+                "segments": [
+                    {
+                        "segment_index":  s["segment_index"],
+                        "start_time_secs": s.get("start_time_secs"),
+                        "end_time_secs":   s.get("end_time_secs"),
+                        "result":          s["result"],
+                        # Normalise field names to match _build_verification_report_data
+                        "hash":            s.get("stored_hash"),
+                        "hash_calculated": s.get("computed_hash"),
+                        "hash_expected":   s.get("stored_hash"),
+                        "hash_match":      s.get("hash_match"),
+                        "signature_valid": s.get("signature_valid"),
+                        "verified_at":     report["verified_at"],
+                        # ── L2 transient data (not in DB) ──
+                        "merkle_match":    s.get("merkle_match"),
+                        "second_results":  s.get("second_results"),
+                        "tampered_frames": s.get("tampered_frames") or {},
+                    }
+                    for s in report.get("segments", [])
+                ],
+            }
+
             JOB_STORE.update(
                 job_id,
                 status="done",
                 progress=100,
                 message="Verification complete",
-                result={
-                    "video_id":     report.get("video_id"),
-                    "integrity_ok": report.get("integrity_ok"),
-                    "verdict":      report.get("verdict"),
-                },
+                result=full_report,
             )
+
         except Exception as exc:
             JOB_STORE.update(
                 job_id,
@@ -460,7 +494,6 @@ async def upload_and_verify_async(
             )
         finally:
             bg_db.close()
-            # Clean up temp files
             try:
                 os.remove(video_path)
                 os.rmdir(temp_dir)
@@ -472,23 +505,12 @@ async def upload_and_verify_async(
     return {"job_id": job_id, "status": "running", "message": "Verification started"}
 
 
-# ── 3c. Estado de un job asíncrono (NUEVO) ─────────────────────────────
-# IMPORTANTE: debe estar ANTES de /{verification_id} para evitar conflictos
-# de routing (FastAPI matchea rutas en orden de registro).
+# ── 3c. Estado de un job asíncrono ────────────────────────────────────
+# IMPORTANTE: debe estar ANTES de /{verification_id} para evitar conflictos de routing.
 
 @router.get(
     "/jobs/{job_id}",
     summary="Estado de verificación asíncrona",
-    description="""
-Devuelve el estado actual de un job lanzado con `POST /upload_async`.
-
-Campos:
-- `status`: `running` | `done` | `error`
-- `progress`: 0–100
-- `message`: descripción del paso actual
-- `result`: resumen del reporte (solo cuando `status == 'done'`)
-- `error`: mensaje de error (solo cuando `status == 'error'`)
-    """,
 )
 def get_job_status(
     job_id: str,
@@ -503,12 +525,17 @@ def get_job_status(
         "progress":   job.progress,
         "message":    job.message,
         "error":      job.error,
+        # Return the full enriched report when done so the frontend
+        # can use it directly without a second GET /report/{video_id} call.
         "result":     job.result if job.status == "done" else None,
         "updated_at": job.updated_at,
     }
 
 
-# ── 4. Reporte JSON ──────────────────────────────────────────────────
+# ── 4. Reporte JSON (historial / re-lectura desde BD) ──────────────────
+# Nota: este endpoint no incluye second_results/tampered_frames porque
+# esos campos son transitorios y no se persisten en BD. Para obtener el
+# reporte completo con datos L2 usa el resultado del job (/jobs/{job_id}).
 
 @router.get(
     "/report/{video_id}",
@@ -600,7 +627,7 @@ def verification_history(
     }
 
 
-# ── 6. Detalle de una verificación por ID (debe ir Último por el wildcard) ─
+# ── 6. Detalle de una verificación por ID (debe ir último por el wildcard) ─
 
 @router.get("/{verification_id}", summary="Obtener verificación por ID")
 def get_verification(
