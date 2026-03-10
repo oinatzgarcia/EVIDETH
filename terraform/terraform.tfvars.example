@@ -1,0 +1,29 @@
+# ─────────────────────────────────────────────────────────────
+# EVIDETH — terraform.tfvars.example
+# Copia este archivo: cp terraform.tfvars.example terraform.tfvars
+# Rellena los valores y NUNCA subas terraform.tfvars a git.
+# ─────────────────────────────────────────────────────────────
+
+project_name = "evideth"
+environment  = "dev"
+location     = "westeurope"   # Región más cercana a España
+
+# ── Base de datos ─────────────────────────────────────────────
+db_admin_user = "evidethadmin"
+db_name       = "evideth_db"      # Igual que DB_NAME en .env.example
+db_sku        = "B_Standard_B1ms" # ~10 EUR/mes en dev
+
+# ── Container App ─────────────────────────────────────────────
+backend_image_tag    = "latest"
+backend_cpu          = 0.5
+backend_memory       = "1Gi"
+backend_min_replicas = 1
+backend_max_replicas = 3
+
+# ── Secretos (¡CAMBIA ESTOS VALORES!) ────────────────────────
+# jwt_secret_key: mínimo 32 caracteres, generado aleatoriamente
+# Puedes generarlo con: openssl rand -hex 32
+jwt_secret_key = "CAMBIA-ESTO-openssl-rand-hex-32-AQUI"
+
+# CORS: en dev puedes usar * ; en prod pon tu dominio real
+allowed_origins = "*"
