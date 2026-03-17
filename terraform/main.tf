@@ -28,6 +28,13 @@ terraform {
 }
 
 provider "azurerm" {
+  # Desactivar el registro automático de Resource Providers.
+  # Las cuentas de estudiante (Azure for Students) no tienen permisos
+  # para registrar providers automáticamente.
+  # Los providers necesarios se registran manualmente antes del apply
+  # con: az provider register --namespace <nombre>
+  resource_provider_registrations = "none"
+
   features {
     key_vault {
       purge_soft_delete_on_destroy    = true
