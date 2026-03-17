@@ -153,14 +153,14 @@ resource "azurerm_container_app" "backend" {
         secret_name = "storage-connection-string"
       }
       env {
-        name  = "AZURE_STORAGE_CONTAINER_NAME"   # Igual que en .env.example
-        value = azurerm_storage_container.videos.name  # "evideth-videos"
+        name  = "AZURE_STORAGE_CONTAINER_NAME"
+        value = azurerm_storage_container.videos.name
       }
 
       # Criptografía ECDSA
       env {
         name  = "ECDSA_KEY_NAME"
-        value = "evideth-signing-key"   # Igual que ECDSA_KEY_NAME en .env.example
+        value = "evideth-signing-key"
       }
       env {
         name  = "HASH_ALGORITHM"
@@ -206,23 +206,22 @@ resource "azurerm_container_app" "backend" {
       }
 
       # ── Health checks ──────────────────────────────────────
-      # Ruta real del proyecto: /api/v1/health
-      # start_period=40s igual que el Dockerfile real
+      # interval_seconds es el argumento correcto en azurerm 3.x
+      # (period_seconds no existe en este provider)
       liveness_probe {
         transport               = "HTTP"
         path                    = "/api/v1/health"
         port                    = 8000
         initial_delay           = 40
-        period_seconds          = 30
+        interval_seconds        = 30
         failure_count_threshold = 3
       }
 
       readiness_probe {
-        transport     = "HTTP"
-        path          = "/api/v1/health"
-        port          = 8000
-        initial_delay = 10
-        period_seconds = 10
+        transport        = "HTTP"
+        path             = "/api/v1/health"
+        port             = 8000
+        interval_seconds = 10
       }
     }
 
