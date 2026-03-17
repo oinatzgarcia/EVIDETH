@@ -22,6 +22,10 @@ resource "azurerm_postgresql_flexible_server" "main" {
   administrator_login    = var.db_admin_user
   administrator_password = random_password.db_password.result
 
+  # REQUERIDO cuando se usa VNet/subnet delegada:
+  # no se puede tener acceso público Y red privada simultáneamente
+  public_network_access_enabled = false
+
   sku_name   = var.db_sku     # B_Standard_B1ms (~10 EUR/mes)
   storage_mb = 32768          # 32 GB
 
