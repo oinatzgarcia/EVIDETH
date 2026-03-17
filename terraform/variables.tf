@@ -5,6 +5,12 @@
 # Para producción usa terraform.tfvars o -var flags.
 # ─────────────────────────────────────────────────────────────
 
+# ── Azure ─────────────────────────────────────────────────
+variable "subscription_id" {
+  description = "ID de la suscripción Azure (requerido en Azure for Students)"
+  type        = string
+}
+
 variable "project_name" {
   description = "Nombre base del proyecto (usado en todos los nombres de recursos)"
   type        = string
@@ -28,7 +34,7 @@ variable "location" {
   default     = "westeurope"
 }
 
-# ── Base de datos ─────────────────────────────────────────────
+# ── Base de datos ───────────────────────────────────────────
 variable "db_admin_user" {
   description = "Usuario administrador de PostgreSQL Flexible Server"
   type        = string
@@ -48,7 +54,7 @@ variable "db_sku" {
   # Producción recomendado: "GP_Standard_D2s_v3"
 }
 
-# ── Container App ─────────────────────────────────────────────
+# ── Container App ─────────────────────────────────────────
 variable "backend_image_tag" {
   description = "Tag de la imagen Docker del backend en el ACR"
   type        = string
@@ -80,7 +86,7 @@ variable "backend_max_replicas" {
   default     = 3
 }
 
-# ── Secretos ─────────────────────────────────────────────────
+# ── Secretos ─────────────────────────────────────────────
 variable "jwt_secret_key" {
   description = "Clave secreta para JWT y SECRET_KEY de la app (mínimo 32 chars)"
   type        = string
@@ -94,7 +100,7 @@ variable "allowed_origins" {
   # Producción: "https://tudominio.com,https://www.tudominio.com"
 }
 
-# ── Locals ───────────────────────────────────────────────────
+# ── Locals ───────────────────────────────────────────────
 locals {
   common_tags = {
     Project     = var.project_name
