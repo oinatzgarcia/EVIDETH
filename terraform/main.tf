@@ -28,13 +28,9 @@ terraform {
 }
 
 provider "azurerm" {
-  # Suscripción Azure for Students — necesario especificarla
-  # explicitamente para evitar errores RequestDisallowedByAzure
+  # Suscripción Azure for Students — especificada explícitamente
+  # para evitar errores RequestDisallowedByAzure
   subscription_id = var.subscription_id
-
-  # Desactivar el registro automático de Resource Providers.
-  # Las cuentas de estudiante no tienen permisos para registrarlos.
-  resource_provider_registrations = "none"
 
   features {
     key_vault {
