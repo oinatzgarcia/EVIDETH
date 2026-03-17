@@ -37,6 +37,11 @@ provider "azurerm" {
       purge_soft_delete_on_destroy    = true
       recover_soft_deleted_key_vaults = true
     }
+    resource_group {
+      # Permite borrar el RG aunque contenga recursos no gestionados
+      # por Terraform (p.ej. storage accounts de prueba creados manualmente)
+      prevent_deletion_if_contains_resources = false
+    }
   }
 }
 
