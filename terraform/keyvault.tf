@@ -28,7 +28,13 @@ resource "azurerm_key_vault_access_policy" "terraform" {
   object_id    = data.azurerm_client_config.current.object_id
 
   secret_permissions = ["Get", "List", "Set", "Delete", "Purge", "Recover"]
-  key_permissions    = ["Get", "List", "Create", "Delete", "Sign", "Verify", "Update", "Purge", "Recover"]
+  # GetRotationPolicy es necesario para que Terraform pueda crear
+  # claves EC (ECDSA) sin error 403 ForbiddenByPolicy
+  key_permissions    = [
+    "Get", "List", "Create", "Delete",
+    "Sign", "Verify", "Update", "Purge", "Recover",
+    "GetRotationPolicy", "SetRotationPolicy"
+  ]
 }
 
 # ── Access Policy: Container App (Managed Identity) ──────────
@@ -44,7 +50,7 @@ resource "azurerm_key_vault_access_policy" "container_app" {
   depends_on = [azurerm_container_app.backend]
 }
 
-# ── Secretos en Key Vault ────────────────────────────────────
+# ── Secretos en Key Vault ──────────────────────────────────
 resource "azurerm_key_vault_secret" "jwt_secret" {
   name         = "jwt-secret-key"
   value        = var.jwt_secret_key
