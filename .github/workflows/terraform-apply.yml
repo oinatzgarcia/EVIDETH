@@ -21,7 +21,7 @@ jobs:
   apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
-    environment: production  # Requiere aprobación manual si está configurado
+    # environment: production  # Eliminado — causaba mismatch en OIDC subject
 
     steps:
       - name: Checkout
