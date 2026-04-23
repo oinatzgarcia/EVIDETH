@@ -11,23 +11,21 @@ on:
     paths:
       - 'terraform/**'
       - '.github/workflows/terraform-*.yml'
-  workflow_dispatch:  # Permite ejecución manual desde la UI de GitHub
+  workflow_dispatch:
 
 permissions:
-  id-token: write   # Necesario para generar el token OIDC
+  id-token: write
   contents: read
 
 jobs:
   apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
-    # environment: production  # Eliminado — causaba mismatch en OIDC subject
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Login a Azure usando OIDC — sin CLIENT_SECRET
       - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -52,6 +50,23 @@ jobs:
       - name: Terraform Validate
         working-directory: terraform/
         run: terraform validate
+
+      # Importa el Resource Group si ya existe en Azure pero no en el state
+      - name: Import existing Resource Group (if needed)
+        working-directory: terraform/
+        continue-on-error: true
+        run: |
+          terraform import \
+            -var="subscription_id=${{ vars.AZURE_SUBSCRIPTION_ID }}" \
+            -var="jwt_secret_key=${{ secrets.JWT_SECRET_KEY }}" \
+            -var="environment=dev" \
+            azurerm_resource_group.main \
+            /subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}/resourceGroups/evideth-dev-rg
+        env:
+          ARM_USE_OIDC: "true"
+          ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Terraform Plan
         working-directory: terraform/
