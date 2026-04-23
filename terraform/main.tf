@@ -20,7 +20,7 @@ terraform {
 
   # ── Backend remoto (descomenta cuando tengas el Storage Account de tfstate) ──
   # backend "azurerm" {
-  #   resource_group_name  = "evideth-tfstate-rg"
+  #   resource_group_name  = "rg-evideth"
   #   storage_account_name = "evidethtfstate"
   #   container_name       = "tfstate"
   #   key                  = "evideth.terraform.tfstate"
