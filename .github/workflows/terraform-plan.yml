@@ -1,0 +1,98 @@
+# ─────────────────────────────────────────────────────────────
+# EVIDETH — terraform-plan.yml
+# Ejecuta terraform plan en cada PR que toque terraform/
+# Usa OIDC (Workload Identity Federation) — sin secretos.
+# ─────────────────────────────────────────────────────────────
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches: [main, feature/terraform-infra]
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-*.yml'
+
+permissions:
+  id-token: write   # Necesario para generar el token OIDC
+  contents: read
+  pull-requests: write  # Para comentar el plan en el PR
+
+jobs:
+  plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Login a Azure usando OIDC — sin CLIENT_SECRET
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.5"
+
+      - name: Terraform Init
+        working-directory: terraform/
+        run: terraform init
+        env:
+          ARM_USE_OIDC: "true"
+          ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Validate
+        working-directory: terraform/
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: terraform/
+        run: terraform plan -no-color -out=tfplan 2>&1 | tee plan_output.txt
+        env:
+          ARM_USE_OIDC: "true"
+          ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_jwt_secret_key: ${{ secrets.JWT_SECRET_KEY }}
+          TF_VAR_environment: "dev"
+        continue-on-error: true
+
+      # Comenta el resultado del plan en el PR
+      - name: Comment Plan on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('terraform/plan_output.txt', 'utf8');
+            const status = '${{ steps.plan.outcome }}';
+            const icon = status === 'success' ? '✅' : '❌';
+            const body = `## ${icon} Terraform Plan — ${{ github.event.pull_request.head.ref }}
+
+            <details><summary>Ver plan completo</summary>
+
+            \`\`\`hcl
+            ${output.substring(0, 60000)}
+            \`\`\`
+            </details>
+
+            *Workflow: \`${{ github.workflow }}\` | Run: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Check Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
