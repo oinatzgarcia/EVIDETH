@@ -29,13 +29,12 @@ variable "environment" {
 }
 
 variable "location" {
-  description = "Región de Azure permitida en suscripción Azure for Students"
+  description = "Región de Azure permitida por la política sys.regionrestriction"
   type        = string
-  default     = "eastus"
-  # NOTA: westeurope está bloqueada por la política sys.regionrestriction
-  # de Azure for Students. Regiones permitidas verificadas: eastus, westus2,
-  # northeurope, swedencentral, westeurope (no disponible), uksouth.
-  # Usar eastus como región principal (más servicios disponibles).
+  default     = "spaincentral"
+  # Regiones permitidas verificadas en la suscripción Azure for Students:
+  # spaincentral | francecentral | switzerlandnorth | polandcentral | germanywestcentral
+  # Cualquier otra región (eastus, westeurope, northeurope...) devuelve 403 RequestDisallowedByAzure.
 }
 
 # ── Base de datos ─────────────────────────────────────
