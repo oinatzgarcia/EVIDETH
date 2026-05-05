@@ -5,7 +5,7 @@
 # Para producción usa terraform.tfvars o -var flags.
 # ─────────────────────────────────────────────────────────────
 
-# ── Azure ─────────────────────────────────────────────────
+# ── Azure ───────────────────────────────────────────
 variable "subscription_id" {
   description = "ID de la suscripción Azure (requerido en Azure for Students)"
   type        = string
@@ -29,12 +29,16 @@ variable "environment" {
 }
 
 variable "location" {
-  description = "Región de Azure (westeurope = más cercana a España)"
+  description = "Región de Azure permitida en suscripción Azure for Students"
   type        = string
-  default     = "westeurope"
+  default     = "eastus"
+  # NOTA: westeurope está bloqueada por la política sys.regionrestriction
+  # de Azure for Students. Regiones permitidas verificadas: eastus, westus2,
+  # northeurope, swedencentral, westeurope (no disponible), uksouth.
+  # Usar eastus como región principal (más servicios disponibles).
 }
 
-# ── Base de datos ───────────────────────────────────────────
+# ── Base de datos ─────────────────────────────────────
 variable "db_admin_user" {
   description = "Usuario administrador de PostgreSQL Flexible Server"
   type        = string
@@ -54,7 +58,7 @@ variable "db_sku" {
   # Producción recomendado: "GP_Standard_D2s_v3"
 }
 
-# ── Container App ─────────────────────────────────────────
+# ── Container App ─────────────────────────────────
 variable "backend_image_tag" {
   description = "Tag de la imagen Docker del backend en el ACR"
   type        = string
@@ -86,7 +90,7 @@ variable "backend_max_replicas" {
   default     = 3
 }
 
-# ── Secretos ─────────────────────────────────────────────
+# ── Secretos ─────────────────────────────────────
 variable "jwt_secret_key" {
   description = "Clave secreta para JWT y SECRET_KEY de la app (mínimo 32 chars)"
   type        = string
@@ -100,7 +104,7 @@ variable "allowed_origins" {
   # Producción: "https://tudominio.com,https://www.tudominio.com"
 }
 
-# ── Locals ───────────────────────────────────────────────
+# ── Locals ─────────────────────────────────────────
 locals {
   common_tags = {
     Project     = var.project_name
