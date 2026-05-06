@@ -1,0 +1,70 @@
+# ─────────────────────────────────────────────────────────────
+# EVIDETH — build-push.yml
+# Construye la imagen Docker del backend y la sube al ACR.
+# Se ejecuta en push a main (cambios en app/ o Dockerfile)
+# y puede ser llamado por otros workflows (workflow_call).
+# Usa OIDC — sin secretos de contraseña en GitHub.
+# ─────────────────────────────────────────────────────────────
+name: Build & Push Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - 'alembic/**'
+      - 'alembic.ini'
+      - '.github/workflows/build-push.yml'
+  workflow_call:          # permite que terraform-apply.yml lo llame
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ACR_NAME: evidethdevacr94f04b
+  IMAGE_NAME: evideth-backend
+  IMAGE_TAG: latest
+
+jobs:
+  build-push:
+    name: Build & Push to ACR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image digest
+        run: |
+          echo "✅ Image pushed:"
+          az acr repository show-tags \
+            --name ${{ env.ACR_NAME }} \
+            --repository ${{ env.IMAGE_NAME }} \
+            --output table

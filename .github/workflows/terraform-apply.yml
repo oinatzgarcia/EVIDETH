@@ -1,6 +1,7 @@
 # ─────────────────────────────────────────────────────────────
 # EVIDETH — terraform-apply.yml
-# Ejecuta terraform apply al hacer push a main (solo terraform/)
+# 1. Llama a build-push para asegurar que la imagen existe en ACR
+# 2. Ejecuta terraform apply
 # Usa OIDC (Workload Identity Federation) — sin secretos.
 # ─────────────────────────────────────────────────────────────
 name: Terraform Apply
@@ -18,9 +19,19 @@ permissions:
   contents: read
 
 jobs:
+  # ── Job 1: build y push de la imagen al ACR ──────────────────
+  build-push:
+    name: Build & Push Backend Image
+    uses: ./.github/workflows/build-push.yml
+    permissions:
+      id-token: write
+      contents: read
+
+  # ── Job 2: Terraform apply (espera a que la imagen exista) ───
   apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
+    needs: build-push          # <-- depende del job anterior
 
     env:
       ARM_USE_OIDC: "true"
@@ -57,7 +68,6 @@ jobs:
 
       # Plan y Apply en un solo paso para evitar que un tfplan
       # generado con region incorrecta sea reutilizado.
-      # -auto-approve es seguro porque el plan se genera en el mismo run.
       - name: Terraform Plan & Apply
         working-directory: terraform/
         run: |
