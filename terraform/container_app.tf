@@ -14,6 +14,24 @@ resource "azurerm_container_app_environment" "main" {
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
   infrastructure_subnet_id   = azurerm_subnet.app.id   # Necesario para alcanzar PG privado
   tags                       = local.common_tags
+
+  # Evitar que Terraform intente recrear el CAE por el campo
+  # infrastructure_resource_group_name que Azure gestiona solo
+  lifecycle {
+    ignore_changes = [infrastructure_resource_group_name]
+  }
+}
+
+# ── Espera propagación de identidad/permisos tras crear el CAE ──
+# Azure necesita ~30s para que la Managed Identity sea válida
+# y el Key Vault Access Policy esté activo antes de leer secretos.
+# Sin esta espera aparece el error 412 Precondition Failed.
+resource "time_sleep" "wait_for_identity" {
+  depends_on = [
+    azurerm_container_app_environment.main,
+    azurerm_key_vault_access_policy.terraform,
+  ]
+  create_duration = "30s"
 }
 
 # ── Connection string PostgreSQL (formato DATABASE_URL) ───────
@@ -206,8 +224,6 @@ resource "azurerm_container_app" "backend" {
       }
 
       # ── Health checks ──────────────────────────────────────
-      # interval_seconds es el argumento correcto en azurerm 3.x
-      # (period_seconds no existe en este provider)
       liveness_probe {
         transport               = "HTTP"
         path                    = "/api/v1/health"
@@ -236,8 +252,6 @@ resource "azurerm_container_app" "backend" {
   }
 
   # ── Ingress HTTPS público ─────────────────────────────────
-  # Expone el backend en internet para que la cámara local
-  # pueda conectar via HTTPS con su API Key
   ingress {
     external_enabled = true
     target_port      = 8000
@@ -254,13 +268,36 @@ resource "azurerm_container_app" "backend" {
   depends_on = [
     azurerm_postgresql_flexible_server_database.evideth,
     azurerm_key_vault_access_policy.terraform,
-    azurerm_storage_container.videos
+    azurerm_storage_container.videos,
+    # Espera a que la identidad y los permisos del CAE estén propagados
+    # antes de que Azure intente resolver los secrets (evita error 412)
+    time_sleep.wait_for_identity,
   ]
 }
 
 # ── Rol AcrPull: Container App puede descargar imágenes del ACR ──
+# NOTA: depende de la identidad del Container App ya creado
 resource "azurerm_role_assignment" "acr_pull" {
   principal_id         = azurerm_container_app.backend.identity[0].principal_id
   role_definition_name = "AcrPull"
   scope                = azurerm_container_registry.main.id
+
+  depends_on = [azurerm_container_app.backend]
+}
+
+# ── Access Policy para la Managed Identity del Container App ──
+# Se crea DESPUÉS del Container App (necesitamos el principal_id)
+resource "azurerm_key_vault_access_policy" "container_app" {
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_container_app.backend.identity[0].principal_id
+
+  key_permissions = [
+    "Get", "List", "Sign", "Verify",
+  ]
+  secret_permissions = [
+    "Get", "List",
+  ]
+
+  depends_on = [azurerm_container_app.backend]
 }
