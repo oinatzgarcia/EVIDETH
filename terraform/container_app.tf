@@ -12,11 +12,9 @@ resource "azurerm_container_app_environment" "main" {
   resource_group_name        = azurerm_resource_group.main.name
   location                   = azurerm_resource_group.main.location
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
-  infrastructure_subnet_id   = azurerm_subnet.app.id   # Necesario para alcanzar PG privado
+  infrastructure_subnet_id   = azurerm_subnet.app.id
   tags                       = local.common_tags
 
-  # Evitar que Terraform intente recrear el CAE por el campo
-  # infrastructure_resource_group_name que Azure gestiona solo
   lifecycle {
     ignore_changes = [infrastructure_resource_group_name]
   }
@@ -25,7 +23,6 @@ resource "azurerm_container_app_environment" "main" {
 # ── Espera propagación de identidad/permisos tras crear el CAE ──
 # Azure necesita ~30s para que la Managed Identity sea válida
 # y el Key Vault Access Policy esté activo antes de leer secretos.
-# Sin esta espera aparece el error 412 Precondition Failed.
 resource "time_sleep" "wait_for_identity" {
   depends_on = [
     azurerm_container_app_environment.main,
@@ -35,8 +32,6 @@ resource "time_sleep" "wait_for_identity" {
 }
 
 # ── Connection string PostgreSQL (formato DATABASE_URL) ───────
-# Formato: postgresql://user:pass@host:5432/db?sslmode=require
-# Igual que DATABASE_URL en .env.example
 locals {
   db_connection_string = "postgresql://${var.db_admin_user}:${random_password.db_password.result}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/${var.db_name}?sslmode=require"
 }
@@ -48,19 +43,20 @@ resource "azurerm_container_app" "backend" {
   resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Single"
 
-  # Managed Identity: acceso a Key Vault y ACR sin credenciales hardcodeadas
   identity {
     type = "SystemAssigned"
   }
 
-  # ── Autenticación con ACR ─────────────────────────────────
+  # ── Autenticación con ACR via admin credentials (secret) ────
+  # No requiere Microsoft.Authorization/roleAssignments/write
+  # El SP de GitHub Actions no tiene ese permiso en Azure for Students
   registry {
     server               = azurerm_container_registry.main.login_server
     username             = azurerm_container_registry.main.admin_username
     password_secret_name = "acr-password"
   }
 
-  # ── Secrets (valores sensibles — no aparecen en logs) ─────
+  # ── Secrets ─────────────────────────────────────────────
   secret {
     name  = "acr-password"
     value = azurerm_container_registry.main.admin_password
@@ -88,10 +84,6 @@ resource "azurerm_container_app" "backend" {
       cpu    = var.backend_cpu
       memory = var.backend_memory
 
-      # ── Variables de entorno ────────────────────────────────
-      # Nombres EXACTOS del .env.example del proyecto
-
-      # App
       env {
         name  = "APP_NAME"
         value = "EVIDETH"
@@ -109,7 +101,6 @@ resource "azurerm_container_app" "backend" {
         value = var.environment == "prod" ? "False" : "True"
       }
 
-      # Auth
       env {
         name        = "SECRET_KEY"
         secret_name = "jwt-secret-key"
@@ -131,7 +122,6 @@ resource "azurerm_container_app" "backend" {
         value = "7"
       }
 
-      # Base de datos (DATABASE_URL y variables individuales)
       env {
         name        = "DATABASE_URL"
         secret_name = "database-url"
@@ -153,7 +143,6 @@ resource "azurerm_container_app" "backend" {
         value = var.db_admin_user
       }
 
-      # Azure Key Vault — autenticación via Managed Identity
       env {
         name  = "AZURE_KEY_VAULT_URL"
         value = azurerm_key_vault.main.vault_uri
@@ -162,10 +151,7 @@ resource "azurerm_container_app" "backend" {
         name  = "AZURE_TENANT_ID"
         value = data.azurerm_client_config.current.tenant_id
       }
-      # AZURE_CLIENT_ID es inyectado automáticamente por Azure con Managed Identity
-      # NO usar AZURE_CLIENT_SECRET con Managed Identity (más seguro)
 
-      # Azure Blob Storage
       env {
         name        = "AZURE_STORAGE_CONNECTION_STRING"
         secret_name = "storage-connection-string"
@@ -175,7 +161,6 @@ resource "azurerm_container_app" "backend" {
         value = azurerm_storage_container.videos.name
       }
 
-      # Criptografía ECDSA
       env {
         name  = "ECDSA_KEY_NAME"
         value = "evideth-signing-key"
@@ -189,7 +174,6 @@ resource "azurerm_container_app" "backend" {
         value = "30"
       }
 
-      # Procesamiento de vídeo
       env {
         name  = "MAX_VIDEO_SIZE_MB"
         value = "500"
@@ -207,7 +191,6 @@ resource "azurerm_container_app" "backend" {
         value = "mp4,avi,mov,mkv"
       }
 
-      # CORS
       env {
         name  = "CORS_ORIGINS"
         value = var.allowed_origins
@@ -217,13 +200,11 @@ resource "azurerm_container_app" "backend" {
         value = "True"
       }
 
-      # Logging
       env {
         name  = "LOG_LEVEL"
         value = var.environment == "prod" ? "WARNING" : "INFO"
       }
 
-      # ── Health checks ──────────────────────────────────────
       liveness_probe {
         transport               = "HTTP"
         path                    = "/api/v1/health"
@@ -241,7 +222,6 @@ resource "azurerm_container_app" "backend" {
       }
     }
 
-    # ── Autoescalado por peticiones HTTP concurrentes ────────
     custom_scale_rule {
       name             = "http-scaling"
       custom_rule_type = "http"
@@ -251,7 +231,6 @@ resource "azurerm_container_app" "backend" {
     }
   }
 
-  # ── Ingress HTTPS público ─────────────────────────────────
   ingress {
     external_enabled = true
     target_port      = 8000
@@ -269,35 +248,19 @@ resource "azurerm_container_app" "backend" {
     azurerm_postgresql_flexible_server_database.evideth,
     azurerm_key_vault_access_policy.terraform,
     azurerm_storage_container.videos,
-    # Espera a que la identidad y los permisos del CAE estén propagados
-    # antes de que Azure intente resolver los secrets (evita error 412)
     time_sleep.wait_for_identity,
   ]
 }
 
-# ── Rol AcrPull: Container App puede descargar imágenes del ACR ──
-# NOTA: depende de la identidad del Container App ya creado
-resource "azurerm_role_assignment" "acr_pull" {
-  principal_id         = azurerm_container_app.backend.identity[0].principal_id
-  role_definition_name = "AcrPull"
-  scope                = azurerm_container_registry.main.id
-
-  depends_on = [azurerm_container_app.backend]
-}
-
 # ── Access Policy para la Managed Identity del Container App ──
-# Se crea DESPUÉS del Container App (necesitamos el principal_id)
+# Permite al backend leer secretos y firmar con ECDSA desde Key Vault
 resource "azurerm_key_vault_access_policy" "container_app" {
   key_vault_id = azurerm_key_vault.main.id
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = azurerm_container_app.backend.identity[0].principal_id
 
-  key_permissions = [
-    "Get", "List", "Sign", "Verify",
-  ]
-  secret_permissions = [
-    "Get", "List",
-  ]
+  key_permissions    = ["Get", "List", "Sign", "Verify"]
+  secret_permissions = ["Get", "List"]
 
   depends_on = [azurerm_container_app.backend]
 }
