@@ -16,9 +16,15 @@ terraform {
       source  = "hashicorp/random"
       version = ">= 3.4.0"
     }
+    # Necesario para time_sleep: evita error 412 al crear Container App
+    # esperando propagación de identidad y permisos de Key Vault
+    time = {
+      source  = "hashicorp/time"
+      version = ">= 0.9.0"
+    }
   }
 
-  # ── Backend remoto: estado guardado en Azure Storage ──────────
+  # ── Backend remoto: estado guardado en Azure Storage ────────────
   backend "azurerm" {
     resource_group_name  = "rg-evideth"
     storage_account_name = "evidethtfstate"
