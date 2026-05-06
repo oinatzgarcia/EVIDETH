@@ -37,20 +37,11 @@ resource "azurerm_key_vault_access_policy" "terraform" {
   ]
 }
 
-# ── Access Policy: Container App (Managed Identity) ──────────
-# Solo lectura de secretos y operaciones de firma ECDSA
-resource "azurerm_key_vault_access_policy" "container_app" {
-  key_vault_id = azurerm_key_vault.main.id
-  tenant_id    = data.azurerm_client_config.current.tenant_id
-  object_id    = azurerm_container_app.backend.identity[0].principal_id
+# NOTA: azurerm_key_vault_access_policy.container_app se define en
+# container_app.tf para poder referenciar la Managed Identity del
+# Container App en el mismo fichero donde se crea.
 
-  secret_permissions = ["Get", "List"]
-  key_permissions    = ["Get", "List", "Sign", "Verify"]
-
-  depends_on = [azurerm_container_app.backend]
-}
-
-# ── Secretos en Key Vault ──────────────────────────────────
+# ── Secretos en Key Vault ────────────────────────────────────
 resource "azurerm_key_vault_secret" "jwt_secret" {
   name         = "jwt-secret-key"
   value        = var.jwt_secret_key
@@ -58,7 +49,7 @@ resource "azurerm_key_vault_secret" "jwt_secret" {
   depends_on   = [azurerm_key_vault_access_policy.terraform]
 }
 
-# ── Clave ECDSA P-256 para firma de segmentos ────────────────
+# ── Clave ECDSA P-256 para firma de segmentos ──────────────────
 # Las cámaras la usan para firmar; el backend para verificar
 resource "azurerm_key_vault_key" "ecdsa_signing" {
   name         = "evideth-signing-key"   # Igual que ECDSA_KEY_NAME en .env.example
