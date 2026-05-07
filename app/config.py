@@ -16,11 +16,15 @@ class Settings(BaseSettings):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS:   int = 7
 
-    # Azure
+    # Azure Key Vault
     AZURE_KEY_VAULT_URL:    str = ""
     AZURE_CLIENT_ID:        str = ""
     AZURE_CLIENT_SECRET:    str = ""
     AZURE_TENANT_ID:        str = ""
+
+    # Azure Blob Storage
+    AZURE_STORAGE_CONNECTION_STRING: str = ""
+    AZURE_BLOB_CONTAINER:            str = "evideth-videos"
 
     class Config:
         env_file = ".env"
