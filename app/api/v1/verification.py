@@ -13,6 +13,7 @@ from app.db.models import Video, Camera, Verification, Segment, VerificationResu
 from app.core.dependencies import require_analyst
 from app.services.verifier import verify_video
 from app.services.job_store import JOB_STORE
+from app.services.azure_blob import upload_video as blob_upload, generate_sas_url
 from app.schemas.verification import VerificationReport
 from app.utils.pdf_generator import ForensicPDFGenerator
 
@@ -40,6 +41,13 @@ ALLOWED_MIMETYPES = {
 }
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024   # 2 GB
 MAGIC_READ_BYTES = 2048
+
+
+# ── Helper: blob name convention ─────────────────────────────────────────
+
+def _blob_name(camera_id: str, video_db_id: str, ext: str) -> str:
+    """Canonical blob path: cameras/<camera_id>/<video_db_id><ext>"""
+    return f"cameras/{camera_id}/{video_db_id}{ext}"
 
 
 # ── Helper: valida extensión + magic bytes ────────────────────────────
@@ -186,6 +194,12 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
         )
         if latest_verif and latest_verif.verified_at:
             latest_verification_time = latest_verif.verified_at.isoformat()
+
+    # Generate a short-lived SAS URL if the video was persisted in Azure Blob
+    blob_sas_url = None
+    if getattr(video, "blob_name", None):
+        blob_sas_url = generate_sas_url(video.blob_name, expiry_hours=1)
+
     return {
         "video_id":      video_id,
         "camera_id":     camera.camera_id if camera else None,
@@ -196,6 +210,7 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
         "integrity_ok":  integrity_ok,
         "verdict":       verdict,
         "ecdsa_available": False,  # not tracked at report level; use segment.signature_valid
+        "blob_sas_url":  blob_sas_url,
         "summary": {
             "total_segments": total_segments,
             "passed":         passed_segments,
@@ -360,6 +375,12 @@ async def upload_and_verify(
             ip_address=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent"),
         )
+        # ── Persist to Azure Blob Storage (best-effort, non-blocking) ──
+        blob_name = _blob_name(camera_id, video_db_id, ext)
+        blob_url  = blob_upload(video_path, blob_name)
+        if blob_url and hasattr(video_db, "blob_name"):
+            video_db.blob_name = blob_name
+            db.commit()
         return report
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -413,6 +434,7 @@ async def upload_and_verify_async(
     user_id    = str(current_user.id)
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
+    blob_name  = _blob_name(camera_id, video_db_id, ext)
 
     JOB_STORE.create(job_id)
     JOB_STORE.update(job_id, status="running", progress=1, message="File saved, starting analysis…")
@@ -434,11 +456,16 @@ async def upload_and_verify_async(
                 progress_cb=cb,
             )
 
+            # ── Persist to Azure Blob Storage ──────────────────────────────
+            cb(97, "Uploading video to Azure Blob Storage…")
+            blob_url = blob_upload(video_path, blob_name)
+            if blob_url:
+                video_record_upd = bg_db.query(Video).filter(Video.id == video_db_id).first()
+                if video_record_upd and hasattr(video_record_upd, "blob_name"):
+                    video_record_upd.blob_name = blob_name
+                    bg_db.commit()
+
             # ── Build full enriched report ─────────────────────────────────────
-            # second_results, tampered_frames and merkle_match are computed
-            # in memory inside verify_video() and are NOT persisted to DB.
-            # We must carry them through the job result so the frontend can
-            # render the per-second timeline and the frame comparison panel.
             video_record = bg_db.query(Video).filter(Video.id == video_db_id).first()
             full_report = {
                 "video_id":        report["video_id"],
@@ -450,6 +477,7 @@ async def upload_and_verify_async(
                 "verified_at":     report["verified_at"],
                 "filename":        video_record.filename if video_record else None,
                 "duration_secs":   video_record.duration_secs if video_record else None,
+                "blob_url":        blob_url,
                 "created_at":      (
                     video_record.created_at.isoformat()
                     if video_record and video_record.created_at else None
@@ -460,7 +488,6 @@ async def upload_and_verify_async(
                         "start_time_secs": s.get("start_time_secs"),
                         "end_time_secs":   s.get("end_time_secs"),
                         "result":          s["result"],
-                        # Normalise field names to match _build_verification_report_data
                         "hash":            s.get("stored_hash"),
                         "hash_calculated": s.get("computed_hash"),
                         "hash_expected":   s.get("stored_hash"),
@@ -506,7 +533,6 @@ async def upload_and_verify_async(
 
 
 # ── 3c. Estado de un job asíncrono ────────────────────────────────────
-# IMPORTANTE: debe estar ANTES de /{verification_id} para evitar conflictos de routing.
 
 @router.get(
     "/jobs/{job_id}",
@@ -525,17 +551,12 @@ def get_job_status(
         "progress":   job.progress,
         "message":    job.message,
         "error":      job.error,
-        # Return the full enriched report when done so the frontend
-        # can use it directly without a second GET /report/{video_id} call.
         "result":     job.result if job.status == "done" else None,
         "updated_at": job.updated_at,
     }
 
 
-# ── 4. Reporte JSON (historial / re-lectura desde BD) ──────────────────
-# Nota: este endpoint no incluye second_results/tampered_frames porque
-# esos campos son transitorios y no se persisten en BD. Para obtener el
-# reporte completo con datos L2 usa el resultado del job (/jobs/{job_id}).
+# ── 4. Reporte JSON ──────────────────────────────────────────────────
 
 @router.get(
     "/report/{video_id}",
@@ -627,7 +648,7 @@ def verification_history(
     }
 
 
-# ── 6. Detalle de una verificación por ID (debe ir último por el wildcard) ─
+# ── 6. Detalle de una verificación por ID ────────────────────────────
 
 @router.get("/{verification_id}", summary="Obtener verificación por ID")
 def get_verification(
