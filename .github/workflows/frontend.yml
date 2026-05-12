@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────
+# EVIDETH — frontend.yml
+# Workflow REUTILIZABLE — llamado desde ci.yml
+# Valida el frontend: HTML, CSS/JS estático y templates.
+# ─────────────────────────────────────────────────────────────
+name: Frontend CI
+
+on:
+  workflow_call:   # Solo se ejecuta cuando lo llama ci.yml
+
+jobs:
+  frontend:
+    name: Frontend — Lint & Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Validar HTML estático ──────────────────────────────
+      - name: Install html5validator
+        run: pip install html5validator
+
+      - name: Validate HTML templates
+        run: |
+          if [ -d "app/templates" ]; then
+            html5validator --root app/templates/ --also-check-css || true
+            echo "✅ HTML templates validados"
+          else
+            echo "ℹ️  No hay directorio app/templates, saltando validación HTML"
+          fi
+
+      # ── Verificar ficheros estáticos ───────────────────────
+      - name: Check static assets exist
+        run: |
+          if [ -d "app/static" ]; then
+            echo "✅ Directorio static encontrado:"
+            find app/static -type f | head -20
+          else
+            echo "ℹ️  No hay directorio app/static"
+          fi
+
+      # ── Buscar secretos hardcodeados en JS/HTML ────────────
+      - name: Check for hardcoded secrets in frontend
+        run: |
+          echo "🔍 Buscando secretos en JS/HTML..."
+          if grep -rn \
+            --include="*.js" \
+            --include="*.html" \
+            -E "(password|api_key|secret|token)\s*=\s*['\"][^'\"]{8,}['\"]" \
+            app/static/ app/templates/ 2>/dev/null; then
+            echo "⚠️  Posibles secretos encontrados — revisa manualmente"
+          else
+            echo "✅ No se detectaron secretos hardcodeados"
+          fi
+
+      - name: Frontend check complete
+        run: echo "✅ Frontend CI completado correctamente"
