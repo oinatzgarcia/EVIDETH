@@ -28,47 +28,32 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
 .logo-glow:hover{filter:drop-shadow(0 0 15px rgba(74,144,226,.7))}
 ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:#000}
 ::-webkit-scrollbar-thumb{background:#4a90e2;border-radius:4px}
-
-/* Video */
 #videoCanvas{display:block;width:100%;height:100%;background:#000}
 .video-wrapper{position:relative;width:100%;aspect-ratio:16/9;background:#000;overflow:hidden;border:1px solid rgba(74,144,226,.3)}
 .video-overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
-
-/* REC */
 .rec-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(0,0,0,.7);border:1px solid rgba(239,68,68,.5);font-family:'Space Mono',monospace;font-size:11px;color:#ef4444;letter-spacing:.1em}
 .rec-dot{width:8px;height:8px;border-radius:50%;background:#ef4444;animation:recPulse 1s ease-in-out infinite}
 @keyframes recPulse{0%,100%{opacity:1}50%{opacity:.3}}
-
-/* Scanline */
 .scanline{position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(to right,transparent,rgba(74,144,226,.4),transparent);animation:scan 3s linear infinite;pointer-events:none}
 @keyframes scan{0%{top:0%}100%{top:100%}}
-
-/* Log */
 .log-console{font-family:'Space Mono',monospace;font-size:11px;line-height:1.8;height:180px;overflow-y:auto;padding:12px 16px;background:#000;border:1px solid rgba(74,144,226,.15)}
 .log-console::-webkit-scrollbar{width:4px}
 .log-console::-webkit-scrollbar-thumb{background:#2c5f8d}
 .log-ok{color:#4a90e2}.log-hash{color:#5ba3f5}.log-sign{color:#d2a8ff}
 .log-err{color:#ef4444}.log-info{color:#9ca3af}.log-success{color:#3fb950}
-
-/* Seg dots */
 .seg-dot{width:14px;height:14px;border-radius:2px;flex-shrink:0}
 .seg-dot.valid{background:rgba(74,144,226,.35);border:1px solid rgba(74,144,226,.5)}
 .seg-dot.invalid{background:rgba(239,68,68,.35);border:1px solid rgba(239,68,68,.5)}
-
-/* Buttons */
 .btn{display:flex;align-items:center;gap:8px;padding:12px 28px;border:1px solid #4a90e2;background:rgba(74,144,226,.08);color:#4a90e2;font-family:'Space Mono',monospace;font-size:12px;letter-spacing:.08em;cursor:pointer;transition:all .2s}
 .btn:hover{background:rgba(74,144,226,.18);box-shadow:0 0 16px rgba(74,144,226,.25)}
 .btn-stop{border-color:#ef4444;background:rgba(239,68,68,.08);color:#ef4444}
 .btn-stop:hover{background:rgba(239,68,68,.18)}
-.btn-dl{border-color:#3fb950;background:rgba(63,185,80,.08);color:#3fb950}
+.btn-dl{border-color:#3fb950;background:rgba(63,185,80,.08);color:#3fb950;text-decoration:none}
 .btn-dl:hover{background:rgba(63,185,80,.18)}
 .btn-reset{border-color:#374151;background:transparent;color:#6b7280}
 .btn-reset:hover{border-color:#6b7280;color:#9ca3af}
 .btn-disabled{border-color:#1f2937;background:transparent;color:#1f2937;cursor:not-allowed;pointer-events:none}
-
-/* Video ID banner */
 .video-id-banner{border:1px solid rgba(74,144,226,.4);background:rgba(74,144,226,.06);padding:16px 20px}
-
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 .animate-float{animation:float 6s ease-in-out infinite}
 @keyframes pulseSubtle{0%,100%{opacity:.6}50%{opacity:1}}
@@ -78,7 +63,6 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
 
 <body class="subtle-grid" x-data="viewerApp()" x-init="init()">
 
-<!-- HEADER -->
 <header class="border-b" style="border-color:#2c5f8d;background:#000">
   <div class="max-w-6xl mx-auto px-6">
     <div class="flex items-center justify-between h-18 py-3">
@@ -102,10 +86,8 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
   </div>
 </header>
 
-
 <main class="max-w-6xl mx-auto px-6 py-8">
 
-  <!-- Title -->
   <div class="mb-8 text-center">
     <div class="flex items-center justify-center gap-2 font-mono text-xs mb-2" style="color:#5ba3f5">
       <span class="w-10 h-px" style="background:linear-gradient(to right,transparent,#4a90e2)"></span>
@@ -115,12 +97,11 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
     <h2 class="text-4xl font-bold tracking-wider" style="color:#fff">Camera <span class="text-glow" style="color:#4a90e2">Live Viewer</span></h2>
   </div>
 
-
-  <!-- VIDEO ID BANNER (visible tras sesión) -->
+  <!-- VIDEO ID + DOWNLOAD BANNER -->
   <div x-show="videoId" x-transition class="video-id-banner mb-6">
     <div class="flex items-center justify-between flex-wrap gap-4">
       <div>
-        <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280">Video ID registrado en el servidor</p>
+        <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280">Video ID — úsalo en el servidor para verificar</p>
         <div class="flex items-center gap-3">
           <p class="font-mono text-xl font-bold" style="color:#4a90e2" x-text="videoId"></p>
           <button @click="copyVideoId()"
@@ -131,22 +112,26 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
             <span x-text="copiedId ? 'Copiado!' : 'Copiar'"></span>
           </button>
         </div>
-        <p class="font-mono text-[10px] mt-1" style="color:#4b5563">Usa este ID en el dashboard del servidor para verificar la integridad del vídeo</p>
       </div>
-      <div x-show="downloadUrl" class="flex items-center gap-2">
-        <a :href="downloadUrl" :download="'evideth_' + videoId + '.webm'"
-           class="btn btn-dl">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-          <span>Descargar Vídeo</span>
-        </a>
+      <!-- DOWNLOAD BUTTON -->
+      <div class="flex items-center gap-3">
+        <template x-if="downloadUrl">
+          <a :href="downloadUrl" :download="downloadFilename" class="btn btn-dl">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            <span>Descargar Vídeo</span>
+          </a>
+        </template>
+        <template x-if="!downloadUrl && !streaming && videoId">
+          <div class="flex items-center gap-2 px-4 py-3 border font-mono text-[10px]" style="border-color:#374151;color:#6b7280">
+            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>
+            <span>Preparando vídeo...</span>
+          </div>
+        </template>
       </div>
     </div>
   </div>
 
-
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-    <!-- LEFT: Video + config + controls -->
     <div class="lg:col-span-2 space-y-5">
 
       <!-- Config -->
@@ -156,7 +141,7 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
           <div>
             <label class="block font-mono text-[10px] tracking-widest uppercase mb-1.5" style="color:#6b7280">Camera ID <span style="color:#ef4444">*</span></label>
             <input type="text" x-model="config.cameraId" :disabled="streaming"
-                   class="w-full bg-black border px-3 py-2.5 font-mono text-sm focus:outline-none transition-colors"
+                   class="w-full bg-black border px-3 py-2.5 font-mono text-sm focus:outline-none"
                    style="border-color:#2c5f8d;color:#e5e7eb"
                    onfocus="this.style.borderColor='#4a90e2'" onblur="this.style.borderColor='#2c5f8d'"
                    placeholder="CAM-LOBBY-01" />
@@ -164,7 +149,7 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
           <div>
             <label class="block font-mono text-[10px] tracking-widest uppercase mb-1.5" style="color:#6b7280">API Key <span style="color:#ef4444">*</span></label>
             <input type="password" x-model="config.apiKey" :disabled="streaming"
-                   class="w-full bg-black border px-3 py-2.5 font-mono text-sm focus:outline-none transition-colors"
+                   class="w-full bg-black border px-3 py-2.5 font-mono text-sm focus:outline-none"
                    style="border-color:#2c5f8d;color:#e5e7eb"
                    onfocus="this.style.borderColor='#4a90e2'" onblur="this.style.borderColor='#2c5f8d'"
                    placeholder="evideth_cam_..." />
@@ -211,11 +196,8 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
         <canvas id="videoCanvas" width="1280" height="720"></canvas>
         <template x-if="streaming"><div class="scanline"></div></template>
         <div class="video-overlay p-3 flex flex-col justify-between">
-          <!-- Top -->
           <div class="flex items-center justify-between">
-            <template x-if="streaming">
-              <div class="rec-badge"><div class="rec-dot"></div><span>REC</span></div>
-            </template>
+            <template x-if="streaming"><div class="rec-badge"><div class="rec-dot"></div><span>REC</span></div></template>
             <template x-if="!streaming && segments.length === 0">
               <div class="px-3 py-1.5" style="background:rgba(0,0,0,.6);border:1px solid rgba(74,144,226,.2)">
                 <span class="font-mono text-xs" style="color:#6b7280">STANDBY</span>
@@ -228,7 +210,6 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
             </template>
             <span class="font-mono text-xs px-2 py-1" style="background:rgba(0,0,0,.6);color:#4a90e2;border:1px solid rgba(74,144,226,.2)" x-text="config.cameraId || '—'"></span>
           </div>
-          <!-- Center idle -->
           <template x-if="!streaming && segments.length === 0">
             <div class="flex items-center justify-center">
               <div class="w-20 h-20 rounded-full flex items-center justify-center" style="border:2px solid rgba(74,144,226,.3);background:rgba(0,0,0,.5)">
@@ -236,7 +217,6 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
               </div>
             </div>
           </template>
-          <!-- Bottom: seg info -->
           <div class="flex items-end justify-between">
             <template x-if="streaming">
               <div style="background:rgba(0,0,0,.7);padding:6px 10px;border:1px solid rgba(74,144,226,.2)">
@@ -257,11 +237,11 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
       <!-- Segment progress -->
       <div x-show="streaming" class="card-bg border p-3" style="border-color:rgba(74,144,226,.15)">
         <div class="flex justify-between mb-1.5">
-          <span class="font-mono text-[10px] tracking-widest uppercase" style="color:#6b7280">Progreso del segmento actual</span>
+          <span class="font-mono text-[10px] tracking-widest uppercase" style="color:#6b7280">Progreso del segmento</span>
           <span class="font-mono text-xs" style="color:#4a90e2" x-text="segElapsed + ' / ' + config.segmentSec + ' s'"></span>
         </div>
         <div class="h-1.5" style="background:#111">
-          <div class="h-full bg-blue-500 transition-all duration-1000" style="background:#4a90e2" :style="'width:' + (segElapsed / config.segmentSec * 100) + '%'"></div>
+          <div class="h-full transition-all duration-1000" style="background:#4a90e2" :style="'width:' + (segElapsed / config.segmentSec * 100) + '%'"></div>
         </div>
       </div>
 
@@ -271,19 +251,11 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
                 :disabled="!config.cameraId || !config.apiKey"
                 class="btn flex-1 justify-center"
                 :class="streaming ? 'btn-stop' : (!config.cameraId || !config.apiKey ? 'btn-disabled' : '')">
-          <template x-if="!streaming">
-            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-          </template>
-          <template x-if="streaming">
-            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-          </template>
+          <template x-if="!streaming"><svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></template>
+          <template x-if="streaming"><svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></template>
           <span x-text="streaming ? 'DETENER STREAM' : 'INICIAR STREAM'"></span>
         </button>
-
-        <button @click="resetSession()"
-                :disabled="streaming"
-                class="btn btn-reset px-5"
-                :class="streaming ? 'btn-disabled' : ''">
+        <button @click="resetSession()" :disabled="streaming" class="btn btn-reset px-5" :class="streaming ? 'btn-disabled' : ''">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
           <span>Reset</span>
         </button>
@@ -294,14 +266,8 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
         <div class="flex items-center justify-between mb-3">
           <p class="font-mono text-[10px] tracking-widest uppercase" style="color:#4a90e2">Segmentos enviados</p>
           <div class="flex items-center gap-4">
-            <div class="flex items-center gap-1.5">
-              <div class="w-3 h-3 rounded" style="background:rgba(74,144,226,.35);border:1px solid rgba(74,144,226,.5)"></div>
-              <span class="font-mono text-[10px]" style="color:#6b7280">Válido</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <div class="w-3 h-3 rounded" style="background:rgba(239,68,68,.35);border:1px solid rgba(239,68,68,.5)"></div>
-              <span class="font-mono text-[10px]" style="color:#6b7280">Rechazado</span>
-            </div>
+            <div class="flex items-center gap-1.5"><div class="w-3 h-3 rounded" style="background:rgba(74,144,226,.35);border:1px solid rgba(74,144,226,.5)"></div><span class="font-mono text-[10px]" style="color:#6b7280">Válido</span></div>
+            <div class="flex items-center gap-1.5"><div class="w-3 h-3 rounded" style="background:rgba(239,68,68,.35);border:1px solid rgba(239,68,68,.5)"></div><span class="font-mono text-[10px]" style="color:#6b7280">Rechazado</span></div>
           </div>
         </div>
         <div class="flex flex-wrap gap-1.5">
@@ -311,26 +277,13 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
                  @click="selectedSeg = seg"></div>
           </template>
         </div>
-        <!-- Segment detail on click -->
         <template x-if="selectedSeg">
           <div class="border mt-4 p-4" style="border-color:rgba(74,144,226,.2);background:#000">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280">SHA-256</p>
-                <p class="font-mono text-[10px] break-all" style="color:#5ba3f5" x-text="selectedSeg.hash"></p>
-              </div>
-              <div>
-                <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280">Timestamp</p>
-                <p class="font-mono text-xs" style="color:#9ca3af" x-text="selectedSeg.timestamp"></p>
-              </div>
-              <div>
-                <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280">Estado backend</p>
-                <p class="font-mono text-sm font-bold" :style="selectedSeg.valid ? 'color:#4a90e2' : 'color:#ef4444'" x-text="selectedSeg.valid ? '✓ ACEPTADO' : '✗ RECHAZADO'"></p>
-              </div>
-              <div x-show="selectedSeg.segmentId">
-                <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280">Segment ID servidor</p>
-                <p class="font-mono text-xs" style="color:#d2a8ff" x-text="selectedSeg.segmentId"></p>
-              </div>
+              <div><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280">SHA-256</p><p class="font-mono text-[10px] break-all" style="color:#5ba3f5" x-text="selectedSeg.hash"></p></div>
+              <div><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280">Timestamp</p><p class="font-mono text-xs" style="color:#9ca3af" x-text="selectedSeg.timestamp"></p></div>
+              <div><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280">Estado backend</p><p class="font-mono text-sm font-bold" :style="selectedSeg.valid ? 'color:#4a90e2' : 'color:#ef4444'" x-text="selectedSeg.valid ? '✓ ACEPTADO' : '✗ RECHAZADO'"></p></div>
+              <div x-show="selectedSeg.segmentId"><p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280">Segment ID servidor</p><p class="font-mono text-xs" style="color:#d2a8ff" x-text="selectedSeg.segmentId"></p></div>
             </div>
           </div>
         </template>
@@ -338,65 +291,48 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
 
     </div>
 
-
-    <!-- RIGHT: Stats + log -->
+    <!-- RIGHT -->
     <div class="space-y-5">
-
-      <!-- Stats -->
       <div class="grid grid-cols-2 gap-3">
-        <div class="card-bg border p-4 text-center" style="border-color:rgba(74,144,226,.2)">
-          <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#6b7280">Segmentos</p>
-          <p class="font-mono text-3xl font-bold" style="color:#4a90e2" x-text="segments.length"></p>
-        </div>
-        <div class="card-bg border p-4 text-center" :style="errorCount > 0 ? 'border-color:rgba(239,68,68,.3)' : 'border-color:rgba(74,144,226,.2)'">
-          <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#6b7280">Errores</p>
-          <p class="font-mono text-3xl font-bold" :style="errorCount > 0 ? 'color:#ef4444' : 'color:#4a90e2'" x-text="errorCount"></p>
-        </div>
-        <div class="card-bg border p-4 text-center" style="border-color:rgba(74,144,226,.2)">
-          <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#6b7280">Tiempo</p>
-          <p class="font-mono text-xl font-bold" style="color:#4a90e2" x-text="sessionTime"></p>
-        </div>
-        <div class="card-bg border p-4 text-center" style="border-color:rgba(74,144,226,.2)">
-          <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#6b7280">Estado</p>
-          <p class="font-mono text-xs font-bold" :style="streaming ? 'color:#ef4444' : segments.length > 0 ? 'color:#3fb950' : 'color:#4b5563'" x-text="streaming ? 'REC' : segments.length > 0 ? 'DONE' : 'IDLE'"></p>
-        </div>
+        <div class="card-bg border p-4 text-center" style="border-color:rgba(74,144,226,.2)"><p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#6b7280">Segmentos</p><p class="font-mono text-3xl font-bold" style="color:#4a90e2" x-text="segments.length"></p></div>
+        <div class="card-bg border p-4 text-center" :style="errorCount > 0 ? 'border-color:rgba(239,68,68,.3)' : 'border-color:rgba(74,144,226,.2)'"><p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#6b7280">Errores</p><p class="font-mono text-3xl font-bold" :style="errorCount > 0 ? 'color:#ef4444' : 'color:#4a90e2'" x-text="errorCount"></p></div>
+        <div class="card-bg border p-4 text-center" style="border-color:rgba(74,144,226,.2)"><p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#6b7280">Tiempo</p><p class="font-mono text-xl font-bold" style="color:#4a90e2" x-text="sessionTime"></p></div>
+        <div class="card-bg border p-4 text-center" style="border-color:rgba(74,144,226,.2)"><p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#6b7280">Estado</p><p class="font-mono text-xs font-bold" :style="streaming ? 'color:#ef4444' : segments.length > 0 ? 'color:#3fb950' : 'color:#4b5563'" x-text="streaming ? 'REC' : segments.length > 0 ? 'DONE' : 'IDLE'"></p></div>
       </div>
 
-      <!-- Video ID card (destacado en sidebar) -->
       <div x-show="videoId" x-transition class="card-bg border p-4" style="border-color:rgba(74,144,226,.4);background:rgba(74,144,226,.04)">
         <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4a90e2">Video ID</p>
         <p class="font-mono text-sm font-bold break-all" style="color:#5ba3f5" x-text="videoId"></p>
         <p class="font-mono text-[10px] mt-2" style="color:#4b5563">Usa este ID en el servidor para verificar</p>
+        <!-- Download inline en sidebar -->
+        <template x-if="downloadUrl">
+          <a :href="downloadUrl" :download="downloadFilename" class="btn btn-dl mt-3 w-full justify-center" style="padding:8px 12px;font-size:11px">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            <span x-text="downloadFilename"></span>
+          </a>
+        </template>
       </div>
 
-      <!-- Last segment hash -->
       <div x-show="segments.length > 0" class="card-bg border p-4" style="border-color:rgba(74,144,226,.15)">
         <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4a90e2">Último segmento</p>
         <p class="font-mono text-[10px]" style="color:#6b7280">SHA-256</p>
         <p class="font-mono text-[10px] break-all mt-0.5" style="color:#5ba3f5" x-text="segments.length > 0 ? segments[segments.length-1].hash : '—'"></p>
       </div>
 
-      <!-- Log -->
       <div class="card-bg border" style="border-color:rgba(74,144,226,.15)">
         <div class="flex items-center justify-between px-4 py-2.5 border-b" style="border-color:rgba(74,144,226,.1)">
           <p class="font-mono text-[10px] tracking-widest uppercase" style="color:#4a90e2">Log</p>
-          <button @click="logs = []" class="font-mono text-[10px]" style="color:#4b5563" onmouseover="this.style.color='#6b7280'" onmouseout="this.style.color='#4b5563'">Limpiar</button>
+          <button @click="logs = []" class="font-mono text-[10px]" style="color:#4b5563">Limpiar</button>
         </div>
         <div class="log-console" id="logConsole">
-          <template x-for="(e, i) in logs" :key="i">
-            <div :class="'log-' + e.type" x-text="e.text"></div>
-          </template>
-          <template x-if="logs.length === 0">
-            <div class="log-info">[ Esperando stream... ]</div>
-          </template>
+          <template x-for="(e, i) in logs" :key="i"><div :class="'log-' + e.type" x-text="e.text"></div></template>
+          <template x-if="logs.length === 0"><div class="log-info">[ Esperando stream... ]</div></template>
         </div>
       </div>
-
     </div>
   </div>
 
 </main>
-
 
 <footer class="border-t mt-12" style="border-color:rgba(74,144,226,.2);background:#000">
   <div class="max-w-6xl mx-auto px-6 py-6 text-center">
@@ -405,36 +341,15 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
   </div>
 </footer>
 
-
 <script>
 function viewerApp() {
   return {
-    config: {
-      cameraId:   '',
-      apiKey:     '',
-      segmentSec: 30,
-      backendUrl: 'http://localhost:8000',
-      tamper:     false,
-      source:     'simulated',
-    },
-    streaming:      false,
-    segments:       [],
-    selectedSeg:    null,
-    logs:           [],
-    videoId:        null,
-    downloadUrl:    null,
-    copiedId:       false,
-    currentTime:    '--:--:--',
-    sessionStart:   null,
-    sessionTime:    '00:00',
-    segElapsed:     0,
-    mediaStream:    null,
-    videoEl:        null,
-    mediaRecorder:  null,
-    recordedChunks: [],
-    _clockTimer:    null,
-    _segTimer:      null,
-    _canvasTimer:   null,
+    config: { cameraId:'', apiKey:'', segmentSec:30, backendUrl:'http://localhost:8000', tamper:false, source:'simulated' },
+    streaming:false, segments:[], selectedSeg:null, logs:[],
+    videoId:null, downloadUrl:null, downloadFilename:'evideth_video.webm', copiedId:false,
+    currentTime:'--:--:--', sessionStart:null, sessionTime:'00:00', segElapsed:0,
+    mediaStream:null, videoEl:null, mediaRecorder:null, recordedChunks:[],
+    _clockTimer:null, _segTimer:null, _canvasTimer:null,
 
     init() {
       this._clockTimer = setInterval(() => {
@@ -452,250 +367,225 @@ function viewerApp() {
     log(text, type = 'info') {
       const ts = new Date().toLocaleTimeString('es-ES');
       this.logs.push({ text: `[${ts}] ${text}`, type });
-      this.$nextTick(() => {
-        const el = document.getElementById('logConsole');
-        if (el) el.scrollTop = el.scrollHeight;
-      });
+      this.$nextTick(() => { const el = document.getElementById('logConsole'); if (el) el.scrollTop = el.scrollHeight; });
     },
 
     _drawIdle() {
-      const canvas = document.getElementById('videoCanvas');
-      if (!canvas) return;
+      const canvas = document.getElementById('videoCanvas'); if (!canvas) return;
       const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, 1280, 720);
+      ctx.fillStyle = '#000'; ctx.fillRect(0,0,1280,720);
       ctx.strokeStyle = 'rgba(74,144,226,0.06)';
-      for (let x = 0; x < 1280; x += 60) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,720); ctx.stroke(); }
-      for (let y = 0; y < 720; y += 60) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(1280,y); ctx.stroke(); }
-      ctx.fillStyle = 'rgba(74,144,226,0.2)';
-      ctx.font = 'bold 18px "Space Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('SIN SEÑAL — STANDBY', 640, 360);
+      for (let x=0;x<1280;x+=60){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,720);ctx.stroke();}
+      for (let y=0;y<720;y+=60){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(1280,y);ctx.stroke();}
+      ctx.fillStyle='rgba(74,144,226,0.2)';ctx.font='bold 18px "Space Mono",monospace';ctx.textAlign='center';
+      ctx.fillText('SIN SEÑAL — STANDBY',640,360);
     },
 
     _drawFrame(frameNum) {
-      const canvas = document.getElementById('videoCanvas');
-      if (!canvas) return;
+      const canvas = document.getElementById('videoCanvas'); if (!canvas) return;
       const ctx = canvas.getContext('2d');
-      if (this.config.source === 'webcam' && this.videoEl && this.videoEl.readyState >= 2) {
-        ctx.drawImage(this.videoEl, 0, 0, 1280, 720);
+      if (this.config.source==='webcam' && this.videoEl && this.videoEl.readyState>=2) {
+        ctx.drawImage(this.videoEl,0,0,1280,720);
       } else {
-        const t = frameNum * 0.04;
-        ctx.fillStyle = '#040810';
-        ctx.fillRect(0, 0, 1280, 720);
-        const grad = ctx.createRadialGradient(640,360,50,640,360,600);
-        grad.addColorStop(0,'rgba(31,67,140,0.15)'); grad.addColorStop(1,'rgba(0,0,0,0)');
-        ctx.fillStyle = grad; ctx.fillRect(0,0,1280,720);
-        ctx.strokeStyle = 'rgba(74,144,226,0.06)'; ctx.lineWidth = 1;
-        for (let x = 0; x < 1280; x += 60) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,720); ctx.stroke(); }
-        for (let y = 0; y < 720; y += 60) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(1280,y); ctx.stroke(); }
-        for (let i = 0; i < 3; i++) {
-          const bx = (200 + i*300 + Math.sin(t + i*2.1)*80) % 1100 + 100;
-          const by = 300 + Math.cos(t*0.7 + i*1.5)*120;
-          ctx.fillStyle = `rgba(74,144,226,${0.12+i*0.04})`;
-          ctx.fillRect(bx-15, by-20, 30, 40);
+        const t = frameNum*0.04;
+        ctx.fillStyle='#040810'; ctx.fillRect(0,0,1280,720);
+        const grad=ctx.createRadialGradient(640,360,50,640,360,600);
+        grad.addColorStop(0,'rgba(31,67,140,0.15)');grad.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle=grad;ctx.fillRect(0,0,1280,720);
+        ctx.strokeStyle='rgba(74,144,226,0.06)';ctx.lineWidth=1;
+        for(let x=0;x<1280;x+=60){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,720);ctx.stroke();}
+        for(let y=0;y<720;y+=60){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(1280,y);ctx.stroke();}
+        for(let i=0;i<3;i++){
+          const bx=(200+i*300+Math.sin(t+i*2.1)*80)%1100+100;
+          const by=300+Math.cos(t*0.7+i*1.5)*120;
+          ctx.fillStyle=`rgba(74,144,226,${0.12+i*0.04})`;ctx.fillRect(bx-15,by-20,30,40);
         }
-        if (this.config.tamper && Math.random() > 0.75) {
-          ctx.fillStyle = 'rgba(239,68,68,0.07)';
-          ctx.fillRect(0, Math.random()*680, 1280, 8+Math.random()*18);
+        if(this.config.tamper&&Math.random()>0.75){
+          ctx.fillStyle='rgba(239,68,68,0.07)';
+          ctx.fillRect(0,Math.random()*680,1280,8+Math.random()*18);
         }
-        ctx.fillStyle = 'rgba(74,144,226,0.5)'; ctx.font = '12px "Space Mono",monospace'; ctx.textAlign = 'left';
-        ctx.fillText(`CAM: ${this.config.cameraId}`, 20, 30);
-        ctx.fillText(`FRAME: ${String(frameNum).padStart(6,'0')}`, 20, 48);
-        ctx.fillText(`SEG: #${this.segments.length+1} [${this.segElapsed}s]`, 20, 66);
-        if (this.videoId) { ctx.fillStyle='rgba(91,163,245,0.6)'; ctx.fillText(`VID: ${this.videoId}`, 20, 84); }
-        ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(74,144,226,0.3)';
-        ctx.fillText('EVIDETH FORENSIC', 1260, 30);
+        ctx.fillStyle='rgba(74,144,226,0.5)';ctx.font='12px "Space Mono",monospace';ctx.textAlign='left';
+        ctx.fillText(`CAM: ${this.config.cameraId}`,20,30);
+        ctx.fillText(`FRAME: ${String(frameNum).padStart(6,'0')}`,20,48);
+        ctx.fillText(`SEG: #${this.segments.length+1} [${this.segElapsed}s]`,20,66);
+        if(this.videoId){ctx.fillStyle='rgba(91,163,245,0.6)';ctx.fillText(`VID: ${this.videoId}`,20,84);}
+        ctx.textAlign='right';ctx.fillStyle='rgba(74,144,226,0.3)';
+        ctx.fillText('EVIDETH FORENSIC',1260,30);
       }
     },
 
     _fakeHash() {
-      const a = new Uint8Array(32); crypto.getRandomValues(a);
+      const a=new Uint8Array(32);crypto.getRandomValues(a);
       return Array.from(a).map(b=>b.toString(16).padStart(2,'0')).join('');
     },
 
-    // ── Start ────────────────────────────────────────────────
+    // Detecta el mejor codec disponible en este navegador
+    _bestMimeType() {
+      const types = [
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm',
+        'video/mp4;codecs=h264',
+        'video/mp4',
+      ];
+      for (const t of types) {
+        if (MediaRecorder.isTypeSupported(t)) return t;
+      }
+      return '';
+    },
+
     async startStreaming() {
       if (!this.config.cameraId || !this.config.apiKey) return;
-      this.streaming    = true;
-      this.sessionStart = Date.now();
-      this.segElapsed   = 0;
-      this.selectedSeg  = null;
-      this.videoId      = null;
-      this.downloadUrl  = null;
-      this.recordedChunks = [];
-      this.log(`Stream iniciado · ${this.config.cameraId}`, 'ok');
-      this.log(`Backend: ${this.config.backendUrl}`, 'info');
+      this.streaming=true; this.sessionStart=Date.now(); this.segElapsed=0;
+      this.selectedSeg=null; this.videoId=null; this.downloadUrl=null; this.recordedChunks=[];
+      this.log(`Stream iniciado · ${this.config.cameraId}`,'ok');
+      this.log(`Backend: ${this.config.backendUrl}`,'info');
 
-      // Webcam
-      if (this.config.source === 'webcam') {
+      if (this.config.source==='webcam') {
         try {
-          this.mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-          this.videoEl = document.createElement('video');
-          this.videoEl.srcObject = this.mediaStream;
+          this.mediaStream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+          this.videoEl=document.createElement('video');
+          this.videoEl.srcObject=this.mediaStream;
           await this.videoEl.play();
-          this.log('Webcam activada', 'ok');
-        } catch { this.log('Webcam no disponible, usando simulación', 'err'); }
+          this.log('Webcam activada','ok');
+        } catch { this.log('Webcam no disponible, usando simulación','err'); }
       }
 
-      // MediaRecorder para capturar el canvas como vídeo descargable
+      // MediaRecorder con detección automática de codec
       try {
         const canvas = document.getElementById('videoCanvas');
         const stream = canvas.captureStream(25);
-        this.mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
-        this.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) this.recordedChunks.push(e.data); };
-        this.mediaRecorder.start(1000);
-      } catch (e) { this.log('Grabación local no disponible: ' + e.message, 'err'); }
+        const mimeType = this._bestMimeType();
+        const options = mimeType ? { mimeType } : {};
+        this.mediaRecorder = new MediaRecorder(stream, options);
+        this._recordingMime = this.mediaRecorder.mimeType || 'video/webm';
+        this.mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) this.recordedChunks.push(e.data); };
+        // onstop: aquí es donde realmente se genera el blob
+        this.mediaRecorder.onstop = () => {
+          if (this.recordedChunks.length > 0) {
+            const blob = new Blob(this.recordedChunks, { type: this._recordingMime });
+            if (this.downloadUrl) URL.revokeObjectURL(this.downloadUrl);
+            this.downloadUrl = URL.createObjectURL(blob);
+            const ext = this._recordingMime.includes('mp4') ? 'mp4' : 'webm';
+            this.downloadFilename = `evideth_${this.videoId || 'video'}_${Date.now()}.${ext}`;
+            this.log(`Vídeo listo · ${(blob.size/1024/1024).toFixed(1)} MB · ${ext.toUpperCase()}`,'success');
+          } else {
+            this.log('No se grabaron frames de vídeo','err');
+          }
+        };
+        this.mediaRecorder.start(1000); // chunk cada segundo
+        this.log(`Grabando con codec: ${this._recordingMime}`,'info');
+      } catch(e) {
+        this.log('MediaRecorder no disponible: ' + e.message,'err');
+      }
 
-      // Heartbeat + crear vídeo en backend
       await this._startVideoOnBackend();
 
-      // Render loop
-      let frame = 0;
-      this._canvasTimer = setInterval(() => { if (this.streaming) this._drawFrame(frame++); }, 40);
-
-      // Segment ticker
-      this._segTimer = setInterval(() => {
-        if (!this.streaming) return;
+      let frame=0;
+      this._canvasTimer=setInterval(()=>{if(this.streaming)this._drawFrame(frame++);},40);
+      this._segTimer=setInterval(()=>{
+        if(!this.streaming)return;
         this.segElapsed++;
-        if (this.segElapsed >= parseInt(this.config.segmentSec)) {
-          this._closeSegment();
-          this.segElapsed = 0;
-        }
-      }, 1000);
+        if(this.segElapsed>=parseInt(this.config.segmentSec)){this._closeSegment();this.segElapsed=0;}
+      },1000);
     },
 
-    // ── Stop ─────────────────────────────────────────────────
     async stopStreaming() {
-      this.streaming = false;
+      this.streaming=false;
       clearInterval(this._canvasTimer);
       clearInterval(this._segTimer);
+
       if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-        this.mediaRecorder.stop();
-        // Esperar a que terminen los chunks
-        await new Promise(r => setTimeout(r, 500));
-      }
-      if (this.mediaStream) { this.mediaStream.getTracks().forEach(t => t.stop()); this.mediaStream = null; }
-
-      // Generar URL de descarga
-      if (this.recordedChunks.length > 0) {
-        const blob = new Blob(this.recordedChunks, { type: 'video/webm' });
-        this.downloadUrl = URL.createObjectURL(blob);
-        this.log('Vídeo listo para descargar', 'success');
+        // Esperamos al evento onstop antes de continuar
+        await new Promise(resolve => {
+          const orig = this.mediaRecorder.onstop;
+          this.mediaRecorder.onstop = (e) => { if(orig) orig(e); resolve(); };
+          this.mediaRecorder.stop();
+        });
       }
 
-      // Cerrar vídeo en backend
+      if (this.mediaStream) { this.mediaStream.getTracks().forEach(t=>t.stop()); this.mediaStream=null; }
       await this._closeVideoOnBackend();
-
-      this.log(`Stream detenido · ${this.segments.length} segmentos enviados`, 'info');
+      this.log(`Stream detenido · ${this.segments.length} segmentos enviados`,'info');
       this._drawIdle();
     },
 
-    // ── Backend: crear vídeo ──────────────────────────────────
     async _startVideoOnBackend() {
       try {
-        // Heartbeat
-        await fetch(`${this.config.backendUrl}/api/v1/cameras/heartbeat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-API-Key': this.config.apiKey },
-          body: JSON.stringify({ camera_id: this.config.cameraId, status: 'streaming', timestamp: new Date().toISOString() }),
+        await fetch(`${this.config.backendUrl}/api/v1/cameras/heartbeat`,{
+          method:'POST', headers:{'Content-Type':'application/json','X-API-Key':this.config.apiKey},
+          body:JSON.stringify({camera_id:this.config.cameraId,status:'streaming',timestamp:new Date().toISOString()}),
         });
-        this.log('Heartbeat enviado', 'ok');
-
-        // Crear vídeo
-        const filename = `${this.config.cameraId}_${Date.now()}.webm`;
-        const resp = await fetch(`${this.config.backendUrl}/api/v1/cameras/${this.config.cameraId}/videos`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-API-Key': this.config.apiKey },
-          body: JSON.stringify({ filename, metadata: { source: this.config.source, segment_duration: parseInt(this.config.segmentSec) } }),
+        this.log('Heartbeat enviado','ok');
+        const filename=`${this.config.cameraId}_${Date.now()}.webm`;
+        const resp=await fetch(`${this.config.backendUrl}/api/v1/cameras/${this.config.cameraId}/videos`,{
+          method:'POST', headers:{'Content-Type':'application/json','X-API-Key':this.config.apiKey},
+          body:JSON.stringify({filename,metadata:{source:this.config.source,segment_duration:parseInt(this.config.segmentSec)}}),
         });
-        if (resp.ok) {
-          const data = await resp.json();
-          this.videoId = data.video_id || data.id || data.filename || filename;
-          this.log(`Video ID: ${this.videoId}`, 'hash');
+        if(resp.ok){
+          const data=await resp.json();
+          this.videoId=data.video_id||data.id||data.filename||filename;
+          this.log(`Video ID: ${this.videoId}`,'hash');
         } else {
-          // Fallback: generar ID local si el backend no responde como esperamos
-          this.videoId = `${this.config.cameraId}_${new Date().toISOString().replace(/[:.]/g,'-')}`;
-          this.log(`Video ID (local): ${this.videoId}`, 'hash');
-        }
-      } catch (e) {
-        this.videoId = `${this.config.cameraId}_${Date.now()}`;
-        this.log(`Backend inalcanzable, Video ID local: ${this.videoId}`, 'err');
-      }
-    },
-
-    // ── Backend: cerrar vídeo ─────────────────────────────────
-    async _closeVideoOnBackend() {
-      if (!this.videoId) return;
-      try {
-        await fetch(`${this.config.backendUrl}/api/v1/cameras/${this.config.cameraId}/videos/${this.videoId}/close`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-API-Key': this.config.apiKey },
-          body: JSON.stringify({ ended_at: new Date().toISOString() }),
-        });
-        this.log('Vídeo cerrado en el servidor', 'success');
-      } catch { this.log('No se pudo cerrar el vídeo en el servidor', 'err'); }
-    },
-
-    // ── Close segment ─────────────────────────────────────────
-    async _closeSegment() {
-      const segNum    = this.segments.length + 1;
-      const hash      = this._fakeHash();
-      const isTampered = this.config.tamper && Math.random() < 0.3;
-      this.log(`Seg #${segNum} · SHA-256: ${hash.substring(0,12)}...`, 'hash');
-
-      let valid = true;
-      let segmentId = null;
-      try {
-        const payload = {
-          segment_index: segNum,
-          hash_sha256:   isTampered ? this._fakeHash() : hash,
-          timestamp:     new Date().toISOString(),
-          video_id:      this.videoId,
-        };
-        const resp = await fetch(
-          `${this.config.backendUrl}/api/v1/cameras/${this.config.cameraId}/segments`,
-          { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': this.config.apiKey }, body: JSON.stringify(payload) }
-        );
-        if (resp.ok) {
-          const data = await resp.json();
-          valid     = data.valid !== undefined ? data.valid : true;
-          segmentId = data.segment_id || data.id || null;
-          this.log(`Seg #${segNum} · Backend ${resp.status} · ${valid ? '✓ OK' : '✗ RECHAZADO'}`, valid ? 'success' : 'err');
-        } else {
-          this.log(`Seg #${segNum} · Backend ${resp.status}`, 'err');
-          valid = false;
+          this.videoId=`${this.config.cameraId}_${new Date().toISOString().replace(/[:.]/g,'-')}`;
+          this.log(`Video ID (local): ${this.videoId}`,'hash');
         }
       } catch {
-        this.log(`Seg #${segNum} · Sin conexión con backend`, 'err');
-        valid = false;
+        this.videoId=`${this.config.cameraId}_${Date.now()}`;
+        this.log(`Backend inalcanzable · Video ID local: ${this.videoId}`,'err');
       }
-
-      this.segments.push({ index: segNum, hash, timestamp: new Date().toLocaleString('es-ES'), valid, segmentId, tampered: isTampered });
     },
 
-    // ── Copy Video ID ─────────────────────────────────────────
+    async _closeVideoOnBackend() {
+      if(!this.videoId)return;
+      try {
+        await fetch(`${this.config.backendUrl}/api/v1/cameras/${this.config.cameraId}/videos/${this.videoId}/close`,{
+          method:'POST', headers:{'Content-Type':'application/json','X-API-Key':this.config.apiKey},
+          body:JSON.stringify({ended_at:new Date().toISOString()}),
+        });
+        this.log('Vídeo cerrado en el servidor','success');
+      } catch { this.log('No se pudo cerrar el vídeo en el servidor','err'); }
+    },
+
+    async _closeSegment() {
+      const segNum=this.segments.length+1;
+      const hash=this._fakeHash();
+      const isTampered=this.config.tamper&&Math.random()<0.3;
+      this.log(`Seg #${segNum} · SHA-256: ${hash.substring(0,12)}...`,'hash');
+      let valid=true,segmentId=null;
+      try {
+        const payload={segment_index:segNum,hash_sha256:isTampered?this._fakeHash():hash,timestamp:new Date().toISOString(),video_id:this.videoId};
+        const resp=await fetch(`${this.config.backendUrl}/api/v1/cameras/${this.config.cameraId}/segments`,
+          {method:'POST',headers:{'Content-Type':'application/json','X-API-Key':this.config.apiKey},body:JSON.stringify(payload)});
+        if(resp.ok){
+          const data=await resp.json();
+          valid=data.valid!==undefined?data.valid:true;
+          segmentId=data.segment_id||data.id||null;
+          this.log(`Seg #${segNum} · ${resp.status} · ${valid?'✓ OK':'✗ RECHAZADO'}`,valid?'success':'err');
+        } else { this.log(`Seg #${segNum} · Backend ${resp.status}`,'err'); valid=false; }
+      } catch { this.log(`Seg #${segNum} · Sin conexión`,'err'); valid=false; }
+      this.segments.push({index:segNum,hash,timestamp:new Date().toLocaleString('es-ES'),valid,segmentId,tampered:isTampered});
+    },
+
     async copyVideoId() {
-      if (!this.videoId) return;
-      try { await navigator.clipboard.writeText(this.videoId); } catch {
-        const el = document.createElement('textarea'); el.value = this.videoId;
-        el.style.position='fixed'; el.style.opacity='0'; document.body.appendChild(el); el.select();
-        document.execCommand('copy'); document.body.removeChild(el);
+      if(!this.videoId)return;
+      try{await navigator.clipboard.writeText(this.videoId);}catch{
+        const el=document.createElement('textarea');el.value=this.videoId;
+        el.style.position='fixed';el.style.opacity='0';document.body.appendChild(el);el.select();
+        document.execCommand('copy');document.body.removeChild(el);
       }
-      this.copiedId = true; setTimeout(() => { this.copiedId = false; }, 2500);
+      this.copiedId=true;setTimeout(()=>{this.copiedId=false;},2500);
     },
 
-    // ── Reset ─────────────────────────────────────────────────
     resetSession() {
-      this.segments = []; this.selectedSeg = null; this.logs = [];
-      this.sessionStart = null; this.sessionTime = '00:00'; this.segElapsed = 0;
-      if (this.downloadUrl) { URL.revokeObjectURL(this.downloadUrl); this.downloadUrl = null; }
-      this.videoId = null; this.recordedChunks = [];
+      this.segments=[];this.selectedSeg=null;this.logs=[];
+      this.sessionStart=null;this.sessionTime='00:00';this.segElapsed=0;
+      if(this.downloadUrl){URL.revokeObjectURL(this.downloadUrl);this.downloadUrl=null;}
+      this.videoId=null;this.recordedChunks=[];this.downloadFilename='evideth_video.webm';
       this._drawIdle();
     },
   };
 }
 </script>
-
 </body>
 </html>
