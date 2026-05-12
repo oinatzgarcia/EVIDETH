@@ -2,7 +2,7 @@
 # ==============================================
 # Servicios:
 #   - PostgreSQL 15          → localhost:5432
-#   - Backend FastAPI        → localhost:8000   (API + frontend admin)
+#   - Backend FastAPI        → localhost:8000   (API + dashboard admin)
 #   - Cliente de cámara      → localhost:8080   (Live Viewer, sin login)
 #   - Simulador de cámara    → (opcional, profile: simulator)
 #
@@ -58,7 +58,7 @@ services:
 
   # ──────────────────────────────────────────
   # BACKEND (FastAPI) — Puerto 8000
-  # Dashboard, API REST, gestión de cámaras
+  # Dashboard admin, API REST, gestión de cámaras
   # ──────────────────────────────────────────
   backend:
     build:
@@ -94,7 +94,9 @@ services:
   # ──────────────────────────────────────────
   # CLIENTE DE CÁMARA — Puerto 8080
   # Live Viewer: interfaz pública sin login
-  # para que la cámara envíe vídeo al backend
+  # Redirige / → /pages/viewer/viewer.html
+  # NOTA: nginx-client.conf se monta SIN :ro para
+  #       que nginx pueda modificarlo al arrancar
   # ──────────────────────────────────────────
   client:
     image: nginx:alpine
@@ -103,7 +105,7 @@ services:
       - "8080:80"
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
-      - ./nginx-client.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx-client.conf:/etc/nginx/conf.d/default.conf
     restart: unless-stopped
     depends_on:
       - backend
