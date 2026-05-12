@@ -407,6 +407,7 @@ function viewerApp() {
     recordedChunks: [],
     _recordingMime: '',
     _videoStartTime: null,
+    _segStartTime: 0,   // segundos absolutos de inicio del segmento actual
 
     // Timers
     _clockTimer: null,
@@ -436,7 +437,6 @@ function viewerApp() {
 
     // ── Codec detection ──────────────────────────────────────
     _bestMimeType() {
-      // MP4 primero (si el navegador lo soporta, p.ej. Chromium en Linux no siempre lo hace)
       const types = [
         'video/mp4;codecs=avc1.42E01E',
         'video/mp4;codecs=h264',
@@ -512,7 +512,6 @@ function viewerApp() {
       this.sessionStart=Date.now();
       this.log(`Generando ${this.config.videoCount} vídeo(s) · ${this.config.cameraId}`,'ok');
 
-      // Webcam (solo se inicia una vez para todos los vídeos)
       if(this.config.source==='webcam'){
         try{
           this.mediaStream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
@@ -523,12 +522,10 @@ function viewerApp() {
         }catch{ this.log('Webcam no disponible, usando simulación','err'); }
       }
 
-      // Canvas render loop (continuo para todos los vídeos)
       this._canvasTimer=setInterval(()=>{ if(this.streaming) this._drawFrame(this._frameNum++); },40);
 
-      // Generar vídeos en secuencia
       for(let i=0;i<this.config.videoCount;i++){
-        if(!this.streaming) break; // parada manual
+        if(!this.streaming) break;
         this.currentVideoNum=i+1;
         this.log(`▶ Iniciando vídeo ${i+1}/${this.config.videoCount}`,'ok');
         await this._recordOneVideo();
@@ -541,7 +538,7 @@ function viewerApp() {
       this._drawIdle();
     },
 
-    // ── Graba un solo vídeo completo (segmentos + recording) ──
+    // ── Graba un solo vídeo completo ─────────────────────────
     async _recordOneVideo() {
       this.segments=[];
       this.selectedSeg=null;
@@ -549,14 +546,20 @@ function viewerApp() {
       this.videoId=null;
       this.recordedChunks=[];
       this._videoStartTime=Date.now();
+      this._segStartTime=0;
 
-      // Crear entrada en backend
-      await this._startVideoOnBackend();
+      // ── 1. Crear entrada en backend ──
+      //   POST /api/v1/cameras/videos (auth via X-API-Key, sin cameraId en URL)
+      //   VideoCreate: { filename, fps?, resolution?, codec? }
+      const ok = await this._startVideoOnBackend();
+      if(!ok){
+        this.log('Vídeo abortado: sin Video ID válido en BD','err');
+        return;
+      }
 
-      // Iniciar MediaRecorder
+      // ── 2. Iniciar MediaRecorder ──
       const mime=this._bestMimeType();
       const ext=this._ext(mime);
-      let recError=false;
       await new Promise(async (resolveRec) => {
         try{
           const canvas=document.getElementById('videoCanvas');
@@ -568,14 +571,10 @@ function viewerApp() {
           this.log(`Codec: ${this._recordingMime}`,'info');
           this.mediaRecorder.start(1000);
         }catch(e){
-          recError=true;
           this.log('MediaRecorder: '+e.message,'err');
         }
 
-        // Segment ticker — dura config.segmentSec por segmento, tantos segmentos como quepan en config.segmentSec
-        // Para el TFG: cada vídeo dura 1 segmento (config.segmentSec segundos) para mantenerlo manejable
-        // Puedes cambiar la condición de parada aquí si quieres más segmentos por vídeo
-        const maxSegs=1; // 1 segmento por vídeo → duración = segmentSec segundos
+        const maxSegs=1;
         this._segTimer=setInterval(()=>{
           if(!this.streaming){clearInterval(this._segTimer);resolveRec();return;}
           this.segElapsed++;
@@ -588,10 +587,9 @@ function viewerApp() {
         },1000);
       });
 
-      // Finalizar grabación
+      // ── 3. Finalizar grabación ──
       const durSec=Math.floor((Date.now()-this._videoStartTime)/1000);
-      let blobSize=0;
-      let blobUrl=null;
+      let blobSize=0, blobUrl=null;
 
       if(this.mediaRecorder&&this.mediaRecorder.state!=='inactive'){
         await new Promise(resolve=>{
@@ -606,17 +604,17 @@ function viewerApp() {
         blobUrl=URL.createObjectURL(blob);
       }
 
-      const filename=`evideth_${this.videoId||'video'}_${Date.now()}.${ext}`;
+      const filename=`evideth_${this.videoId}_${Date.now()}.${ext}`;
       this.videoList.push({
-        videoId:    this.videoId,
-        url:        blobUrl,
-        filename:   filename,
-        ext:        ext,
-        size:       blobSize>0?this._fmtSize(blobSize):'—',
-        duration:   this._fmtDur(durSec),
-        segCount:   this.segments.length,
-        errors:     this.segments.filter(s=>!s.valid).length,
-        createdAt:  new Date().toLocaleString('es-ES'),
+        videoId:   this.videoId,
+        url:       blobUrl,
+        filename:  filename,
+        ext:       ext,
+        size:      blobSize>0?this._fmtSize(blobSize):'—',
+        duration:  this._fmtDur(durSec),
+        segCount:  this.segments.length,
+        errors:    this.segments.filter(s=>!s.valid).length,
+        createdAt: new Date().toLocaleString('es-ES'),
       });
 
       if(blobUrl) this.log(`Vídeo ${this.currentVideoNum} listo · ${this._fmtSize(blobSize)} · ${ext.toUpperCase()}`,'success');
@@ -631,62 +629,131 @@ function viewerApp() {
     },
 
     // ── Backend helpers ──────────────────────────────────────
+
+    // Devuelve true si el videoId se obtuvo correctamente de la BD, false si falla.
     async _startVideoOnBackend(){
+      // 1. Heartbeat
       try{
         await fetch(`${this.config.backendUrl}/api/v1/cameras/heartbeat`,{
-          method:'POST',headers:{'Content-Type':'application/json','X-API-Key':this.config.apiKey},
-          body:JSON.stringify({camera_id:this.config.cameraId,status:'streaming',timestamp:new Date().toISOString()}),
+          method:'POST',
+          headers:{'Content-Type':'application/json','X-API-Key':this.config.apiKey},
+          body:JSON.stringify({}),
         });
-        this.log('Heartbeat enviado','ok');
-        const filename=`${this.config.cameraId}_${Date.now()}.webm`;
-        const resp=await fetch(`${this.config.backendUrl}/api/v1/cameras/${this.config.cameraId}/videos`,{
-          method:'POST',headers:{'Content-Type':'application/json','X-API-Key':this.config.apiKey},
-          body:JSON.stringify({filename,metadata:{source:this.config.source,segment_duration:parseInt(this.config.segmentSec)}}),
+        this.log('Heartbeat OK','ok');
+      }catch(e){
+        this.log('Heartbeat fallido: '+e.message,'err');
+      }
+
+      // 2. Crear vídeo en BD
+      //    Endpoint: POST /api/v1/cameras/videos
+      //    Auth: X-API-Key (la cámara se identifica por la clave, no por la URL)
+      //    Schema VideoCreate: { filename, fps?, resolution?, codec? }
+      const filename=`${this.config.cameraId}_${Date.now()}.webm`;
+      try{
+        const resp=await fetch(`${this.config.backendUrl}/api/v1/cameras/videos`,{
+          method:'POST',
+          headers:{'Content-Type':'application/json','X-API-Key':this.config.apiKey},
+          body:JSON.stringify({ filename, fps:25, resolution:'1280x720', codec:'webm' }),
         });
         if(resp.ok){
           const data=await resp.json();
-          this.videoId=data.video_id||data.id||data.filename||filename;
+          // VideoResponse devuelve { id, filename, status, fps, resolution, codec, started_at, created_at }
+          this.videoId = data.id;
+          this.log(`Video ID (BD): ${this.videoId}`,'hash');
+          return true;
         } else {
-          this.videoId=`${this.config.cameraId}_${new Date().toISOString().replace(/[:.]/g,'-')}`;
+          const txt=await resp.text();
+          this.log(`Error al crear vídeo en BD: ${resp.status} — ${txt}`,'err');
+          this.videoId=null;
+          return false;
         }
-      }catch{
-        this.videoId=`${this.config.cameraId}_${Date.now()}`;
-        this.log('Backend inalcanzable · ID local','err');
+      }catch(e){
+        this.log(`Backend inalcanzable: ${e.message}`,'err');
+        this.videoId=null;
+        return false;
       }
-      this.log(`Video ID: ${this.videoId}`,'hash');
     },
 
     async _closeVideoOnBackend(){
-      if(!this.videoId)return;
+      if(!this.videoId) return;
+      // Endpoint: PATCH /api/v1/cameras/videos/{video_id}/finish
       try{
-        await fetch(`${this.config.backendUrl}/api/v1/cameras/${this.config.cameraId}/videos/${this.videoId}/close`,{
-          method:'POST',headers:{'Content-Type':'application/json','X-API-Key':this.config.apiKey},
-          body:JSON.stringify({ended_at:new Date().toISOString()}),
+        const resp=await fetch(`${this.config.backendUrl}/api/v1/cameras/videos/${this.videoId}/finish`,{
+          method:'PATCH',
+          headers:{'Content-Type':'application/json','X-API-Key':this.config.apiKey},
+          body:JSON.stringify({}),
         });
-      }catch{}
+        if(resp.ok){
+          this.log(`Vídeo ${this.videoId.substring(0,8)}... cerrado en BD`,'ok');
+        } else {
+          const txt=await resp.text();
+          this.log(`Aviso al cerrar vídeo: ${resp.status} — ${txt}`,'err');
+        }
+      }catch(e){
+        this.log('No se pudo cerrar el vídeo en BD: '+e.message,'err');
+      }
     },
 
     async _closeSegment(){
-      const segNum=this.segments.length+1;
+      const segNum=this.segments.length;           // índice 0-based
       const hash=this._fakeHash();
       const isTampered=this.config.tamper&&Math.random()<0.3;
-      this.log(`Seg #${segNum} · ${hash.substring(0,12)}...`,'hash');
-      let valid=true,segmentId=null;
-      try{
-        const payload={segment_index:segNum,hash_sha256:isTampered?this._fakeHash():hash,timestamp:new Date().toISOString(),video_id:this.videoId};
-        const resp=await fetch(`${this.config.backendUrl}/api/v1/cameras/${this.config.cameraId}/segments`,
-          {method:'POST',headers:{'Content-Type':'application/json','X-API-Key':this.config.apiKey},body:JSON.stringify(payload)});
-        if(resp.ok){
-          const d=await resp.json();
-          valid=d.valid!==undefined?d.valid:true;
-          segmentId=d.segment_id||d.id||null;
-          this.log(`Seg #${segNum} · ${valid?'✓ OK':'✗ RECHAZADO'}`,valid?'success':'err');
-        }else{this.log(`Seg #${segNum} · ${resp.status}`,'err');valid=false;}
-      }catch{this.log(`Seg #${segNum} · sin conexión`,'err');valid=false;}
-      this.segments.push({index:segNum,hash,timestamp:new Date().toLocaleString('es-ES'),valid,segmentId,tampered:isTampered});
+      const finalHash=isTampered?this._fakeHash():hash;
+      const startSec=this._segStartTime;
+      const endSec=startSec+parseInt(this.config.segmentSec);
+      this._segStartTime=endSec;                    // actualizar para el próximo segmento
+
+      this.log(`Seg #${segNum} · ${finalHash.substring(0,12)}...`,'hash');
+      let valid=true, segmentId=null;
+
+      if(this.videoId){
+        try{
+          // Endpoint: POST /api/v1/cameras/segments
+          // Schema SegmentUpload: { video_id, segment_index, start_time_secs, end_time_secs, sha256_hash, ... }
+          const payload={
+            video_id:        this.videoId,
+            segment_index:   segNum,
+            start_time_secs: startSec,
+            end_time_secs:   endSec,
+            sha256_hash:     finalHash,
+          };
+          const resp=await fetch(`${this.config.backendUrl}/api/v1/cameras/segments`,{
+            method:'POST',
+            headers:{'Content-Type':'application/json','X-API-Key':this.config.apiKey},
+            body:JSON.stringify(payload),
+          });
+          if(resp.ok){
+            const d=await resp.json();
+            // SegmentResponse devuelve { id, segment_index, sha256_hash, merkle_root, status, ... }
+            segmentId=d.id||null;
+            valid=d.status!=='invalid';
+            this.log(`Seg #${segNum} · ${valid?'✓ OK':'✗ RECHAZADO'}`,valid?'success':'err');
+          } else {
+            const txt=await resp.text();
+            this.log(`Seg #${segNum} · ${resp.status} — ${txt}`,'err');
+            valid=false;
+          }
+        }catch(e){
+          this.log(`Seg #${segNum} · sin conexión: ${e.message}`,'err');
+          valid=false;
+        }
+      } else {
+        this.log(`Seg #${segNum} · sin videoId, no enviado`,'err');
+        valid=false;
+      }
+
+      this.segElapsed=0;
+      this.segments.push({
+        index:     segNum,
+        hash:      finalHash,
+        timestamp: new Date().toLocaleString('es-ES'),
+        valid,
+        segmentId,
+        tampered:  isTampered,
+      });
     },
 
-    // ── Descargar todos secuencialmente ─────────────────────
+    // ── Descargar todos ──────────────────────────────────────
     downloadAll(){
       this.videoList.forEach((v,i)=>{
         if(!v.url)return;
@@ -713,6 +780,7 @@ function viewerApp() {
       this.videoList=[];this.segments=[];this.selectedSeg=null;this.logs=[];
       this.sessionStart=null;this.sessionTime='00:00';this.segElapsed=0;
       this.videoId=null;this.recordedChunks=[];this.currentVideoNum=0;this._frameNum=0;
+      this._segStartTime=0;
       this._drawIdle();
     },
   };
