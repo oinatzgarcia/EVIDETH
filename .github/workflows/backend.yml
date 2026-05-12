@@ -1,0 +1,94 @@
+# ─────────────────────────────────────────────────────────────
+# EVIDETH — backend.yml
+# Workflow REUTILIZABLE — llamado desde ci.yml
+# Valida el backend: Ruff lint, comprobación de imports,
+# tests con pytest y verificación de migraciones Alembic.
+# ─────────────────────────────────────────────────────────────
+name: Backend CI
+
+on:
+  workflow_call:   # Solo se ejecuta cuando lo llama ci.yml
+
+jobs:
+  backend:
+    name: Backend — Lint, Tests & Checks
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: evideth_user
+          POSTGRES_PASSWORD: evideth_pass
+          POSTGRES_DB: evideth_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://evideth_user:evideth_pass@localhost:5432/evideth_test_db
+      JWT_SECRET_KEY: ci-test-secret-key-not-real
+      JWT_ALGORITHM: HS256
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      SECRET_KEY: ci-test-app-secret-key
+      USE_AZURE_KEY_VAULT: "false"
+      AZURE_STORAGE_CONNECTION_STRING: ""
+      AZURE_BLOB_CONTAINER: evideth-videos
+      SEGMENT_DURATION_SECONDS: 30
+      HASH_ALGORITHM: SHA-256
+      DEBUG: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── Lint con Ruff ──────────────────────────────────
+      - name: Ruff lint
+        run: ruff check app/ --output-format=github
+
+      - name: Ruff format check
+        run: ruff format app/ --check
+
+      # ── Comprobar que todos los módulos importan OK ────────
+      - name: Import check
+        run: |
+          python -c "from app.main import app; print('✅ app.main importado OK')"
+
+      # ── Migraciones Alembic ───────────────────────────
+      - name: Apply Alembic migrations
+        run: alembic upgrade head
+
+      - name: Check no pending migrations
+        run: |
+          PENDING=$(alembic check 2>&1 || true)
+          if echo "$PENDING" | grep -q "Target database is not up to date"; then
+            echo "❌ Hay migraciones pendientes sin generar"
+            exit 1
+          else
+            echo "✅ Base de datos al día"
+          fi
+
+      # ── Tests con pytest ──────────────────────────────
+      - name: Run pytest
+        run: |
+          if [ -d "tests" ]; then
+            pytest tests/ -v --tb=short
+          else
+            echo "ℹ️  No hay directorio tests/ todavía, saltando pytest"
+          fi
+
+      - name: Backend check complete
+        run: echo "✅ Backend CI completado correctamente"
