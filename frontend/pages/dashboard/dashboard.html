@@ -59,6 +59,14 @@
                 progressMsg: '',
                 _pollTimer:  null,
 
+                // ── Polling health tracking ──────────────────────────────
+                // MAX_POLL_MS: abort after 5 minutes regardless of job status
+                // _pollErrors: consecutive fetch/parse failures before showing error
+                _pollStart:  0,
+                _pollErrors: 0,
+                MAX_POLL_MS: 5 * 60 * 1000,
+                MAX_POLL_ERRORS: 5,
+
                 init() {
                     if (typeof Auth !== 'undefined') Auth.requireAuth();
                     loadStats();
@@ -130,8 +138,20 @@
                 // ── Polling job status every 1 s ───────────────────────────
                 _startPolling(jobId) {
                     if (this._pollTimer) clearInterval(this._pollTimer);
+                    this._pollStart  = Date.now();
+                    this._pollErrors = 0;
 
                     this._pollTimer = setInterval(async () => {
+
+                        // ── Global timeout: abort after MAX_POLL_MS ───────────
+                        if (Date.now() - this._pollStart > this.MAX_POLL_MS) {
+                            clearInterval(this._pollTimer);
+                            this._pollTimer = null;
+                            this.apiError   = 'Timeout: la verificación tardó más de 5 minutos. Comprueba los logs del servidor.';
+                            this.verifying  = false;
+                            return;
+                        }
+
                         try {
                             const res = await fetch('/api/v1/verification/jobs/' + jobId, {
                                 headers: Auth.authHeader()
@@ -143,7 +163,24 @@
                                 return;
                             }
 
-                            const j = await res.json();
+                            // FIX: parse JSON and catch parse errors explicitly
+                            let j;
+                            try {
+                                j = await res.json();
+                            } catch (parseErr) {
+                                this._pollErrors++;
+                                if (this._pollErrors >= this.MAX_POLL_ERRORS) {
+                                    clearInterval(this._pollTimer);
+                                    this._pollTimer = null;
+                                    this.apiError   = 'Error leyendo respuesta del servidor (JSON inválido): ' + parseErr.message;
+                                    this.verifying  = false;
+                                }
+                                return;   // keep polling on transient parse errors
+                            }
+
+                            // Reset error counter on successful parse
+                            this._pollErrors = 0;
+
                             this.progress    = j.progress ?? this.progress;
                             this.progressMsg = j.message  ?? this.progressMsg;
 
@@ -166,8 +203,15 @@
                                 this.apiError   = j.error || 'Verification failed';
                                 this.verifying  = false;
                             }
-                        } catch (_) {
-                            // transient network glitch — keep polling
+                        } catch (networkErr) {
+                            // transient network glitch — count and keep polling
+                            this._pollErrors++;
+                            if (this._pollErrors >= this.MAX_POLL_ERRORS) {
+                                clearInterval(this._pollTimer);
+                                this._pollTimer = null;
+                                this.apiError   = 'Error de red persistente al consultar estado del job: ' + networkErr.message;
+                                this.verifying  = false;
+                            }
                         }
                     }, 1000);
                 },
@@ -239,6 +283,7 @@
                     this.selectedFile = null;
                     this.progress    = 0;
                     this.progressMsg = '';
+                    this._pollErrors = 0;
                     this.form = { camera_id: '', video_db_id: '' };
                     const fi = document.getElementById('fileInput'); if (fi) fi.value = '';
                 },
