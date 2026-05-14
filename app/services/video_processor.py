@@ -14,17 +14,17 @@ from app.utils.merkle import build_merkle_root
 SEGMENT_DURATION = 30  # segundos
 _EMPTY_HASH = hashlib.sha256(b"").hexdigest()
 
+# Timeouts por operación ffmpeg
+_TIMEOUT_DURATION  = 30   # ffprobe duración
+_TIMEOUT_SEGMENT   = 120  # cortar segmento
+_TIMEOUT_SECOND    = 10   # hash de un segundo individual (fallback)
+_TIMEOUT_THUMBNAIL = 8    # extraer frame JPEG
+
 
 def get_video_duration(video_path: str) -> float:
     """
-    Obtiene la durácion del vídeo en segundos usando ffprobe.
-
-    Estrategia robusta para ficheros .webm de MediaRecorder que no incluyen
-    el campo 'duration' en la cabecera del contenedor:
-      1. format.duration  (más fiable, MP4/MKV/AVI)
-      2. streams[0].duration  (a veces presente en webm)
-      3. Fallback: ffprobe -show_entries format=duration:v_codec=duration
-         con valor por defecto 30.0 si todo falla
+    Obtiene la duración del vídeo en segundos usando ffprobe.
+    Robusto para .webm de MediaRecorder que no tienen 'duration' en la cabecera.
     """
     cmd = [
         "ffprobe", "-v", "quiet",
@@ -33,13 +33,17 @@ def get_video_duration(video_path: str) -> float:
         "-show_streams",
         video_path
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_TIMEOUT_DURATION)
+    except subprocess.TimeoutExpired:
+        return float(SEGMENT_DURATION)
+
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe error: {result.stderr}")
 
     data = json.loads(result.stdout)
 
-    # 1. Intentar desde el formato (la fuente más fiable)
+    # 1. format.duration
     fmt_duration = data.get("format", {}).get("duration")
     if fmt_duration is not None:
         try:
@@ -49,7 +53,7 @@ def get_video_duration(video_path: str) -> float:
         except (ValueError, TypeError):
             pass
 
-    # 2. Intentar desde el primer stream (común en .webm)
+    # 2. streams[x].duration
     for stream in data.get("streams", []):
         stream_duration = stream.get("duration")
         if stream_duration is not None:
@@ -60,9 +64,9 @@ def get_video_duration(video_path: str) -> float:
             except (ValueError, TypeError):
                 pass
 
-    # 3. Fallback: usar nb_frames * r_frame_rate para estimar la duración
+    # 3. nb_frames / fps
     for stream in data.get("streams", []):
-        nb_frames = stream.get("nb_frames")
+        nb_frames    = stream.get("nb_frames")
         r_frame_rate = stream.get("r_frame_rate", "")
         if nb_frames and r_frame_rate and "/" in str(r_frame_rate):
             try:
@@ -75,9 +79,7 @@ def get_video_duration(video_path: str) -> float:
             except (ValueError, ZeroDivisionError):
                 pass
 
-    # 4. Último recurso: asumir SEGMENT_DURATION (el vídeo es exactamente un segmento)
-    # Esto ocurre con .webm de MediaRecorder que no tienen cabecera de duración.
-    # Es seguro porque el fichero ya está en disco y será hasheado completo.
+    # 4. Fallback seguro
     return float(SEGMENT_DURATION)
 
 
@@ -94,11 +96,75 @@ def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
     """
     Hash SHA-256 de los frames RGB decodificados de cada segundo.
 
-    Usa ffmpeg -f rawvideo -pix_fmt rgb24 para obtener los pixels puros,
-    eliminando diferencias de contenedor entre plataformas/versiones ffmpeg.
-    """
-    hashes: List[str] = []
+    Estategia: decodifica TODO el segmento de una vez con ffmpeg -f segment
+    en lugar de N llamadas secuenciales — mucho más rápido y sin riesgo
+    de bloqueo. Cada chunk de rawvideo de 1 segundo (~WxHx3 bytes) se
+    hashea por separado.
 
+    Si el modo batch falla (webm mal formado) hace fallback por segundo
+    con timeout individual de {_TIMEOUT_SECOND}s.
+    """
+    if duration_secs <= 0:
+        return []
+
+    # ── Modo batch: un solo ffmpeg que vuelca todos los frames ──────────
+    # Detectar resolución para calcular tamaño de frame
+    try:
+        probe_cmd = [
+            "ffprobe", "-v", "quiet",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-print_format", "json",
+            segment_path
+        ]
+        probe = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
+        probe_data = json.loads(probe.stdout)
+        streams = probe_data.get("streams", [])
+        if streams:
+            width  = int(streams[0].get("width",  0))
+            height = int(streams[0].get("height", 0))
+        else:
+            width = height = 0
+    except Exception:
+        width = height = 0
+
+    if width > 0 and height > 0:
+        frame_bytes = width * height * 3  # rgb24
+        batch_timeout = duration_secs * 3 + 30  # margen generoso
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", segment_path,
+            "-f", "rawvideo",
+            "-pix_fmt", "rgb24",
+            "-r", "1",          # un frame por segundo
+            "pipe:1",
+        ]
+        try:
+            r = subprocess.run(
+                cmd, capture_output=True,
+                timeout=batch_timeout,
+            )
+            raw = r.stdout
+            # Trocear en frames de exactamente frame_bytes
+            if raw and len(raw) >= frame_bytes:
+                hashes = []
+                for i in range(duration_secs):
+                    chunk = raw[i * frame_bytes: (i + 1) * frame_bytes]
+                    if len(chunk) == frame_bytes:
+                        hashes.append(hashlib.sha256(chunk).hexdigest())
+                    else:
+                        hashes.append(_EMPTY_HASH)
+                # Rellenar si ffmpeg entregó menos frames de los esperados
+                while len(hashes) < duration_secs:
+                    hashes.append(_EMPTY_HASH)
+                return hashes
+        except subprocess.TimeoutExpired:
+            pass  # cae al fallback por segundo
+        except Exception:
+            pass
+
+    # ── Fallback: N llamadas con timeout individual ──────────────────────
+    hashes: List[str] = []
     for sec in range(duration_secs):
         cmd = [
             "ffmpeg",
@@ -109,11 +175,16 @@ def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
             "-pix_fmt", "rgb24",
             "pipe:1",
         ]
-        r = subprocess.run(cmd, capture_output=True)
-        if r.returncode != 0 or not r.stdout:
+        try:
+            r = subprocess.run(cmd, capture_output=True, timeout=_TIMEOUT_SECOND)
+            if r.returncode != 0 or not r.stdout:
+                hashes.append(_EMPTY_HASH)
+            else:
+                hashes.append(hashlib.sha256(r.stdout).hexdigest())
+        except subprocess.TimeoutExpired:
             hashes.append(_EMPTY_HASH)
-        else:
-            hashes.append(hashlib.sha256(r.stdout).hexdigest())
+        except Exception:
+            hashes.append(_EMPTY_HASH)
 
     return hashes
 
@@ -122,30 +193,26 @@ def extract_frame_thumbnail(video_path: str, second: int, quality: int = 5) -> O
     """
     Extrae un frame JPEG del centro del segundo indicado.
     Devuelve la imagen codificada en base64, o None si falla.
-
-    Args:
-        video_path: Ruta al fichero de vídeo.
-        second:     Segundo del que extraer el frame (0-indexed).
-        quality:    Calidad JPEG ffmpeg (1=mejor, 31=peor). 5 da ~20-40 KB
-                    por frame a resolución 1280x720.
-
-    Returns:
-        String base64 del JPEG, o None si ffmpeg no puede extraer el frame.
     """
     cmd = [
         "ffmpeg", "-y",
         "-i",       video_path,
-        "-ss",      f"{second}.5",   # centro del segundo
+        "-ss",      f"{second}.5",
         "-vframes", "1",
         "-f",       "image2",
         "-vcodec",  "mjpeg",
         "-q:v",     str(quality),
         "pipe:1",
     ]
-    r = subprocess.run(cmd, capture_output=True)
-    if r.returncode != 0 or not r.stdout:
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=_TIMEOUT_THUMBNAIL)
+        if r.returncode != 0 or not r.stdout:
+            return None
+        return base64.b64encode(r.stdout).decode()
+    except subprocess.TimeoutExpired:
         return None
-    return base64.b64encode(r.stdout).decode()
+    except Exception:
+        return None
 
 
 def segment_video(video_path: str, output_dir: str) -> List[Dict]:
@@ -181,7 +248,15 @@ def segment_video(video_path: str, output_dir: str) -> List[Dict]:
                 "-avoid_negative_ts", "1",
                 work_path
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            try:
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True,
+                    timeout=_TIMEOUT_SEGMENT,
+                )
+            except subprocess.TimeoutExpired:
+                raise RuntimeError(
+                    f"ffmpeg timeout al cortar segmento {segment_index}"
+                )
             if result.returncode != 0:
                 raise RuntimeError(
                     f"ffmpeg error en segmento {segment_index}: {result.stderr}"
