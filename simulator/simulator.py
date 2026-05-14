@@ -12,6 +12,7 @@ import hashlib
 import base64
 import subprocess
 import threading
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -80,16 +81,130 @@ def sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
+def _convert_to_h264_mp4(src_path: str, dst_path: str) -> bool:
+    """
+    Convierte el segmento grabado con cv2 (codec mp4v/MPEG-4 Part 2)
+    a H.264 MP4 con ffmpeg para maxima compatibilidad.
+    Devuelve True si la conversion fue exitosa.
+    """
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", src_path,
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        dst_path,
+    ]
+    try:
+        r = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=120,
+        )
+        if r.returncode != 0:
+            logger.warning(f"ffmpeg H.264 conversion failed: {r.stderr.decode()[-300:]}")
+            return False
+        return True
+    except Exception as exc:
+        logger.warning(f"ffmpeg H.264 conversion error: {exc}")
+        return False
+
+
 def extract_second_hashes(seg_path: str, duration_secs: int) -> List[str]:
-    """Hash SHA-256 de pixels RGB decodificados por segundo (plataforma-independiente)."""
+    """
+    Hash SHA-256 de pixels RGB decodificados por segundo.
+    Escribe rawvideo a fichero temporal para evitar deadlock de pipe.
+    """
+    if duration_secs <= 0:
+        return []
+
+    # Detectar resolución
+    width = height = 0
+    try:
+        probe_cmd = [
+            "ffprobe", "-v", "quiet",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-print_format", "json",
+            seg_path,
+        ]
+        probe = subprocess.run(
+            probe_cmd, capture_output=True, text=True,
+            stdin=subprocess.DEVNULL, timeout=10,
+        )
+        import json
+        probe_data = json.loads(probe.stdout)
+        streams = probe_data.get("streams", [])
+        if streams:
+            width  = int(streams[0].get("width",  0))
+            height = int(streams[0].get("height", 0))
+    except Exception:
+        pass
+
     hashes_list: List[str] = []
+
+    if width > 0 and height > 0:
+        frame_bytes   = width * height * 3
+        batch_timeout = duration_secs * 3 + 60
+
+        raw_tmp = tempfile.NamedTemporaryFile(
+            suffix=".raw", delete=False, dir=tempfile.gettempdir()
+        )
+        raw_tmp.close()
+
+        try:
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", seg_path,
+                "-f", "rawvideo",
+                "-pix_fmt", "rgb24",
+                "-r", "1",
+                raw_tmp.name,
+            ]
+            r = subprocess.run(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=batch_timeout,
+            )
+            if r.returncode == 0 and os.path.getsize(raw_tmp.name) >= frame_bytes:
+                with open(raw_tmp.name, "rb") as fh:
+                    raw = fh.read()
+                for i in range(duration_secs):
+                    chunk = raw[i * frame_bytes: (i + 1) * frame_bytes]
+                    hashes_list.append(
+                        hashlib.sha256(chunk).hexdigest()
+                        if len(chunk) == frame_bytes
+                        else _EMPTY_HASH
+                    )
+                while len(hashes_list) < duration_secs:
+                    hashes_list.append(_EMPTY_HASH)
+                return hashes_list
+            else:
+                logger.warning(f"extract_second_hashes batch rc={r.returncode}, fallback")
+        except subprocess.TimeoutExpired:
+            logger.warning("extract_second_hashes batch timeout, fallback")
+        except Exception as exc:
+            logger.warning(f"extract_second_hashes batch error: {exc}, fallback")
+        finally:
+            try:
+                os.unlink(raw_tmp.name)
+            except Exception:
+                pass
+
+    # Fallback por segundo
     for sec in range(duration_secs):
         cmd = [
             "ffmpeg", "-i", seg_path,
             "-ss", str(sec), "-t", "1",
             "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1",
         ]
-        r = subprocess.run(cmd, capture_output=True)
+        r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, timeout=15)
         if r.returncode != 0 or not r.stdout:
             logger.warning(f"  segundo {sec}: no extraible -> centinela")
             hashes_list.append(_EMPTY_HASH)
@@ -99,11 +214,6 @@ def extract_second_hashes(seg_path: str, duration_secs: int) -> List[str]:
 
 
 def extract_frame_thumbnails(seg_path: str, duration_secs: int, quality: int = 5) -> List[Optional[str]]:
-    """
-    Extrae un frame JPEG del centro de cada segundo del segmento.
-    Devuelve lista de strings base64 (o None si falla la extraccion).
-    quality: 1=mejor, 31=peor. 5 da ~20-40 KB a 1280x720.
-    """
     thumbnails: List[Optional[str]] = []
     for sec in range(duration_secs):
         cmd = [
@@ -116,7 +226,7 @@ def extract_frame_thumbnails(seg_path: str, duration_secs: int, quality: int = 5
             "-q:v",     str(quality),
             "pipe:1",
         ]
-        r = subprocess.run(cmd, capture_output=True)
+        r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, timeout=10)
         if r.returncode == 0 and r.stdout:
             thumbnails.append(base64.b64encode(r.stdout).decode())
         else:
@@ -196,7 +306,7 @@ class APIClient:
                 r = requests.post(
                     f"{API_URL}/cameras/videos",
                     json={"filename": filename, "fps": FPS,
-                          "resolution": f"{WIDTH}x{HEIGHT}", "codec": "mp4v"},
+                          "resolution": f"{WIDTH}x{HEIGHT}", "codec": "h264"},
                     headers=HEADERS, timeout=10,
                 )
                 r.raise_for_status()
@@ -266,10 +376,13 @@ class APIClient:
 
 class VideoGenerator:
     def record_segment(self, out_path: str, segment_index: int, start_epoch: int) -> None:
+        """Graba con cv2 (mp4v) y luego convierte a H.264 con ffmpeg."""
+        # Paso 1: grabar con cv2 a fichero temporal
+        tmp_path = out_path + ".raw.mp4"
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(out_path, fourcc, float(FPS), (WIDTH, HEIGHT))
+        writer = cv2.VideoWriter(tmp_path, fourcc, float(FPS), (WIDTH, HEIGHT))
         if not writer.isOpened():
-            raise RuntimeError(f"VideoWriter no pudo abrir: {out_path}")
+            raise RuntimeError(f"VideoWriter no pudo abrir: {tmp_path}")
         total_frames = FPS * SEGMENT_DURATION
         t0 = time.time()
         for frame_n in range(total_frames):
@@ -282,6 +395,16 @@ class VideoGenerator:
         writer.release()
         if IS_WINDOWS:
             time.sleep(0.3)
+
+        # Paso 2: convertir a H.264 MP4
+        if _convert_to_h264_mp4(tmp_path, out_path):
+            os.remove(tmp_path)
+            logger.debug(f"Segmento {segment_index} -> H.264 MP4: {out_path}")
+        else:
+            # fallback: usar el mp4v si ffmpeg falla
+            os.replace(tmp_path, out_path)
+            logger.warning(f"Segmento {segment_index} -> mp4v fallback (H.264 falló)")
+
         size_mb = os.path.getsize(out_path) / (1024 * 1024)
         logger.debug(f"Segmento {segment_index} escrito -> {out_path} ({size_mb:.1f} MB)")
 
@@ -439,7 +562,7 @@ class CameraSimulator:
                 "file_size_bytes":   file_size,
                 "merkle_root":       merkle_root,
                 "second_hashes":     second_hashes,
-                "frame_thumbnails":  frame_thumbnails,   # <-- nuevo
+                "frame_thumbnails":  frame_thumbnails,
             }
 
             if not self.api.send_segment(payload):

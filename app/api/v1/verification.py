@@ -7,6 +7,7 @@ from threading import Thread
 from uuid import uuid4
 import tempfile, os, shutil, csv, io
 import filetype
+import logging
 
 from app.db.session import get_db, SessionLocal
 from app.db.models import Video, Camera, Verification, Segment, VerificationResult, UserRole
@@ -17,6 +18,7 @@ from app.services.azure_blob import upload_video as blob_upload, generate_sas_ur
 from app.schemas.verification import VerificationReport
 from app.utils.pdf_generator import ForensicPDFGenerator
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/verification",
@@ -30,14 +32,10 @@ router = APIRouter(
 
 # ── Constantes de validación de formato ──────────────────────────────────
 
-ALLOWED_EXTENSIONS = {".mp4", ".avi", ".mkv", ".mov", ".webm"}
+ALLOWED_EXTENSIONS = {".mp4"}   # solo MP4
 ALLOWED_MIMETYPES = {
     "video/mp4",
-    "video/x-msvideo",
-    "video/x-matroska",
-    "video/quicktime",
-    "video/webm",
-    "application/octet-stream",
+    "application/octet-stream",  # algunos grabadores legítimos
 }
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024   # 2 GB
 MAGIC_READ_BYTES = 2048
@@ -46,7 +44,6 @@ MAGIC_READ_BYTES = 2048
 # ── Helper: blob name convention ─────────────────────────────────────────
 
 def _blob_name(camera_id: str, video_db_id: str, ext: str) -> str:
-    """Canonical blob path: cameras/<camera_id>/<video_db_id><ext>"""
     return f"cameras/{camera_id}/{video_db_id}{ext}"
 
 
@@ -60,7 +57,7 @@ def _validate_video_file(upload: UploadFile) -> str:
             status_code=400,
             detail=(
                 f"Extensión no admitida: '{ext or '(ninguna)'}'. "
-                f"Formatos válidos: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+                f"Solo se aceptan ficheros .mp4"
             )
         )
     header = upload.file.read(MAGIC_READ_BYTES)
@@ -73,8 +70,9 @@ def _validate_video_file(upload: UploadFile) -> str:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"El contenido del fichero no es un video válido. "
-                f"Tipo detectado: '{detected_mime}'."
+                f"El contenido del fichero no es un MP4 válido. "
+                f"Tipo detectado: '{detected_mime}'. "
+                f"Asegúrate de no renombrar un .webm a .mp4."
             )
         )
     return ext
@@ -110,7 +108,7 @@ def _check_camera_access(camera: Camera, current_user) -> None:
         raise HTTPException(status_code=403, detail="No tienes acceso a esta cámara")
 
 
-# ── Helper: datos del reporte (reutilizado por JSON y PDF) ──────────────
+# ── Helper: datos del reporte ──────────────────────────────────
 
 def _build_verification_report_data(video_id: str, db: Session, current_user) -> Dict[str, Any]:
     video = db.query(Video).filter(Video.id == video_id).first()
@@ -153,7 +151,6 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
                 "hash_match":      latest_verification.hash_match,
                 "signature_valid": latest_verification.signature_valid,
                 "verified_at":     latest_verification.verified_at.isoformat() if latest_verification.verified_at else None,
-                # L2 fields not persisted in DB — will be None when loading from historical report
                 "merkle_match":    None,
                 "second_results":  None,
                 "tampered_frames": {},
@@ -194,12 +191,9 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
         )
         if latest_verif and latest_verif.verified_at:
             latest_verification_time = latest_verif.verified_at.isoformat()
-
-    # Generate a short-lived SAS URL if the video was persisted in Azure Blob
     blob_sas_url = None
     if getattr(video, "blob_name", None):
         blob_sas_url = generate_sas_url(video.blob_name, expiry_hours=1)
-
     return {
         "video_id":      video_id,
         "camera_id":     camera.camera_id if camera else None,
@@ -209,7 +203,7 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
         "created_at":    video.created_at.isoformat() if video.created_at else None,
         "integrity_ok":  integrity_ok,
         "verdict":       verdict,
-        "ecdsa_available": False,  # not tracked at report level; use segment.signature_valid
+        "ecdsa_available": False,
         "blob_sas_url":  blob_sas_url,
         "summary": {
             "total_segments": total_segments,
@@ -224,8 +218,6 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
 # ────────────────────────────────────────────────────────────────────
 # ENDPOINTS
 # ────────────────────────────────────────────────────────────────────
-
-# ── 1. Listado global con filtros + paginación ─────────────────────────
 
 @router.get("/", summary="Listar verificaciones")
 def list_verifications(
@@ -276,8 +268,6 @@ def list_verifications(
     }
 
 
-# ── 2. Exportación CSV ─────────────────────────────────────────────
-
 @router.get("/export", summary="Exportar verificaciones a CSV")
 def export_verifications(
     camera_id:  Optional[str]      = Query(None),
@@ -326,7 +316,7 @@ def export_verifications(
             ])
             yield buf.getvalue()
             buf.seek(0); buf.truncate(0)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     return StreamingResponse(
         iter_csv(),
         media_type="text/csv; charset=utf-8",
@@ -336,8 +326,6 @@ def export_verifications(
         },
     )
 
-
-# ── 3. Upload síncrono ─────────────────────────────────────────────
 
 @router.post(
     "/upload",
@@ -375,7 +363,6 @@ async def upload_and_verify(
             ip_address=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent"),
         )
-        # ── Persist to Azure Blob Storage (best-effort, non-blocking) ──
         blob_name = _blob_name(camera_id, video_db_id, ext)
         blob_url  = blob_upload(video_path, blob_name)
         if blob_url and hasattr(video_db, "blob_name"):
@@ -394,8 +381,6 @@ async def upload_and_verify(
         except Exception:
             pass
 
-
-# ── 3b. Upload asíncrono con progreso ─────────────────────────────────
 
 @router.post(
     "/upload_async",
@@ -443,6 +428,7 @@ async def upload_and_verify_async(
         bg_db = SessionLocal()
         try:
             def cb(pct: int, msg: str):
+                logger.info("[job %s] %d%% — %s", job_id[:8], pct, msg)
                 JOB_STORE.update(job_id, progress=pct, message=msg)
 
             report = verify_video(
@@ -456,7 +442,6 @@ async def upload_and_verify_async(
                 progress_cb=cb,
             )
 
-            # ── Persist to Azure Blob Storage ──────────────────────────────
             cb(97, "Uploading video to Azure Blob Storage…")
             blob_url = blob_upload(video_path, blob_name)
             if blob_url:
@@ -465,7 +450,6 @@ async def upload_and_verify_async(
                     video_record_upd.blob_name = blob_name
                     bg_db.commit()
 
-            # ── Build full enriched report ─────────────────────────────────────
             video_record = bg_db.query(Video).filter(Video.id == video_db_id).first()
             full_report = {
                 "video_id":        report["video_id"],
@@ -478,7 +462,7 @@ async def upload_and_verify_async(
                 "filename":        video_record.filename if video_record else None,
                 "duration_secs":   video_record.duration_secs if video_record else None,
                 "blob_url":        blob_url,
-                "created_at":      (
+                "created_at": (
                     video_record.created_at.isoformat()
                     if video_record and video_record.created_at else None
                 ),
@@ -494,7 +478,6 @@ async def upload_and_verify_async(
                         "hash_match":      s.get("hash_match"),
                         "signature_valid": s.get("signature_valid"),
                         "verified_at":     report["verified_at"],
-                        # ── L2 transient data (not in DB) ──
                         "merkle_match":    s.get("merkle_match"),
                         "second_results":  s.get("second_results"),
                         "tampered_frames": s.get("tampered_frames") or {},
@@ -510,8 +493,10 @@ async def upload_and_verify_async(
                 message="Verification complete",
                 result=full_report,
             )
+            logger.info("[job %s] done — integrity_ok=%s", job_id[:8], report["integrity_ok"])
 
         except Exception as exc:
+            logger.exception("[job %s] FAILED: %s", job_id[:8], exc)
             JOB_STORE.update(
                 job_id,
                 status="error",
@@ -528,16 +513,10 @@ async def upload_and_verify_async(
                 pass
 
     Thread(target=run_job, daemon=True).start()
-
     return {"job_id": job_id, "status": "running", "message": "Verification started"}
 
 
-# ── 3c. Estado de un job asíncrono ────────────────────────────────────
-
-@router.get(
-    "/jobs/{job_id}",
-    summary="Estado de verificación asíncrona",
-)
+@router.get("/jobs/{job_id}", summary="Estado de verificación asíncrona")
 def get_job_status(
     job_id: str,
     current_user = Depends(require_analyst),
@@ -556,13 +535,7 @@ def get_job_status(
     }
 
 
-# ── 4. Reporte JSON ──────────────────────────────────────────────────
-
-@router.get(
-    "/report/{video_id}",
-    response_model=Dict[str, Any],
-    summary="Obtener reporte de verificación completo (JSON)",
-)
+@router.get("/report/{video_id}", response_model=Dict[str, Any], summary="Reporte JSON")
 def get_verification_report(
     video_id:    str,
     db:          Session = Depends(get_db),
@@ -571,12 +544,7 @@ def get_verification_report(
     return _build_verification_report_data(video_id, db, current_user)
 
 
-# ── 4b. Reporte PDF ─────────────────────────────────────────────────
-
-@router.get(
-    "/report/{video_id}/pdf",
-    summary="Descargar reporte forense en PDF",
-)
+@router.get("/report/{video_id}/pdf", summary="Reporte forense PDF")
 def download_forensic_pdf(
     video_id:    str,
     db:          Session = Depends(get_db),
@@ -584,7 +552,7 @@ def download_forensic_pdf(
 ):
     report_data = _build_verification_report_data(video_id, db, current_user)
     pdf_buffer  = ForensicPDFGenerator().generate_report(report_data)
-    ts       = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts       = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     filename = f"EVIDETH_Forensic_Report_{video_id[:8]}_{ts}.pdf"
     return StreamingResponse(
         pdf_buffer,
@@ -595,8 +563,6 @@ def download_forensic_pdf(
         },
     )
 
-
-# ── 5. Historial de un video ──────────────────────────────────────────
 
 @router.get("/history/{video_id}", summary="Historial de verificaciones de un video")
 def verification_history(
@@ -647,8 +613,6 @@ def verification_history(
         ],
     }
 
-
-# ── 6. Detalle de una verificación por ID ────────────────────────────
 
 @router.get("/{verification_id}", summary="Obtener verificación por ID")
 def get_verification(
