@@ -4,12 +4,14 @@ import hashlib
 import math
 import os
 import json
+import logging
 import tempfile
 from pathlib import Path
 from typing import List, Dict, Optional
 
 from app.utils.merkle import build_merkle_root
 
+logger = logging.getLogger(__name__)
 
 SEGMENT_DURATION = 30  # segundos
 _EMPTY_HASH = hashlib.sha256(b"").hexdigest()
@@ -34,7 +36,11 @@ def get_video_duration(video_path: str) -> float:
         video_path
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_TIMEOUT_DURATION)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=_TIMEOUT_DURATION,
+        )
     except subprocess.TimeoutExpired:
         return float(SEGMENT_DURATION)
 
@@ -96,74 +102,92 @@ def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
     """
     Hash SHA-256 de los frames RGB decodificados de cada segundo.
 
-    Estategia: decodifica TODO el segmento de una vez con ffmpeg -f segment
-    en lugar de N llamadas secuenciales — mucho más rápido y sin riesgo
-    de bloqueo. Cada chunk de rawvideo de 1 segundo (~WxHx3 bytes) se
-    hashea por separado.
-
-    Si el modo batch falla (webm mal formado) hace fallback por segundo
-    con timeout individual de {_TIMEOUT_SECOND}s.
+    Estrategia: escribe el rawvideo a un fichero temporal en lugar de pipe
+    para evitar el deadlock del pipe buffer (1080p×30s ≈ 180 MB > pipe buf).
+    Si el modo batch falla, hace fallback por segundo con timeout individual.
     """
     if duration_secs <= 0:
         return []
 
-    # ── Modo batch: un solo ffmpeg que vuelca todos los frames ──────────
-    # Detectar resolución para calcular tamaño de frame
+    # ── Detectar resolución ──────────────────────────────────────────────
+    width = height = 0
     try:
         probe_cmd = [
             "ffprobe", "-v", "quiet",
             "-select_streams", "v:0",
             "-show_entries", "stream=width,height",
             "-print_format", "json",
-            segment_path
+            segment_path,
         ]
-        probe = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
+        probe = subprocess.run(
+            probe_cmd, capture_output=True, text=True,
+            stdin=subprocess.DEVNULL, timeout=10,
+        )
         probe_data = json.loads(probe.stdout)
         streams = probe_data.get("streams", [])
         if streams:
             width  = int(streams[0].get("width",  0))
             height = int(streams[0].get("height", 0))
-        else:
-            width = height = 0
     except Exception:
-        width = height = 0
+        pass
 
+    # ── Modo batch: escribir a fichero temporal (evita deadlock de pipe) ──
     if width > 0 and height > 0:
-        frame_bytes = width * height * 3  # rgb24
-        batch_timeout = duration_secs * 3 + 30  # margen generoso
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", segment_path,
-            "-f", "rawvideo",
-            "-pix_fmt", "rgb24",
-            "-r", "1",          # un frame por segundo
-            "pipe:1",
-        ]
+        frame_bytes   = width * height * 3  # rgb24
+        batch_timeout = duration_secs * 3 + 60
+
+        raw_tmp = tempfile.NamedTemporaryFile(
+            suffix=".raw", delete=False, dir=tempfile.gettempdir()
+        )
+        raw_tmp.close()
+
         try:
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", segment_path,
+                "-f", "rawvideo",
+                "-pix_fmt", "rgb24",
+                "-r", "1",
+                raw_tmp.name,
+            ]
             r = subprocess.run(
-                cmd, capture_output=True,
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 timeout=batch_timeout,
             )
-            raw = r.stdout
-            # Trocear en frames de exactamente frame_bytes
-            if raw and len(raw) >= frame_bytes:
+            if r.returncode == 0 and os.path.getsize(raw_tmp.name) >= frame_bytes:
+                with open(raw_tmp.name, "rb") as fh:
+                    raw = fh.read()
                 hashes = []
                 for i in range(duration_secs):
                     chunk = raw[i * frame_bytes: (i + 1) * frame_bytes]
-                    if len(chunk) == frame_bytes:
-                        hashes.append(hashlib.sha256(chunk).hexdigest())
-                    else:
-                        hashes.append(_EMPTY_HASH)
-                # Rellenar si ffmpeg entregó menos frames de los esperados
+                    hashes.append(
+                        hashlib.sha256(chunk).hexdigest()
+                        if len(chunk) == frame_bytes
+                        else _EMPTY_HASH
+                    )
                 while len(hashes) < duration_secs:
                     hashes.append(_EMPTY_HASH)
                 return hashes
+            else:
+                logger.warning(
+                    "extract_second_hashes batch ffmpeg rc=%s, falling back",
+                    r.returncode,
+                )
         except subprocess.TimeoutExpired:
-            pass  # cae al fallback por segundo
-        except Exception:
-            pass
+            logger.warning("extract_second_hashes batch timeout, falling back")
+        except Exception as exc:
+            logger.warning("extract_second_hashes batch error: %s, falling back", exc)
+        finally:
+            try:
+                os.unlink(raw_tmp.name)
+            except Exception:
+                pass
 
     # ── Fallback: N llamadas con timeout individual ──────────────────────
+    logger.debug("extract_second_hashes fallback mode for %s", segment_path)
     hashes: List[str] = []
     for sec in range(duration_secs):
         cmd = [
@@ -176,7 +200,12 @@ def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
             "pipe:1",
         ]
         try:
-            r = subprocess.run(cmd, capture_output=True, timeout=_TIMEOUT_SECOND)
+            r = subprocess.run(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                timeout=_TIMEOUT_SECOND,
+            )
             if r.returncode != 0 or not r.stdout:
                 hashes.append(_EMPTY_HASH)
             else:
@@ -205,7 +234,12 @@ def extract_frame_thumbnail(video_path: str, second: int, quality: int = 5) -> O
         "pipe:1",
     ]
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=_TIMEOUT_THUMBNAIL)
+        r = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=_TIMEOUT_THUMBNAIL,
+        )
         if r.returncode != 0 or not r.stdout:
             return None
         return base64.b64encode(r.stdout).decode()
@@ -246,11 +280,13 @@ def segment_video(video_path: str, output_dir: str) -> List[Dict]:
                 "-t",    str(seg_duration),
                 "-c",    "copy",
                 "-avoid_negative_ts", "1",
-                work_path
+                work_path,
             ]
             try:
                 result = subprocess.run(
-                    cmd, capture_output=True, text=True,
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True, text=True,
                     timeout=_TIMEOUT_SEGMENT,
                 )
             except subprocess.TimeoutExpired:
