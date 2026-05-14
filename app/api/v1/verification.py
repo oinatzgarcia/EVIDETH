@@ -30,7 +30,7 @@ router = APIRouter(
 
 # ── Constantes de validación de formato ──────────────────────────────────
 
-ALLOWED_EXTENSIONS = {".mp4", ".avi", ".mkv", ".mov"}
+ALLOWED_EXTENSIONS = {".mp4", ".avi", ".mkv", ".mov", ".webm"}
 ALLOWED_MIMETYPES = {
     "video/mp4",
     "video/x-msvideo",
