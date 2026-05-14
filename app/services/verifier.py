@@ -89,9 +89,7 @@ def _extract_tampered_frames(
     Para cada segundo marcado como tampered, extrae:
       - current_frame:  frame del vídeo subido (manipulado)
       - original_frame: frame almacenado cuando la cámara grabó (original)
-
     Ambos en base64 JPEG.
-    Devuelve Dict[str, Dict] — claves str para cumplir el schema Pydantic.
     """
     stored: list = []
     if stored_thumbnails:
@@ -138,16 +136,17 @@ def verify_video(
     """
     Verificación de integridad con 4 niveles criptográficos.
 
-    Nivel 0 — Hash del fichero completo (si disponible)
-    Nivel 1 — SHA-256 del segmento
-    Nivel 2 — Árbol Merkle por segundo + comparación visual de frames
-    Nivel 3 — Firma ECDSA P-256 del Merkle root
+    Nivel 0 — Hash del fichero completo (INFORMATIVO — no determina veredicto)
+    Nivel 1 — SHA-256 del segmento     (INFORMATIVO — puede diferir por re-codificación)
+    Nivel 2 — Árbol Merkle por segundo (DETERMINANTE del veredicto)
+    Nivel 3 — Firma ECDSA P-256 del Merkle root (DETERMINANTE si disponible)
 
-    Args:
-        progress_cb: Optional callback(pct: int, message: str) called after
-                     each segment is verified. pct ranges from 10 to 95;
-                     the caller is responsible for setting 0 (start) and
-                     100 (finish).
+    NOTA: El hash del fichero completo (L0/L1) NO puede usarse como único
+    criterio de integridad para vídeos subidos desde el viewer, ya que el
+    navegador (MediaRecorder .webm) puede recodificar ligeramente el fichero
+    cambiando metadatos sin alterar el contenido visual. El veredicto real
+    se basa en la comparación de frames decodificados (Merkle) y la firma
+    ECDSA de la cámara.
     """
     def _cb(pct: int, msg: str):
         if progress_cb:
@@ -164,28 +163,17 @@ def verify_video(
     if not stored_segments:
         raise ValueError(f"No hay segmentos almacenados para el video {video_db_id}")
 
+    # Nivel 0: hash del fichero completo — INFORMATIVO, no bloquea
     video_record     = db.query(Video).filter(Video.id == video_db_id).first()
     stored_file_hash = getattr(video_record, "file_hash", None) if video_record else None
-
+    file_hash_match: Optional[bool] = None
     if stored_file_hash:
-        _cb(4, "Checking whole-file hash…")
+        _cb(4, "Checking whole-file hash (informative)…")
         import hashlib as _hl
         with open(video_path, "rb") as f:
             computed_file_hash = _hl.sha256(f.read()).hexdigest()
-        if computed_file_hash != stored_file_hash:
-            return {
-                "video_id":        video_db_id,
-                "camera_id":       camera_id,
-                "integrity_ok":    False,
-                "verdict":         "MANIPULADO O INCOMPLETO",
-                "ecdsa_available": False,
-                "reason":          "file_hash_mismatch",
-                "detail":          "Hash del fichero completo no coincide.",
-                "summary": {"total_segments": len(stored_segments),
-                            "passed": 0, "failed": 1, "missing": 0},
-                "segments":    [],
-                "verified_at": datetime.now(timezone.utc).isoformat(),
-            }
+        file_hash_match = (computed_file_hash == stored_file_hash)
+        # No se devuelve error aquí — el hash de fichero es informativo
 
     camera_public_key_pem = _get_camera_public_key(camera_id, db)
     temp_dir = tempfile.mkdtemp(prefix="evideth_verify_")
@@ -202,9 +190,8 @@ def verify_video(
             idx    = computed["segment_index"]
             total += 1
 
-            # Real per-segment progress: maps segment i to range 10..90
             seg_pct = int(10 + 80 * (i + 1) / max(n_segs, 1))
-            _cb(seg_pct, f"Verifying segment {i + 1}/{n_segs} — SHA-256 + Merkle + ECDSA…")
+            _cb(seg_pct, f"Verifying segment {i + 1}/{n_segs} — Merkle + ECDSA…")
 
             stored = next(
                 (s for s in stored_segments if s.segment_index == idx), None
@@ -225,10 +212,12 @@ def verify_video(
                 results.append(entry)
                 continue
 
-            # ── Nivel 1 ─────────────────────────────────────────────
+            # ── Nivel 1: hash fichero — INFORMATIVO ──────────────────────────
+            # Puede diferir por re-codificación del navegador (.webm MediaRecorder).
+            # NO se usa para determinar si el vídeo está manipulado.
             hash_match = computed["sha256_hash"] == stored.sha256_hash
 
-            # ── Nivel 2 ─────────────────────────────────────────────
+            # ── Nivel 2: Merkle root por segundo — DETERMINANTE ───────────
             computed_merkle = computed.get("merkle_root")
             stored_merkle   = stored.merkle_root
             merkle_match    = None
@@ -251,7 +240,7 @@ def verify_video(
                                 stored_thumbnails = stored.frame_thumbnails,
                             )
 
-            # ── Nivel 3 ─────────────────────────────────────────────
+            # ── Nivel 3: firma ECDSA — DETERMINANTE si disponible ──────
             signature_valid = None
             sig_detail      = ""
 
@@ -272,12 +261,40 @@ def verify_video(
                     else "⚠ Firma ECDSA INVÁLIDA"
                 )
 
-            # ── Resultado final ─────────────────────────────────────────
+            # ── Veredicto: basado en Merkle (L2) + ECDSA (L3) ────────────
+            # L1 (hash fichero) es informativo — no determina el resultado.
+            #
+            # PASS si:
+            #   - Merkle coincide (o no hay Merkle almacenado)
+            #   - ECDSA válida (o no disponible)
+            # FAIL si:
+            #   - Merkle NO coincide  →  frames manipulados
+            #   - ECDSA explícitamente inválida
+
             tampered_secs = [
                 s["second_index"] for s in (second_results or []) if s["tampered"]
             ]
 
-            if hash_match and merkle_match is not False and signature_valid is not False:
+            if signature_valid is False:
+                # L3 falla — la firma de la cámara no es válida
+                failed += 1
+                result  = "fail"
+                stored.status = SegmentStatus.INVALID
+                detail = f"⚠ FIRMA ECDSA INVÁLIDA. Merkle: {merkle_match}. Hash fichero (inf.): {hash_match}."
+
+            elif merkle_match is False:
+                # L2 falla — hay diferencias en frames decodificados
+                failed += 1
+                result  = "fail"
+                stored.status = SegmentStatus.INVALID
+                detail = (
+                    f"⚠ Merkle root no coincide: manipulación detectada. "
+                    f"Segundos sospechosos: {tampered_secs}. "
+                    f"Hash fichero (informativo): {hash_match}. {sig_detail}"
+                )
+
+            else:
+                # L2 OK (o sin datos Merkle) y L3 OK (o sin firma) — PASS
                 passed += 1
                 result  = "pass"
                 stored.status = SegmentStatus.VALID
@@ -285,39 +302,8 @@ def verify_video(
                 if merkle_match is True:      parts.append("Merkle OK")
                 if signature_valid is True:   parts.append("ECDSA OK")
                 elif signature_valid is None: parts.append(sig_detail)
+                if not hash_match:            parts.append("Hash fichero difiere (re-codificación normal)")
                 detail = " — ".join(parts)
-
-            elif hash_match and merkle_match is False:
-                failed += 1
-                result  = "fail"
-                stored.status = SegmentStatus.INVALID
-                detail = (
-                    f"⚠ SHA-256 correcto pero Merkle root no coincide. "
-                    f"Segundos sospechosos: {tampered_secs}. {sig_detail}"
-                )
-
-            elif signature_valid is False:
-                failed += 1
-                result  = "fail"
-                stored.status = SegmentStatus.INVALID
-                detail = f"⚠ FIRMA ECDSA INVÁLIDA. Hash: {hash_match}. Merkle: {merkle_match}."
-
-            else:
-                failed += 1
-                result  = "fail"
-                stored.status = SegmentStatus.INVALID
-                if tampered_secs:
-                    detail = (
-                        f"MANIPULACIÓN DETECTADA en segundo(s): {tampered_secs}. "
-                        f"Hash esperado: {stored.sha256_hash[:16]}... "
-                        f"Calculado: {computed['sha256_hash'][:16]}... {sig_detail}"
-                    )
-                else:
-                    detail = (
-                        f"MANIPULACIÓN DETECTADA. "
-                        f"Hash esperado: {stored.sha256_hash[:16]}... "
-                        f"Calculado: {computed['sha256_hash'][:16]}... {sig_detail}"
-                    )
 
             entry = _make_entry(
                 idx=idx, computed=computed, stored=stored,
@@ -364,6 +350,7 @@ def verify_video(
             "integrity_ok":    integrity_ok,
             "verdict":         "ÍNTEGRO" if integrity_ok else "MANIPULADO O INCOMPLETO",
             "ecdsa_available": camera_public_key_pem is not None,
+            "file_hash_match": file_hash_match,  # informativo
             "summary": {
                 "total_segments": total,
                 "passed":         passed,
