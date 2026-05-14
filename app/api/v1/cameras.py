@@ -20,6 +20,9 @@ except ImportError:
 # Una cámara envía segmentos cada 30 s, así que 60 s = 2 segmentos perdidos.
 CAMERA_ONLINE_THRESHOLD_SECONDS = 60
 
+# Codecs MP4 aceptados (H.264 / H.265). Se rechazan VP8/VP9/WebM.
+ALLOWED_CODECS = {"h264", "avc", "avc1", "hevc", "h265", "mp4", "mp4v"}
+
 
 router = APIRouter(
     prefix="/cameras",
@@ -109,7 +112,7 @@ class CameraPublicKeyUpdate(BaseModel):
 
 class SegmentUpload(BaseModel):
     """
-    Payload que envía la cámara al subir un segmento.
+    Payload que envía la cámara al subir un segmento de vídeo MP4/H.264.
 
     Criptografía de dos niveles:
       Nivel 1 — sha256_hash:     SHA-256 del fichero de segmento completo.
@@ -119,6 +122,9 @@ class SegmentUpload(BaseModel):
                                  segundo fue manipulado durante la verificación.
       Visual  — frame_thumbnails: un frame JPEG (base64) por segundo del segmento.
                                   Almacenado para comparación original vs tamperizando.
+
+    Formato de vídeo: exclusivamente MP4 con codec H.264 o H.265 (HEVC).
+    Los formatos WebM/VP8/VP9 son rechazados a nivel de API.
     """
     video_id:        str
     segment_index:   int
@@ -202,10 +208,38 @@ class SegmentResponse(BaseModel):
 
 
 class VideoCreate(BaseModel):
+    """
+    Metadatos del vídeo que la cámara registra al iniciar una grabación.
+    El campo `codec` acepta únicamente H.264/H.265 — no se permiten
+    codecs de contenedor WebM (vp8, vp9, av1).
+    """
     filename:   str
     fps:        Optional[float] = None
     resolution: Optional[str]   = None
     codec:      Optional[str]   = None
+
+    @field_validator('filename')
+    @classmethod
+    def validate_filename(cls, v):
+        if not v.lower().endswith('.mp4'):
+            raise ValueError(
+                "El nombre de fichero debe tener extensión .mp4. "
+                "Formatos WebM/MKV no son aceptados."
+            )
+        return v
+
+    @field_validator('codec')
+    @classmethod
+    def validate_codec(cls, v):
+        if v is not None:
+            normalized = v.lower().replace('-', '').replace('.', '').replace(' ', '')
+            if normalized not in ALLOWED_CODECS:
+                raise ValueError(
+                    f"Codec '{v}' no permitido. "
+                    f"Solo se aceptan codecs MP4: h264, avc, hevc, h265. "
+                    f"Codecs WebM (vp8, vp9, av1) son rechazados."
+                )
+        return v
 
 
 class VideoResponse(BaseModel):
@@ -424,6 +458,16 @@ def upload_segment(
     if not video:
         raise HTTPException(status_code=404, detail="Video no encontrado o no pertenece a esta cámara")
 
+    # Rechazar vídeos registrados con codec WebM (por si acaso llegaron antes de la validación)
+    if video.codec and video.codec.lower() in {"webm", "vp8", "vp9", "av1"}:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"El vídeo '{video.id}' tiene codec '{video.codec}' (WebM). "
+                "Solo se aceptan segmentos de vídeos MP4/H.264."
+            )
+        )
+
     if db.query(Segment).filter(
         Segment.video_id      == data.video_id,
         Segment.segment_index == data.segment_index
@@ -447,7 +491,7 @@ def upload_segment(
         public_key_id     = data.public_key_id,
         merkle_root       = data.merkle_root,
         second_hashes     = second_hashes_json,
-        frame_thumbnails  = frame_thumbnails_json,   # <-- thumbnails originales
+        frame_thumbnails  = frame_thumbnails_json,
         status            = status,
         signed_at         = datetime.now(timezone.utc) if data.ecdsa_signature else None,
     )

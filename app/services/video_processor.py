@@ -25,8 +25,12 @@ _TIMEOUT_THUMBNAIL = 8    # extraer frame JPEG
 
 def get_video_duration(video_path: str) -> float:
     """
-    Obtiene la duración del vídeo en segundos usando ffprobe.
-    Robusto para .webm de MediaRecorder que no tienen 'duration' en la cabecera.
+    Obtiene la duración del vídeo MP4 en segundos usando ffprobe.
+    Intenta varias estrategias por orden de fiabilidad:
+      1. format.duration del contenedor
+      2. stream.duration del stream de vídeo
+      3. nb_frames / fps como cálculo derivado
+      4. Fallback a SEGMENT_DURATION si todo falla
     """
     cmd = [
         "ffprobe", "-v", "quiet",
@@ -251,10 +255,12 @@ def extract_frame_thumbnail(video_path: str, second: int, quality: int = 5) -> O
 
 def segment_video(video_path: str, output_dir: str) -> List[Dict]:
     """
-    Divide el video en segmentos lógicos de SEGMENT_DURATION segundos.
+    Divide el vídeo MP4 en segmentos lógicos de SEGMENT_DURATION segundos.
 
-    Para videos de un único segmento (duración <= SEGMENT_DURATION),
+    Para vídeos de un único segmento (duración <= SEGMENT_DURATION),
     se hashea el fichero original directamente sin re-extraerlo con ffmpeg.
+    Los segmentos múltiples se cortan con `-c copy` (sin re-codificación)
+    y se guardan como .mp4.
     """
     duration = get_video_duration(video_path)
     total_logical_segments = math.ceil(duration / SEGMENT_DURATION)
@@ -323,6 +329,6 @@ def segment_video(video_path: str, output_dir: str) -> List[Dict]:
 
 
 def cleanup_segments(output_dir: str):
-    """Elimina los archivos temporales de segmentos."""
+    """Elimina los archivos temporales de segmentos MP4."""
     for f in Path(output_dir).glob("segment_*.mp4"):
         f.unlink()

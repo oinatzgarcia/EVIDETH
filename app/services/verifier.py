@@ -135,18 +135,25 @@ def verify_video(
 ) -> Dict:
     """
     Verificación de integridad con 4 niveles criptográficos.
+    El fichero de entrada debe ser un MP4/H.264 válido.
 
-    Nivel 0 — Hash del fichero completo (INFORMATIVO — no determina veredicto)
-    Nivel 1 — SHA-256 del segmento     (INFORMATIVO — puede diferir por re-codificación)
+    Nivel 0 — Hash del fichero completo (INFORMATIVO)
+               Compara el SHA-256 del fichero MP4 subido con el hash
+               registrado en el momento de la grabación, si existe.
+               No determina el veredicto final.
+
+    Nivel 1 — SHA-256 del segmento (INFORMATIVO)
+               Puede diferir si el fichero fue remuxado sin re-codificación
+               (cambio de contenedor manteniendo el stream H.264 intacto).
+               No determina el veredicto final.
+
     Nivel 2 — Árbol Merkle por segundo (DETERMINANTE del veredicto)
-    Nivel 3 — Firma ECDSA P-256 del Merkle root (DETERMINANTE si disponible)
+               Hashea los frames RGB decodificados segundo a segundo.
+               Un mismatch aquí indica manipulación del contenido visual.
 
-    NOTA: El hash del fichero completo (L0/L1) NO puede usarse como único
-    criterio de integridad para vídeos subidos desde el viewer, ya que el
-    navegador (MediaRecorder .webm) puede recodificar ligeramente el fichero
-    cambiando metadatos sin alterar el contenido visual. El veredicto real
-    se basa en la comparación de frames decodificados (Merkle) y la firma
-    ECDSA de la cámara.
+    Nivel 3 — Firma ECDSA P-256 del Merkle root (DETERMINANTE si disponible)
+               Valida que el segmento fue firmado por la cámara legítima
+               (NIST FIPS 186-5). Si la firma existe y no es válida → FAIL.
     """
     def _cb(pct: int, msg: str):
         if progress_cb:
@@ -173,7 +180,6 @@ def verify_video(
         with open(video_path, "rb") as f:
             computed_file_hash = _hl.sha256(f.read()).hexdigest()
         file_hash_match = (computed_file_hash == stored_file_hash)
-        # No se devuelve error aquí — el hash de fichero es informativo
 
     camera_public_key_pem = _get_camera_public_key(camera_id, db)
     temp_dir = tempfile.mkdtemp(prefix="evideth_verify_")
@@ -213,8 +219,9 @@ def verify_video(
                 continue
 
             # ── Nivel 1: hash fichero — INFORMATIVO ──────────────────────────
-            # Puede diferir por re-codificación del navegador (.webm MediaRecorder).
-            # NO se usa para determinar si el vídeo está manipulado.
+            # El hash del segmento MP4 puede diferir si el fichero fue remuxado
+            # (cambio de contenedor sin re-codificar el stream H.264).
+            # No se usa como criterio de veredicto — solo se registra.
             hash_match = computed["sha256_hash"] == stored.sha256_hash
 
             # ── Nivel 2: Merkle root por segundo — DETERMINANTE ───────────
@@ -276,14 +283,12 @@ def verify_video(
             ]
 
             if signature_valid is False:
-                # L3 falla — la firma de la cámara no es válida
                 failed += 1
                 result  = "fail"
                 stored.status = SegmentStatus.INVALID
                 detail = f"⚠ FIRMA ECDSA INVÁLIDA. Merkle: {merkle_match}. Hash fichero (inf.): {hash_match}."
 
             elif merkle_match is False:
-                # L2 falla — hay diferencias en frames decodificados
                 failed += 1
                 result  = "fail"
                 stored.status = SegmentStatus.INVALID
@@ -294,7 +299,6 @@ def verify_video(
                 )
 
             else:
-                # L2 OK (o sin datos Merkle) y L3 OK (o sin firma) — PASS
                 passed += 1
                 result  = "pass"
                 stored.status = SegmentStatus.VALID
@@ -302,7 +306,7 @@ def verify_video(
                 if merkle_match is True:      parts.append("Merkle OK")
                 if signature_valid is True:   parts.append("ECDSA OK")
                 elif signature_valid is None: parts.append(sig_detail)
-                if not hash_match:            parts.append("Hash fichero difiere (re-codificación normal)")
+                if not hash_match:            parts.append("Hash fichero difiere (remux sin re-codificación)")
                 detail = " — ".join(parts)
 
             entry = _make_entry(
@@ -350,7 +354,7 @@ def verify_video(
             "integrity_ok":    integrity_ok,
             "verdict":         "ÍNTEGRO" if integrity_ok else "MANIPULADO O INCOMPLETO",
             "ecdsa_available": camera_public_key_pem is not None,
-            "file_hash_match": file_hash_match,  # informativo
+            "file_hash_match": file_hash_match,
             "summary": {
                 "total_segments": total,
                 "passed":         passed,
