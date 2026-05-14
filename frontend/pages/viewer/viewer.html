@@ -53,6 +53,9 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
 .btn-reset{border-color:#374151;background:transparent;color:#6b7280}
 .btn-reset:hover{border-color:#6b7280;color:#9ca3af}
 .btn-disabled{border-color:#1f2937;background:transparent;color:#1f2937;cursor:not-allowed;pointer-events:none}
+.btn-copy{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid #2c5f8d;background:transparent;color:#6b7280;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:.06em;cursor:pointer;transition:all .2s}
+.btn-copy:hover{border-color:#4a90e2;color:#4a90e2}
+.btn-copy.copied{border-color:rgba(63,185,80,.5);color:#3fb950}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 .animate-float{animation:float 6s ease-in-out infinite}
 @keyframes pulseSubtle{0%,100%{opacity:.6}50%{opacity:1}}
@@ -148,7 +151,6 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
               <option value="webcam">Webcam</option>
             </select>
           </div>
-          <!-- Nº de vídeos -->
           <div>
             <label class="block font-mono text-[10px] tracking-widest uppercase mb-1.5" style="color:#6b7280">Nº Vídeos</label>
             <input type="number" x-model.number="config.videoCount" :disabled="streaming"
@@ -215,7 +217,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
             </template>
             <template x-if="videoId && streaming">
               <div style="background:rgba(0,0,0,.7);padding:6px 10px;border:1px solid rgba(74,144,226,.2)">
-                <p class="font-mono text-[10px]" style="color:#6b7280">VIDEO ID</p>
+                <p class="font-mono text-[10px]" style="color:#6b7280">VIDEO ID (BD)</p>
                 <p class="font-mono text-xs" style="color:#5ba3f5" x-text="videoId"></p>
               </div>
             </template>
@@ -293,27 +295,58 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
             Descargar todos
           </button>
         </div>
+
         <!-- Cabecera tabla -->
-        <div class="grid px-5 py-2 border-b" style="grid-template-columns:1.5rem 1fr 6rem 5rem 5rem 8rem;gap:8px;border-color:rgba(74,144,226,.1)">
+        <div class="px-5 py-2 border-b" style="border-color:rgba(74,144,226,.1);display:grid;grid-template-columns:1.5rem 2fr 2fr 5rem 4rem 4rem 8rem;gap:8px;align-items:center">
           <span class="font-mono text-[9px] tracking-widest uppercase" style="color:#4b5563">#</span>
-          <span class="font-mono text-[9px] tracking-widest uppercase" style="color:#4b5563">Video ID</span>
+          <span class="font-mono text-[9px] tracking-widest uppercase" style="color:#4b5563">Nombre fichero</span>
+          <div class="flex items-center gap-1">
+            <span class="font-mono text-[9px] tracking-widest uppercase" style="color:#3fb950">DB ID (servidor)</span>
+            <span class="font-mono text-[8px]" style="color:#374151">— UUID necesario para verificación</span>
+          </div>
           <span class="font-mono text-[9px] tracking-widest uppercase" style="color:#4b5563">Dur.</span>
           <span class="font-mono text-[9px] tracking-widest uppercase" style="color:#4b5563">Tamaño</span>
           <span class="font-mono text-[9px] tracking-widest uppercase" style="color:#4b5563">Segs</span>
           <span class="font-mono text-[9px] tracking-widest uppercase" style="color:#4b5563">Descargar</span>
         </div>
+
         <!-- Filas -->
         <template x-for="(v, i) in videoList" :key="i">
-          <div class="grid px-5 py-3 border-b items-center hover:bg-white/[0.02] transition-colors"
-               style="grid-template-columns:1.5rem 1fr 6rem 5rem 5rem 8rem;gap:8px;border-color:rgba(74,144,226,.07)">
+          <div class="px-5 py-3 border-b hover:bg-white/[0.02] transition-colors"
+               style="border-color:rgba(74,144,226,.07);display:grid;grid-template-columns:1.5rem 2fr 2fr 5rem 4rem 4rem 8rem;gap:8px;align-items:center">
+
+            <!-- # -->
             <span class="font-mono text-[10px]" style="color:#4b5563" x-text="i+1"></span>
+
+            <!-- Nombre fichero -->
             <div>
-              <p class="font-mono text-[10px] break-all" style="color:#5ba3f5" x-text="v.videoId"></p>
+              <p class="font-mono text-[10px] break-all" style="color:#9ca3af" x-text="v.filename"></p>
               <p class="font-mono text-[9px] mt-0.5" style="color:#374151" x-text="v.createdAt"></p>
             </div>
+
+            <!-- DB ID con botón copiar -->
+            <div class="flex flex-col gap-1">
+              <p class="font-mono text-[10px] break-all font-bold" style="color:#3fb950" x-text="v.dbId || '—'"></p>
+              <button
+                x-show="v.dbId"
+                @click="copyDbId(v, i)"
+                :class="v._copied ? 'btn-copy copied' : 'btn-copy'"
+                :title="'Copiar UUID de BD: ' + v.dbId">
+                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                <span x-text="v._copied ? '✓ Copiado' : 'Copiar UUID'"></span>
+              </button>
+            </div>
+
+            <!-- Duración -->
             <span class="font-mono text-[10px]" style="color:#9ca3af" x-text="v.duration"></span>
+
+            <!-- Tamaño -->
             <span class="font-mono text-[10px]" style="color:#9ca3af" x-text="v.size"></span>
+
+            <!-- Segmentos -->
             <span class="font-mono text-[10px]" :style="v.errors > 0 ? 'color:#ef4444' : 'color:#3fb950'" x-text="v.segCount + (v.errors>0?' (⚠'+v.errors+')':'')"></span>
+
+            <!-- Descargar -->
             <template x-if="v.url">
               <a :href="v.url" :download="v.filename" class="btn btn-dl justify-center" style="padding:5px 10px;font-size:10px">
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -338,13 +371,18 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
         <div class="card-bg border p-4 text-center" style="border-color:rgba(74,144,226,.2)"><p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#6b7280">Estado</p><p class="font-mono text-xs font-bold" :style="streaming ? 'color:#ef4444' : videoList.length > 0 ? 'color:#3fb950' : 'color:#4b5563'" x-text="streaming ? 'REC' : videoList.length > 0 ? 'DONE' : 'IDLE'"></p></div>
       </div>
 
-      <!-- Current video ID -->
-      <div x-show="videoId" class="card-bg border p-4" style="border-color:rgba(74,144,226,.4);background:rgba(74,144,226,.04)">
-        <p class="font-mono text-[10px] tracking-widest uppercase mb-2" style="color:#4a90e2">Video ID actual</p>
-        <p class="font-mono text-sm font-bold break-all" style="color:#5ba3f5" x-text="videoId"></p>
+      <!-- Current video DB ID (en vivo) -->
+      <div x-show="videoId" class="card-bg border p-4" style="border-color:rgba(63,185,80,.5);background:rgba(63,185,80,.03)">
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-2 h-2 rounded-full" style="background:#3fb950"></div>
+          <p class="font-mono text-[10px] tracking-widest uppercase" style="color:#3fb950">DB ID actual (servidor)</p>
+        </div>
+        <p class="font-mono text-xs font-bold break-all" style="color:#3fb950" x-text="videoId"></p>
+        <p class="font-mono text-[9px] mt-1" style="color:#374151">Usar este UUID en el formulario de verificación</p>
         <button @click="copyVideoId()" class="flex items-center gap-1.5 mt-2 px-3 py-1 border font-mono text-[10px] tracking-widest transition-all"
                 :style="copiedId ? 'border-color:rgba(63,185,80,.5);color:#3fb950' : 'border-color:#2c5f8d;color:#6b7280'">
-          <span x-text="copiedId ? '✓ Copiado!' : 'Copiar ID'"></span>
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+          <span x-text="copiedId ? '✓ Copiado!' : 'Copiar UUID'"></span>
         </button>
       </div>
 
@@ -389,7 +427,7 @@ function viewerApp() {
     segments: [],
     selectedSeg: null,
     logs: [],
-    videoId: null,
+    videoId: null,          // UUID del servidor (DB ID) del vídeo actual
     copiedId: false,
     currentTime: '--:--:--',
     sessionStart: null,
@@ -397,7 +435,7 @@ function viewerApp() {
     segElapsed: 0,
     currentVideoNum: 0,
 
-    // Multi-video list: [{videoId, url, filename, ext, size, duration, segCount, errors, createdAt}]
+    // Multi-video list: [{dbId, videoId(alias), url, filename, ext, size, duration, segCount, errors, createdAt, _copied}]
     videoList: [],
 
     // Recording internals
@@ -407,7 +445,7 @@ function viewerApp() {
     recordedChunks: [],
     _recordingMime: '',
     _videoStartTime: null,
-    _segStartTime: 0,   // segundos absolutos de inicio del segmento actual
+    _segStartTime: 0,
 
     // Timers
     _clockTimer: null,
@@ -435,7 +473,7 @@ function viewerApp() {
       this.$nextTick(() => { const el=document.getElementById('logConsole'); if(el) el.scrollTop=el.scrollHeight; });
     },
 
-    // ── Codec detection ──────────────────────────────────────
+    // ── Codec detection ────────────────────────────────────
     _bestMimeType() {
       const types = [
         'video/mp4;codecs=avc1.42E01E',
@@ -499,13 +537,13 @@ function viewerApp() {
         ctx.fillText(`CAM: ${this.config.cameraId}`,20,30);
         ctx.fillText(`FRAME: ${String(n).padStart(6,'0')}`,20,48);
         ctx.fillText(`VID: ${this.currentVideoNum}/${this.config.videoCount}  SEG: #${this.segments.length+1} [${this.segElapsed}s]`,20,66);
-        if(this.videoId){ctx.fillStyle='rgba(91,163,245,0.6)';ctx.fillText(`ID: ${this.videoId}`,20,84);}
+        if(this.videoId){ctx.fillStyle='rgba(63,185,80,0.7)';ctx.fillText(`DB ID: ${this.videoId}`,20,84);}
         ctx.textAlign='right'; ctx.fillStyle='rgba(74,144,226,0.3)';
         ctx.fillText('EVIDETH FORENSIC',1260,30);
       }
     },
 
-    // ── PUBLIC: start all videos ─────────────────────────────
+    // ── PUBLIC: start all videos ──────────────────────────────────
     async startAll() {
       if(!this.config.cameraId||!this.config.apiKey) return;
       this.streaming=true;
@@ -538,7 +576,7 @@ function viewerApp() {
       this._drawIdle();
     },
 
-    // ── Graba un solo vídeo completo ─────────────────────────
+    // ── Graba un solo vídeo completo ─────────────────────────────────
     async _recordOneVideo() {
       this.segments=[];
       this.selectedSeg=null;
@@ -548,16 +586,14 @@ function viewerApp() {
       this._videoStartTime=Date.now();
       this._segStartTime=0;
 
-      // ── 1. Crear entrada en backend ──
-      //   POST /api/v1/cameras/videos (auth via X-API-Key, sin cameraId en URL)
-      //   VideoCreate: { filename, fps?, resolution?, codec? }
+      // 1. Crear entrada en backend y obtener DB ID
       const ok = await this._startVideoOnBackend();
       if(!ok){
         this.log('Vídeo abortado: sin Video ID válido en BD','err');
         return;
       }
 
-      // ── 2. Iniciar MediaRecorder ──
+      // 2. Iniciar MediaRecorder
       const mime=this._bestMimeType();
       const ext=this._ext(mime);
       await new Promise(async (resolveRec) => {
@@ -587,7 +623,7 @@ function viewerApp() {
         },1000);
       });
 
-      // ── 3. Finalizar grabación ──
+      // 3. Finalizar grabación
       const durSec=Math.floor((Date.now()-this._videoStartTime)/1000);
       let blobSize=0, blobUrl=null;
 
@@ -605,8 +641,11 @@ function viewerApp() {
       }
 
       const filename=`evideth_${this.videoId}_${Date.now()}.${ext}`;
+
+      // Guardar dbId explicitamente en el objeto de la lista
       this.videoList.push({
-        videoId:   this.videoId,
+        dbId:      this.videoId,          // ← UUID del servidor, necesario para /verification/upload
+        videoId:   this.videoId,          // alias mantenido por compatibilidad
         url:       blobUrl,
         filename:  filename,
         ext:       ext,
@@ -615,9 +654,10 @@ function viewerApp() {
         segCount:  this.segments.length,
         errors:    this.segments.filter(s=>!s.valid).length,
         createdAt: new Date().toLocaleString('es-ES'),
+        _copied:   false,
       });
 
-      if(blobUrl) this.log(`Vídeo ${this.currentVideoNum} listo · ${this._fmtSize(blobSize)} · ${ext.toUpperCase()}`,'success');
+      if(blobUrl) this.log(`Vídeo ${this.currentVideoNum} listo · DB ID: ${this.videoId} · ${this._fmtSize(blobSize)} · ${ext.toUpperCase()}`,'success');
       await this._closeVideoOnBackend();
     },
 
@@ -628,11 +668,10 @@ function viewerApp() {
       this.log('Parada manual','info');
     },
 
-    // ── Backend helpers ──────────────────────────────────────
+    // ── Backend helpers ─────────────────────────────────────────
 
-    // Devuelve true si el videoId se obtuvo correctamente de la BD, false si falla.
     async _startVideoOnBackend(){
-      // 1. Heartbeat
+      // Heartbeat
       try{
         await fetch(`${this.config.backendUrl}/api/v1/cameras/heartbeat`,{
           method:'POST',
@@ -644,10 +683,7 @@ function viewerApp() {
         this.log('Heartbeat fallido: '+e.message,'err');
       }
 
-      // 2. Crear vídeo en BD
-      //    Endpoint: POST /api/v1/cameras/videos
-      //    Auth: X-API-Key (la cámara se identifica por la clave, no por la URL)
-      //    Schema VideoCreate: { filename, fps?, resolution?, codec? }
+      // Crear vídeo en BD → obtener UUID del servidor
       const filename=`${this.config.cameraId}_${Date.now()}.webm`;
       try{
         const resp=await fetch(`${this.config.backendUrl}/api/v1/cameras/videos`,{
@@ -657,9 +693,8 @@ function viewerApp() {
         });
         if(resp.ok){
           const data=await resp.json();
-          // VideoResponse devuelve { id, filename, status, fps, resolution, codec, started_at, created_at }
-          this.videoId = data.id;
-          this.log(`Video ID (BD): ${this.videoId}`,'hash');
+          this.videoId = data.id;   // UUID del servidor — este es el DB ID
+          this.log(`✅ DB ID obtenido del servidor: ${this.videoId}`,'success');
           return true;
         } else {
           const txt=await resp.text();
@@ -676,7 +711,6 @@ function viewerApp() {
 
     async _closeVideoOnBackend(){
       if(!this.videoId) return;
-      // Endpoint: PATCH /api/v1/cameras/videos/{video_id}/finish
       try{
         const resp=await fetch(`${this.config.backendUrl}/api/v1/cameras/videos/${this.videoId}/finish`,{
           method:'PATCH',
@@ -695,21 +729,19 @@ function viewerApp() {
     },
 
     async _closeSegment(){
-      const segNum=this.segments.length;           // índice 0-based
+      const segNum=this.segments.length;
       const hash=this._fakeHash();
       const isTampered=this.config.tamper&&Math.random()<0.3;
       const finalHash=isTampered?this._fakeHash():hash;
       const startSec=this._segStartTime;
       const endSec=startSec+parseInt(this.config.segmentSec);
-      this._segStartTime=endSec;                    // actualizar para el próximo segmento
+      this._segStartTime=endSec;
 
       this.log(`Seg #${segNum} · ${finalHash.substring(0,12)}...`,'hash');
       let valid=true, segmentId=null;
 
       if(this.videoId){
         try{
-          // Endpoint: POST /api/v1/cameras/segments
-          // Schema SegmentUpload: { video_id, segment_index, start_time_secs, end_time_secs, sha256_hash, ... }
           const payload={
             video_id:        this.videoId,
             segment_index:   segNum,
@@ -724,7 +756,6 @@ function viewerApp() {
           });
           if(resp.ok){
             const d=await resp.json();
-            // SegmentResponse devuelve { id, segment_index, sha256_hash, merkle_root, status, ... }
             segmentId=d.id||null;
             valid=d.status!=='invalid';
             this.log(`Seg #${segNum} · ${valid?'✓ OK':'✗ RECHAZADO'}`,valid?'success':'err');
@@ -753,7 +784,35 @@ function viewerApp() {
       });
     },
 
-    // ── Descargar todos ──────────────────────────────────────
+    // ── Copiar DB ID de una fila de la tabla ───────────────────────
+    async copyDbId(v, i) {
+      if (!v.dbId) return;
+      try { await navigator.clipboard.writeText(v.dbId); } catch {
+        const el=document.createElement('textarea'); el.value=v.dbId;
+        el.style.position='fixed'; el.style.opacity='0'; document.body.appendChild(el); el.select();
+        document.execCommand('copy'); document.body.removeChild(el);
+      }
+      // Feedback visual: marcar esa fila como copiada durante 2.5s
+      this.videoList[i]._copied = true;
+      this.videoList = [...this.videoList]; // forzar reactividad en Alpine
+      setTimeout(() => {
+        this.videoList[i]._copied = false;
+        this.videoList = [...this.videoList];
+      }, 2500);
+    },
+
+    // ── Copiar DB ID del vídeo actual (panel derecho) ───────────────
+    async copyVideoId(){
+      if(!this.videoId)return;
+      try{await navigator.clipboard.writeText(this.videoId);}catch{
+        const el=document.createElement('textarea');el.value=this.videoId;
+        el.style.position='fixed';el.style.opacity='0';document.body.appendChild(el);el.select();
+        document.execCommand('copy');document.body.removeChild(el);
+      }
+      this.copiedId=true;setTimeout(()=>{this.copiedId=false;},2500);
+    },
+
+    // ── Descargar todos ──────────────────────────────────────────
     downloadAll(){
       this.videoList.forEach((v,i)=>{
         if(!v.url)return;
@@ -763,16 +822,6 @@ function viewerApp() {
           document.body.appendChild(a); a.click(); document.body.removeChild(a);
         }, i*400);
       });
-    },
-
-    async copyVideoId(){
-      if(!this.videoId)return;
-      try{await navigator.clipboard.writeText(this.videoId);}catch{
-        const el=document.createElement('textarea');el.value=this.videoId;
-        el.style.position='fixed';el.style.opacity='0';document.body.appendChild(el);el.select();
-        document.execCommand('copy');document.body.removeChild(el);
-      }
-      this.copiedId=true;setTimeout(()=>{this.copiedId=false;},2500);
     },
 
     resetAll(){
