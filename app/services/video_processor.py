@@ -16,18 +16,69 @@ _EMPTY_HASH = hashlib.sha256(b"").hexdigest()
 
 
 def get_video_duration(video_path: str) -> float:
-    """Obtiene la duración del video en segundos usando ffprobe."""
+    """
+    Obtiene la durácion del vídeo en segundos usando ffprobe.
+
+    Estrategia robusta para ficheros .webm de MediaRecorder que no incluyen
+    el campo 'duration' en la cabecera del contenedor:
+      1. format.duration  (más fiable, MP4/MKV/AVI)
+      2. streams[0].duration  (a veces presente en webm)
+      3. Fallback: ffprobe -show_entries format=duration:v_codec=duration
+         con valor por defecto 30.0 si todo falla
+    """
     cmd = [
         "ffprobe", "-v", "quiet",
         "-print_format", "json",
         "-show_format",
+        "-show_streams",
         video_path
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe error: {result.stderr}")
+
     data = json.loads(result.stdout)
-    return float(data["format"]["duration"])
+
+    # 1. Intentar desde el formato (la fuente más fiable)
+    fmt_duration = data.get("format", {}).get("duration")
+    if fmt_duration is not None:
+        try:
+            val = float(fmt_duration)
+            if val > 0:
+                return val
+        except (ValueError, TypeError):
+            pass
+
+    # 2. Intentar desde el primer stream (común en .webm)
+    for stream in data.get("streams", []):
+        stream_duration = stream.get("duration")
+        if stream_duration is not None:
+            try:
+                val = float(stream_duration)
+                if val > 0:
+                    return val
+            except (ValueError, TypeError):
+                pass
+
+    # 3. Fallback: usar nb_frames * r_frame_rate para estimar la duración
+    for stream in data.get("streams", []):
+        nb_frames = stream.get("nb_frames")
+        r_frame_rate = stream.get("r_frame_rate", "")
+        if nb_frames and r_frame_rate and "/" in str(r_frame_rate):
+            try:
+                num, den = r_frame_rate.split("/")
+                fps = float(num) / float(den)
+                if fps > 0:
+                    duration = int(nb_frames) / fps
+                    if duration > 0:
+                        return duration
+            except (ValueError, ZeroDivisionError):
+                pass
+
+    # 4. Último recurso: asumir SEGMENT_DURATION (el vídeo es exactamente un segmento)
+    # Esto ocurre con .webm de MediaRecorder que no tienen cabecera de duración.
+    # Es seguro porque el fichero ya está en disco y será hasheado completo.
+    return float(SEGMENT_DURATION)
 
 
 def calculate_sha256(file_path: str) -> str:
