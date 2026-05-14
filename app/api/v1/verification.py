@@ -363,11 +363,20 @@ async def upload_and_verify(
             ip_address=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent"),
         )
-        blob_name = _blob_name(camera_id, video_db_id, ext)
-        blob_url  = blob_upload(video_path, blob_name)
-        if blob_url and hasattr(video_db, "blob_name"):
-            video_db.blob_name = blob_name
-            db.commit()
+        # Azure upload is best-effort: a misconfigured connection string
+        # must not invalidate an otherwise successful cryptographic verification.
+        try:
+            blob_name = _blob_name(camera_id, video_db_id, ext)
+            blob_url  = blob_upload(video_path, blob_name)
+            if blob_url and hasattr(video_db, "blob_name"):
+                video_db.blob_name = blob_name
+                db.commit()
+        except Exception as azure_exc:
+            logger.warning(
+                "Azure Blob upload failed (non-fatal): %s — "
+                "Check AZURE_STORAGE_CONNECTION_STRING in your .env",
+                azure_exc,
+            )
         return report
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -442,13 +451,26 @@ async def upload_and_verify_async(
                 progress_cb=cb,
             )
 
-            cb(97, "Uploading video to Azure Blob Storage…")
-            blob_url = blob_upload(video_path, blob_name)
-            if blob_url:
-                video_record_upd = bg_db.query(Video).filter(Video.id == video_db_id).first()
-                if video_record_upd and hasattr(video_record_upd, "blob_name"):
-                    video_record_upd.blob_name = blob_name
-                    bg_db.commit()
+            # ── Azure Blob upload — best-effort, non-fatal ────────────────
+            # A misconfigured or unavailable Azure connection must never
+            # mark a successful cryptographic verification as 'error'.
+            blob_url = None
+            try:
+                cb(97, "Uploading video to Azure Blob Storage…")
+                blob_url = blob_upload(video_path, blob_name)
+                if blob_url:
+                    video_record_upd = bg_db.query(Video).filter(Video.id == video_db_id).first()
+                    if video_record_upd and hasattr(video_record_upd, "blob_name"):
+                        video_record_upd.blob_name = blob_name
+                        bg_db.commit()
+            except Exception as azure_exc:
+                logger.warning(
+                    "[job %s] Azure Blob upload failed (non-fatal): %s — "
+                    "Verification result is unaffected. "
+                    "Check AZURE_STORAGE_CONNECTION_STRING in your .env",
+                    job_id[:8], azure_exc,
+                )
+            # ─────────────────────────────────────────────────────────────
 
             video_record = bg_db.query(Video).filter(Video.id == video_db_id).first()
             full_report = {
