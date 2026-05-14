@@ -109,6 +109,14 @@
                             return;
                         }
 
+                        // FIX: guard against undefined job_id which would cause
+                        // fetch('/api/v1/verification/jobs/undefined') → "URL has an invalid label"
+                        if (!data.job_id) {
+                            this.apiError  = 'El servidor no devolvió un job_id. Respuesta: ' + JSON.stringify(data);
+                            this.verifying = false;
+                            return;
+                        }
+
                         this.progress    = 3;
                         this.progressMsg = 'Analysis started…';
                         this._startPolling(data.job_id);
@@ -733,14 +741,15 @@
                 <div class="relative border-2 border-dashed p-12 text-center cursor-pointer transition-all duration-500"
                      style="border-color:rgba(74,144,226,.3); background-color:#000000;"
                      @click="$refs.fileInput.click()">
-                    <input type="file" id="fileInput" x-ref="fileInput" class="hidden" accept=".mp4,.avi,.mkv,.mov" @change="onFileSelected($event)">
+                    <!-- FIX: added .webm and video/* so videos recorded by the viewer (WebM) are selectable -->
+                    <input type="file" id="fileInput" x-ref="fileInput" class="hidden" accept=".mp4,.avi,.mkv,.mov,.webm,video/*" @change="onFileSelected($event)">
                     <div class="mb-6">
                         <svg class="w-20 h-20 mx-auto" style="color:#4b5563;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
                         </svg>
                     </div>
                     <p class="text-lg font-mono mb-2" style="color:#d1d5db;" x-text="selectedFile ? selectedFile.name : 'Drop Video File Here'"></p>
-                    <p class="text-sm font-mono mb-6" style="color:#6b7280;" x-text="selectedFile ? fmtSize(selectedFile.size) : 'Or click to select &middot; MP4 &middot; AVI &middot; MOV &middot; MKV'"></p>
+                    <p class="text-sm font-mono mb-6" style="color:#6b7280;" x-text="selectedFile ? fmtSize(selectedFile.size) : 'Or click to select &middot; MP4 &middot; AVI &middot; MOV &middot; MKV &middot; WebM'"></p>
                     <button type="button" class="inline-block px-8 py-3 border-2 font-mono text-sm tracking-widest transition-all duration-300"
                             style="border-color:#4a90e2; color:#4a90e2; background-color:transparent;">
                         <span x-text="selectedFile ? 'Change File' : 'Select File'"></span>
