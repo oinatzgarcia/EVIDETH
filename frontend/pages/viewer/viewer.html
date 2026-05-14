@@ -61,6 +61,8 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
 @keyframes pulseSubtle{0%,100%{opacity:.6}50%{opacity:1}}
 .pulse-dot{animation:pulseSubtle 2s ease-in-out infinite}
 input[type=number]::-webkit-inner-spin-button{opacity:1}
+/* banner navegador incompatible */
+.browser-warn{display:flex;align-items:center;gap:12px;padding:12px 20px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.4);font-family:'Space Mono',monospace;font-size:11px;color:#ef4444;margin-bottom:16px}
 </style>
 </head>
 
@@ -91,6 +93,15 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
 </header>
 
 <main class="max-w-6xl mx-auto px-6 py-8">
+
+  <!-- Banner: navegador sin soporte MP4 -->
+  <div x-show="!mp4Supported" class="browser-warn">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+    <div>
+      <p class="font-bold tracking-widest uppercase">Navegador incompatible para grabación MP4</p>
+      <p class="text-[10px] mt-0.5" style="color:#f87171">Tu navegador (<span x-text="browserName"></span>) no soporta <code>MediaRecorder</code> con MP4/H.264. Usa <strong>Chrome 94+</strong> o <strong>Edge 94+</strong> para generar ficheros .mp4 válidos.</p>
+    </div>
+  </div>
 
   <div class="mb-8 text-center">
     <div class="flex items-center justify-center gap-2 font-mono text-xs mb-2" style="color:#5ba3f5">
@@ -168,6 +179,15 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
             </button>
           </div>
         </div>
+
+        <!-- Codec info badge -->
+        <div class="mt-3 flex items-center gap-2">
+          <div class="flex items-center gap-1.5 px-3 py-1.5 border font-mono text-[10px]"
+               :style="mp4Supported ? 'border-color:rgba(63,185,80,.4);color:#3fb950;background:rgba(63,185,80,.05)' : 'border-color:rgba(239,68,68,.4);color:#ef4444;background:rgba(239,68,68,.05)'">
+            <span x-text="mp4Supported ? '✓ MP4 · ' + detectedMime : '✗ MP4 no disponible'"></span>
+          </div>
+          <span class="font-mono text-[9px]" style="color:#374151" x-text="mp4Supported ? 'El fichero descargado será .mp4 válido' : 'Usa Chrome 94+ o Edge 94+'"></span>
+        </div>
       </div>
 
       <!-- Progress bar multi-video -->
@@ -240,12 +260,12 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
       <!-- Controls -->
       <div class="flex items-center gap-3">
         <button @click="streaming ? stopAll() : startAll()"
-                :disabled="!config.cameraId || !config.apiKey"
+                :disabled="!config.cameraId || !config.apiKey || !mp4Supported"
                 class="btn flex-1 justify-center"
-                :class="streaming ? 'btn-stop' : (!config.cameraId || !config.apiKey ? 'btn-disabled' : '')">
+                :class="streaming ? 'btn-stop' : (!config.cameraId || !config.apiKey || !mp4Supported ? 'btn-disabled' : '')">
           <template x-if="!streaming"><svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></template>
           <template x-if="streaming"><svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></template>
-          <span x-text="streaming ? 'DETENER' : (config.videoCount > 1 ? 'GENERAR ' + config.videoCount + ' VÍDEOS' : 'INICIAR STREAM')"></span>
+          <span x-text="!mp4Supported ? 'NAVEGADOR INCOMPATIBLE' : streaming ? 'DETENER' : (config.videoCount > 1 ? 'GENERAR ' + config.videoCount + ' VÍDEOS' : 'INICIAR STREAM')"></span>
         </button>
         <button @click="resetAll()" :disabled="streaming" class="btn btn-reset px-5" :class="streaming ? 'btn-disabled' : ''">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
@@ -412,7 +432,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
 <footer class="border-t mt-12" style="border-color:rgba(74,144,226,.2);background:#000">
   <div class="max-w-6xl mx-auto px-6 py-6 text-center">
     <p class="font-mono text-xs tracking-widest mb-1" style="color:#6b7280">EVIDETH © 2026 · Camera Client · Puerto 8080</p>
-    <p class="font-mono text-xs" style="color:#4b5563">SHA-256 · ECDSA P-256 · Segmentos de 30s</p>
+    <p class="font-mono text-xs" style="color:#4b5563">SHA-256 · ECDSA P-256 · Segmentos de 30s · MP4/H.264</p>
   </div>
 </footer>
 
@@ -422,12 +442,17 @@ function viewerApp() {
     // Config
     config: { cameraId:'', apiKey:'', segmentSec:30, backendUrl:'http://localhost:8000', tamper:false, source:'simulated', videoCount:1 },
 
+    // MP4 support detection
+    mp4Supported: false,
+    detectedMime: '',
+    browserName: '',
+
     // State
     streaming: false,
     segments: [],
     selectedSeg: null,
     logs: [],
-    videoId: null,          // UUID del servidor (DB ID) del vídeo actual
+    videoId: null,
     copiedId: false,
     currentTime: '--:--:--',
     sessionStart: null,
@@ -435,7 +460,6 @@ function viewerApp() {
     segElapsed: 0,
     currentVideoNum: 0,
 
-    // Multi-video list: [{dbId, videoId(alias), url, filename, ext, size, duration, segCount, errors, createdAt, _copied}]
     videoList: [],
 
     // Recording internals
@@ -454,6 +478,7 @@ function viewerApp() {
     _frameNum: 0,
 
     init() {
+      this._detectMp4Support();
       this._clockTimer = setInterval(() => {
         this.currentTime = new Date().toLocaleTimeString('es-ES');
         if (this.sessionStart) {
@@ -462,6 +487,36 @@ function viewerApp() {
         }
       }, 1000);
       this._drawIdle();
+    },
+
+    // ── Detección de soporte MP4 ─────────────────────────────────
+    _detectMp4Support() {
+      // Nombre del navegador para el mensaje de error
+      const ua = navigator.userAgent;
+      if (ua.includes('Edg/'))        this.browserName = 'Edge';
+      else if (ua.includes('Chrome')) this.browserName = 'Chrome';
+      else if (ua.includes('Firefox'))this.browserName = 'Firefox';
+      else if (ua.includes('Safari')) this.browserName = 'Safari';
+      else                            this.browserName = 'Navegador desconocido';
+
+      // Orden de preferencia: H.264 baseline → H.264 genérico → MP4 sin codec
+      const candidates = [
+        'video/mp4;codecs=avc1.42E01E',   // H.264 Baseline — Chrome/Edge
+        'video/mp4;codecs=avc1.4D401E',   // H.264 Main
+        'video/mp4;codecs=h264',
+        'video/mp4',
+      ];
+      for (const mime of candidates) {
+        try {
+          if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(mime)) {
+            this.mp4Supported = true;
+            this.detectedMime = mime;
+            return;
+          }
+        } catch {}
+      }
+      this.mp4Supported = false;
+      this.detectedMime = '';
     },
 
     get errorCount() { return this.segments.filter(s => !s.valid).length; },
@@ -473,32 +528,14 @@ function viewerApp() {
       this.$nextTick(() => { const el=document.getElementById('logConsole'); if(el) el.scrollTop=el.scrollHeight; });
     },
 
-    // ── Codec detection ────────────────────────────────────
-    _bestMimeType() {
-      const types = [
-        'video/mp4;codecs=avc1.42E01E',
-        'video/mp4;codecs=h264',
-        'video/mp4',
-        'video/webm;codecs=vp9',
-        'video/webm;codecs=vp8',
-        'video/webm',
-      ];
-      for (const t of types) {
-        try { if (MediaRecorder.isTypeSupported(t)) return t; } catch {}
-      }
-      return '';
-    },
-
-    _ext(mime) { return mime && mime.includes('mp4') ? 'mp4' : 'webm'; },
     _fmtSize(bytes) { return bytes < 1048576 ? (bytes/1024).toFixed(0)+' KB' : (bytes/1048576).toFixed(1)+' MB'; },
-    _fmtDur(sec) { return String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0'); },
-
+    _fmtDur(sec)    { return String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0'); },
     _fakeHash() {
       const a=new Uint8Array(32); crypto.getRandomValues(a);
       return Array.from(a).map(b=>b.toString(16).padStart(2,'0')).join('');
     },
 
-    // ── Canvas drawing ───────────────────────────────────────
+    // ── Canvas drawing ───────────────────────────────────────────
     _drawIdle() {
       const canvas=document.getElementById('videoCanvas'); if(!canvas) return;
       const ctx=canvas.getContext('2d');
@@ -543,11 +580,12 @@ function viewerApp() {
       }
     },
 
-    // ── PUBLIC: start all videos ──────────────────────────────────
+    // ── PUBLIC: start all videos ─────────────────────────────────
     async startAll() {
-      if(!this.config.cameraId||!this.config.apiKey) return;
+      if(!this.config.cameraId || !this.config.apiKey || !this.mp4Supported) return;
       this.streaming=true;
       this.sessionStart=Date.now();
+      this.log(`Codec: ${this.detectedMime}`,'ok');
       this.log(`Generando ${this.config.videoCount} vídeo(s) · ${this.config.cameraId}`,'ok');
 
       if(this.config.source==='webcam'){
@@ -576,7 +614,7 @@ function viewerApp() {
       this._drawIdle();
     },
 
-    // ── Graba un solo vídeo completo ─────────────────────────────────
+    // ── Graba un solo vídeo completo ─────────────────────────────
     async _recordOneVideo() {
       this.segments=[];
       this.selectedSeg=null;
@@ -586,25 +624,21 @@ function viewerApp() {
       this._videoStartTime=Date.now();
       this._segStartTime=0;
 
-      // 1. Crear entrada en backend y obtener DB ID
       const ok = await this._startVideoOnBackend();
       if(!ok){
         this.log('Vídeo abortado: sin Video ID válido en BD','err');
         return;
       }
 
-      // 2. Iniciar MediaRecorder
-      const mime=this._bestMimeType();
-      const ext=this._ext(mime);
       await new Promise(async (resolveRec) => {
         try{
           const canvas=document.getElementById('videoCanvas');
           const stream=canvas.captureStream(25);
-          const opts=mime?{mimeType:mime}:{};
-          this.mediaRecorder=new MediaRecorder(stream,opts);
-          this._recordingMime=this.mediaRecorder.mimeType||'video/webm';
+          // Usar siempre el mime MP4 detectado — nunca webm
+          this.mediaRecorder=new MediaRecorder(stream, { mimeType: this.detectedMime });
+          this._recordingMime=this.mediaRecorder.mimeType;
           this.mediaRecorder.ondataavailable=e=>{if(e.data&&e.data.size>0)this.recordedChunks.push(e.data);};
-          this.log(`Codec: ${this._recordingMime}`,'info');
+          this.log(`Grabando con: ${this._recordingMime}`,'info');
           this.mediaRecorder.start(1000);
         }catch(e){
           this.log('MediaRecorder: '+e.message,'err');
@@ -623,7 +657,6 @@ function viewerApp() {
         },1000);
       });
 
-      // 3. Finalizar grabación
       const durSec=Math.floor((Date.now()-this._videoStartTime)/1000);
       let blobSize=0, blobUrl=null;
 
@@ -635,20 +668,21 @@ function viewerApp() {
       }
 
       if(this.recordedChunks.length>0){
-        const blob=new Blob(this.recordedChunks,{type:this._recordingMime||'video/webm'});
+        // Blob siempre con mime MP4
+        const blob=new Blob(this.recordedChunks, { type: this.detectedMime });
         blobSize=blob.size;
         blobUrl=URL.createObjectURL(blob);
       }
 
-      const filename=`evideth_${this.videoId}_${Date.now()}.${ext}`;
+      // Nombre siempre .mp4
+      const filename=`evideth_${this.videoId}_${Date.now()}.mp4`;
 
-      // Guardar dbId explicitamente en el objeto de la lista
       this.videoList.push({
-        dbId:      this.videoId,          // ← UUID del servidor, necesario para /verification/upload
-        videoId:   this.videoId,          // alias mantenido por compatibilidad
+        dbId:      this.videoId,
+        videoId:   this.videoId,
         url:       blobUrl,
         filename:  filename,
-        ext:       ext,
+        ext:       'mp4',
         size:      blobSize>0?this._fmtSize(blobSize):'—',
         duration:  this._fmtDur(durSec),
         segCount:  this.segments.length,
@@ -657,21 +691,18 @@ function viewerApp() {
         _copied:   false,
       });
 
-      if(blobUrl) this.log(`Vídeo ${this.currentVideoNum} listo · DB ID: ${this.videoId} · ${this._fmtSize(blobSize)} · ${ext.toUpperCase()}`,'success');
+      if(blobUrl) this.log(`Vídeo ${this.currentVideoNum} listo · DB ID: ${this.videoId} · ${this._fmtSize(blobSize)} · MP4`,'success');
       await this._closeVideoOnBackend();
     },
 
-    // ── Stop manual ──────────────────────────────────────────
     stopAll() {
       this.streaming=false;
       clearInterval(this._segTimer);
       this.log('Parada manual','info');
     },
 
-    // ── Backend helpers ─────────────────────────────────────────
-
+    // ── Backend helpers ──────────────────────────────────────────
     async _startVideoOnBackend(){
-      // Heartbeat
       try{
         await fetch(`${this.config.backendUrl}/api/v1/cameras/heartbeat`,{
           method:'POST',
@@ -683,17 +714,17 @@ function viewerApp() {
         this.log('Heartbeat fallido: '+e.message,'err');
       }
 
-      // Crear vídeo en BD → obtener UUID del servidor
-      const filename=`${this.config.cameraId}_${Date.now()}.webm`;
+      // filename y codec → siempre mp4/h264
+      const filename=`${this.config.cameraId}_${Date.now()}.mp4`;
       try{
         const resp=await fetch(`${this.config.backendUrl}/api/v1/cameras/videos`,{
           method:'POST',
           headers:{'Content-Type':'application/json','X-API-Key':this.config.apiKey},
-          body:JSON.stringify({ filename, fps:25, resolution:'1280x720', codec:'webm' }),
+          body:JSON.stringify({ filename, fps:25, resolution:'1280x720', codec:'h264' }),
         });
         if(resp.ok){
           const data=await resp.json();
-          this.videoId = data.id;   // UUID del servidor — este es el DB ID
+          this.videoId = data.id;
           this.log(`✅ DB ID obtenido del servidor: ${this.videoId}`,'success');
           return true;
         } else {
@@ -784,7 +815,6 @@ function viewerApp() {
       });
     },
 
-    // ── Copiar DB ID de una fila de la tabla ───────────────────────
     async copyDbId(v, i) {
       if (!v.dbId) return;
       try { await navigator.clipboard.writeText(v.dbId); } catch {
@@ -792,16 +822,14 @@ function viewerApp() {
         el.style.position='fixed'; el.style.opacity='0'; document.body.appendChild(el); el.select();
         document.execCommand('copy'); document.body.removeChild(el);
       }
-      // Feedback visual: marcar esa fila como copiada durante 2.5s
       this.videoList[i]._copied = true;
-      this.videoList = [...this.videoList]; // forzar reactividad en Alpine
+      this.videoList = [...this.videoList];
       setTimeout(() => {
         this.videoList[i]._copied = false;
         this.videoList = [...this.videoList];
       }, 2500);
     },
 
-    // ── Copiar DB ID del vídeo actual (panel derecho) ───────────────
     async copyVideoId(){
       if(!this.videoId)return;
       try{await navigator.clipboard.writeText(this.videoId);}catch{
@@ -812,7 +840,6 @@ function viewerApp() {
       this.copiedId=true;setTimeout(()=>{this.copiedId=false;},2500);
     },
 
-    // ── Descargar todos ──────────────────────────────────────────
     downloadAll(){
       this.videoList.forEach((v,i)=>{
         if(!v.url)return;
