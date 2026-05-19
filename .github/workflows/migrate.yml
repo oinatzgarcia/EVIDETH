@@ -1,14 +1,8 @@
 # ─────────────────────────────────────────────────────────────
 # EVIDETH — migrate.yml
-# El servidor PostgreSQL es VNet-only (sin acceso público).
+# PostgreSQL es VNet-only (sin acceso público).
 # Las migraciones se ejecutan mediante un Container App Job efímero
-# que corre dentro del mismo managed environment (misma VNet)
-# usando la misma imagen del backend.
-#
-# Flujo:
-#   1. Crear un Container App Job con el comando alembic upgrade head
-#   2. Esperar a que termine
-#   3. Eliminar el job efímero
+# dentro del mismo managed environment (misma VNet que el backend).
 # ─────────────────────────────────────────────────────────────
 name: DB Migrate
 
@@ -21,11 +15,10 @@ permissions:
   contents: read
 
 env:
-  RESOURCE_GROUP:   evideth-dev-rg
-  CAE_NAME:         evideth-dev-cae
-  BACKEND_APP:      evideth-dev-backend
-  ACR_NAME:         evidethdevacr94f04b
-  JOB_NAME:         evideth-migrate-job
+  RESOURCE_GROUP: evideth-dev-rg
+  CAE_NAME:       evideth-dev-cae
+  BACKEND_APP:    evideth-dev-backend
+  JOB_NAME:       evideth-migrate-job
 
 jobs:
   migrate:
@@ -40,11 +33,10 @@ jobs:
           tenant-id:       ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      # Instalar extension containerapp si no está presente
       - name: Install containerapp CLI extension
         run: az extension add --name containerapp --upgrade -y
 
-      # Obtener la imagen actual del backend (ya existente en ACR)
+      # Obtener imagen actual del backend
       - name: Get current backend image
         id: image
         run: |
@@ -54,29 +46,46 @@ jobs:
             --query          "properties.template.containers[0].image" \
             --output         tsv)
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
-          echo "📦 Using image: $IMAGE"
+          echo "📦 Image: $IMAGE"
 
-      # Obtener el DATABASE_URL del Container App (ya configurado por Terraform)
-      - name: Get DATABASE_URL from Container App env
+      # Construir DATABASE_URL directamente desde los componentes de Azure
+      # El job necesita conectarse al PostgreSQL privado — usa el FQDN interno
+      - name: Build DATABASE_URL
         id: dburl
         run: |
-          DB_URL=$(az containerapp show \
+          KV=$(az keyvault list \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "[0].name" --output tsv)
+
+          FQDN=$(az postgres flexible-server show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name evideth-dev-pgserver \
+            --query "fullyQualifiedDomainName" --output tsv)
+
+          DB_PASS=$(az keyvault secret show \
+            --vault-name "$KV" --name "db-password" \
+            --query "value" --output tsv)
+
+          # El admin user lo lee del Container App (var DB_USER o db-user secret)
+          DB_USER=$(az containerapp show \
             --name           ${{ env.BACKEND_APP }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --query          "properties.template.containers[0].env[?name=='DATABASE_URL'].value | [0]" \
+            --query          "properties.template.containers[0].env[?name=='DB_USER'].value | [0]" \
             --output         tsv)
 
-          # Si DATABASE_URL no está en env vars directas, construirlo desde secretos del Container App
-          if [ -z "$DB_URL" ] || [ "$DB_URL" = "None" ]; then
-            echo "⚠️ DATABASE_URL not found as plain env var, will rely on Container App secrets"
-            echo "use_secret=true" >> $GITHUB_OUTPUT
-          else
-            echo "database_url=$DB_URL" >> $GITHUB_OUTPUT
-            echo "use_secret=false" >> $GITHUB_OUTPUT
-            echo "✅ DATABASE_URL found"
+          # Fallback: user estándar de Azure PostgreSQL (admin@server)
+          if [ -z "$DB_USER" ] || [ "$DB_USER" = "None" ]; then
+            DB_USER="evidethadmin"
           fi
 
-      # Eliminar job anterior si existiera (idempotente)
+          DB_URL="postgresql://${DB_USER}:${DB_PASS}@${FQDN}:5432/evideth_db?sslmode=require"
+          # Enmascarar en logs
+          echo "::add-mask::$DB_PASS"
+          echo "::add-mask::$DB_URL"
+          echo "database_url=$DB_URL" >> $GITHUB_OUTPUT
+          echo "✅ DATABASE_URL built (host: $FQDN)"
+
+      # Limpiar job anterior si existiera
       - name: Delete previous migration job if exists
         run: |
           az containerapp job delete \
@@ -84,76 +93,62 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --yes 2>/dev/null && echo "🗑️ Old job deleted" || echo "✅ No previous job"
 
-      # Crear Container App Job efímero con la misma imagen y entorno
-      # El job hereda los secretos del Container App environment
-      - name: Create & run migration job
+      # Crear job efímero con DATABASE_URL como env var directa
+      - name: Create migration Container App Job
         run: |
           az containerapp job create \
-            --name                ${{ env.JOB_NAME }} \
-            --resource-group      ${{ env.RESOURCE_GROUP }} \
-            --environment         ${{ env.CAE_NAME }} \
-            --trigger-type        Manual \
-            --replica-timeout     300 \
-            --replica-retry-limit 1 \
+            --name                     ${{ env.JOB_NAME }} \
+            --resource-group           ${{ env.RESOURCE_GROUP }} \
+            --environment              ${{ env.CAE_NAME }} \
+            --trigger-type             Manual \
+            --replica-timeout          300 \
+            --replica-retry-limit      1 \
             --replica-completion-count 1 \
-            --parallelism         1 \
-            --image               ${{ steps.image.outputs.image }} \
-            --cpu                 0.5 \
-            --memory              1Gi \
-            --registry-server     ${{ env.ACR_NAME }}.azurecr.io \
-            --registry-identity   system \
-            --secrets             "$(az containerapp show \
-                                      --name           ${{ env.BACKEND_APP }} \
-                                      --resource-group ${{ env.RESOURCE_GROUP }} \
-                                      --query          'properties.configuration.secrets' \
-                                      --output         json)" \
-            --env-vars            "$(az containerapp show \
-                                      --name           ${{ env.BACKEND_APP }} \
-                                      --resource-group ${{ env.RESOURCE_GROUP }} \
-                                      --query          'properties.template.containers[0].env' \
-                                      --output         json)" \
-            --command             "alembic" \
-            --args                "upgrade,head"
+            --parallelism              1 \
+            --image                    "${{ steps.image.outputs.image }}" \
+            --cpu                      0.5 \
+            --memory                   1Gi \
+            --registry-server          evidethdevacr94f04b.azurecr.io \
+            --registry-identity        system \
+            --env-vars                 "DATABASE_URL=${{ steps.dburl.outputs.database_url }}"
+          echo "✅ Job created"
 
-          echo "🚀 Starting migration job..."
-          EXECUTION=$(az containerapp job start \
+      # Arrancar el job y capturar el execution name
+      - name: Start migration job
+        id: execution
+        run: |
+          EXEC=$(az containerapp job start \
             --name           ${{ env.JOB_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --query          "name" \
             --output         tsv)
-          echo "execution=$EXECUTION" >> $GITHUB_ENV
-          echo "⏳ Job execution: $EXECUTION"
+          echo "name=$EXEC" >> $GITHUB_OUTPUT
+          echo "⏳ Execution: $EXEC"
 
-      # Esperar a que el job termine (polling cada 10s, timeout 5min)
-      - name: Wait for migration job to complete
+      # Polling hasta Succeeded / Failed (timeout 5 min)
+      - name: Wait for migration to complete
         run: |
-          echo "⏳ Waiting for job to finish..."
           for i in $(seq 1 30); do
             STATUS=$(az containerapp job execution show \
-              --name           ${{ env.JOB_NAME }} \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --job-execution-name "$execution" \
-              --query          "properties.status" \
-              --output         tsv 2>/dev/null || echo "Running")
-            echo "  [$i/30] Status: $STATUS"
-            if [ "$STATUS" = "Succeeded" ]; then
-              echo "✅ Migration succeeded!"
-              exit 0
-            elif [ "$STATUS" = "Failed" ]; then
-              echo "❌ Migration job failed!"
-              exit 1
+              --name                 ${{ env.JOB_NAME }} \
+              --resource-group       ${{ env.RESOURCE_GROUP }} \
+              --job-execution-name   "${{ steps.execution.outputs.name }}" \
+              --query                "properties.status" \
+              --output               tsv 2>/dev/null || echo "Running")
+            echo "  [$i/30] $STATUS"
+            if   [ "$STATUS" = "Succeeded" ]; then echo "✅ Migrations applied!"; exit 0
+            elif [ "$STATUS" = "Failed"    ]; then echo "❌ Migration failed!";    exit 1
             fi
             sleep 10
           done
-          echo "❌ Timeout waiting for migration job"
-          exit 1
+          echo "❌ Timeout"; exit 1
 
-      # Limpiar el job efímero (siempre, incluso si falla)
-      - name: Delete migration job (cleanup)
+      # Cleanup siempre
+      - name: Cleanup migration job
         if: always()
         run: |
           az containerapp job delete \
             --name           ${{ env.JOB_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --yes 2>/dev/null || true
-          echo "🧹 Migration job cleaned up"
+          echo "🧹 Job deleted"
