@@ -34,6 +34,16 @@ output "key_vault_url" {
   value       = azurerm_key_vault.main.vault_uri
 }
 
+output "ecdsa_key_id" {
+  description = "ID completo (versioned) de la clave ECDSA P-256. Úsalo para verificar creación."
+  value       = azurerm_key_vault_key.ecdsa_signing.id
+}
+
+output "ecdsa_key_name" {
+  description = "Nombre lógico de la clave ECDSA. Cópialo en .env como ECDSA_KEY_NAME"
+  value       = azurerm_key_vault_key.ecdsa_signing.name
+}
+
 # ── Storage ───────────────────────────────────────────────────
 output "storage_account_name" {
   description = "Nombre del Storage Account de Azure Blob Storage"
@@ -83,6 +93,7 @@ output "deploy_summary" {
     ║  Backend URL : https://${azurerm_container_app.backend.ingress[0].fqdn}
     ║  ACR         : ${azurerm_container_registry.main.login_server}
     ║  Key Vault   : ${azurerm_key_vault.main.vault_uri}
+    ║  ECDSA Key   : ${azurerm_key_vault_key.ecdsa_signing.name}
     ║  PostgreSQL  : ${azurerm_postgresql_flexible_server.main.fqdn}
     ║  RG          : ${azurerm_resource_group.main.name}
     ╚══════════════════════════════════════════════════════╝
