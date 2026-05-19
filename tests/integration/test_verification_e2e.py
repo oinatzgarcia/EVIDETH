@@ -7,7 +7,7 @@ Cubre el ciclo completo del sistema:
   1. Generar vídeo de prueba con ffmpeg
   2. Registrar cámara + video + segmentos en BD (SQLite en memoria)
   3. CASO PASS: verificar el mismo vídeo → integrity_ok=True
-  4. CASO FAIL: corromper 1 byte del vídeo → integrity_ok=False
+  4. CASO FAIL: corromper frames del vídeo → integrity_ok=False
   5. CASO MERKLE: verificar que los segundos manipulados se identifican
 
 Ejecución:
@@ -36,7 +36,7 @@ from app.services.verifier import verify_video
 from app.utils.merkle import build_merkle_root, get_merkle_proof, verify_merkle_proof
 
 
-# ── Fixtures ──────────────────────────────────────────────────────────────────
+# ── Fixtures ─────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="module")
 def db_session():
@@ -135,7 +135,7 @@ def registered_video(db_session, test_video_path):
     return camera, video, db_segments
 
 
-# ── Tests unitarios: Módulo Merkle ──────────────────────────────────────────
+# ── Tests unitarios: Módulo Merkle ─────────────────────────────────
 
 class TestMerkleTree:
     def test_single_leaf(self):
@@ -182,7 +182,7 @@ class TestMerkleTree:
             build_merkle_root([])
 
 
-# ── Tests de integración: Verificador ──────────────────────────────────────────
+# ── Tests de integración: Verificador ──────────────────────────────
 
 class TestVerificationE2E:
 
@@ -206,11 +206,11 @@ class TestVerificationE2E:
 
     def test_fail_corrupted_video(self, db_session, registered_video, test_video_path):
         """
-        CASO FAIL: modificar 1 byte en el vídeo → debe detectar manipulación.
-        El byte se modifica en la mitad del archivo (zona de datos de vídeo).
+        CASO FAIL: re-codificar el vídeo con un overlay visual distinto
+        → los frames cambian → Merkle root difiere → integrity_ok=False.
         """
         camera, video, _ = registered_video
-        corrupted_path = corrupt_video(test_video_path)
+        corrupted_path = corrupt_video_ffmpeg(test_video_path)
 
         report = verify_video(
             video_path=corrupted_path,
@@ -235,7 +235,7 @@ class TestVerificationE2E:
         if not has_merkle:
             pytest.skip("No hay Merkle data almacenada — daemon pendiente")
 
-        corrupted_path = corrupt_video(test_video_path)
+        corrupted_path = corrupt_video_ffmpeg(test_video_path)
         report = verify_video(
             video_path=corrupted_path,
             camera_id=camera.camera_id,
@@ -274,31 +274,33 @@ class TestVerificationE2E:
             )
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────
 
 def video_path_copy(src: str) -> str:
     """Devuelve el mismo path (el test no modifica el original)."""
     return src
 
 
-def corrupt_video(src: str) -> str:
+def corrupt_video_ffmpeg(src: str) -> str:
     """
-    Copia el vídeo y modifica 1 byte en el primer segmento de datos.
-    Devuelve la ruta del vídeo corrompido.
+    Genera una versión visualmente alterada del vídeo usando ffmpeg:
+    añade un rectángulo negro en la esquina superior izquierda durante todo
+    el vídeo. Esto cambia los valores de los frames decodificados, por lo
+    que el Merkle root por segundo será distinto al original.
+
+    Estrategia: re-codificar con un drawbox visible garantiza que los
+    hashes SHA-256 de los frames RGB difieren — independientemente de la
+    robustez del decodificador H.264 ante corrupción de bytes del contenedor.
     """
-    import shutil
-    dst = src.replace(".mp4", "_corrupted.mp4")
-    shutil.copy2(src, dst)
-
-    file_size = os.path.getsize(dst)
-    # Modificar un byte en el 20% del fichero (zona de datos de vídeo)
-    corrupt_offset = int(file_size * 0.20)
-
-    with open(dst, "r+b") as f:
-        f.seek(corrupt_offset)
-        original_byte = f.read(1)
-        f.seek(corrupt_offset)
-        # XOR con 0xFF para invertir el byte (garantiza cambio)
-        f.write(bytes([original_byte[0] ^ 0xFF]))
-
+    dst = src.replace(".mp4", "_tampered.mp4")
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", src,
+        "-vf", "drawbox=x=0:y=0:w=80:h=80:color=black:t=fill",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy",
+        dst
+    ]
+    result = subprocess.run(cmd, capture_output=True)
+    assert result.returncode == 0, f"ffmpeg drawbox falló: {result.stderr.decode()}"
     return dst
