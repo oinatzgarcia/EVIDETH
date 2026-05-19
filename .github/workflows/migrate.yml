@@ -7,10 +7,6 @@
 #   2. Abre temporalmente esa IP en el firewall de PostgreSQL
 #   3. Corre la migración
 #   4. Elimina la regla de firewall (always, incluso si falla)
-#
-# Se puede llamar:
-#   - Manualmente (workflow_dispatch)
-#   - Desde deploy.yml (workflow_call)
 # ─────────────────────────────────────────────────────────────
 name: DB Migrate
 
@@ -23,7 +19,7 @@ permissions:
   contents: read
 
 env:
-  PG_SERVER_NAME:  evideth-dev-pg
+  PG_SERVER_NAME:  evideth-dev-pgserver
   RESOURCE_GROUP:  evideth-dev-rg
   FIREWALL_RULE:   github-actions-runner
 
@@ -62,9 +58,9 @@ jobs:
       - name: Open PostgreSQL firewall for runner
         run: |
           az postgres flexible-server firewall-rule create \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name            ${{ env.PG_SERVER_NAME }} \
-            --rule-name       ${{ env.FIREWALL_RULE }} \
+            --resource-group   ${{ env.RESOURCE_GROUP }} \
+            --name             ${{ env.PG_SERVER_NAME }} \
+            --rule-name        ${{ env.FIREWALL_RULE }} \
             --start-ip-address ${{ steps.runner_ip.outputs.ip }} \
             --end-ip-address   ${{ steps.runner_ip.outputs.ip }}
           echo "✅ Firewall rule created for ${{ steps.runner_ip.outputs.ip }}"
@@ -72,44 +68,42 @@ jobs:
       - name: Build DATABASE_URL from Azure outputs
         id: db_url
         run: |
-          # Obtener FQDN del servidor PostgreSQL
           FQDN=$(az postgres flexible-server show \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name            ${{ env.PG_SERVER_NAME }} \
-            --query           "fullyQualifiedDomainName" \
-            --output          tsv)
+            --name           ${{ env.PG_SERVER_NAME }} \
+            --query          "fullyQualifiedDomainName" \
+            --output         tsv)
 
-          # Obtener credenciales desde Key Vault (el SP tiene Get/List)
           KV_NAME=$(az keyvault list \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --query           "[0].name" \
-            --output          tsv)
+            --query          "[0].name" \
+            --output         tsv)
 
           DB_USER=$(az keyvault secret show \
             --vault-name "$KV_NAME" \
-            --name        "db-admin-user" \
-            --query        "value" \
-            --output       tsv 2>/dev/null || echo "")
+            --name       "db-admin-user" \
+            --query      "value" \
+            --output     tsv 2>/dev/null || echo "")
 
           DB_PASS=$(az keyvault secret show \
             --vault-name "$KV_NAME" \
-            --name        "db-admin-password" \
-            --query        "value" \
-            --output       tsv 2>/dev/null || echo "")
+            --name       "db-admin-password" \
+            --query      "value" \
+            --output     tsv 2>/dev/null || echo "")
 
           DB_NAME=$(az keyvault secret show \
             --vault-name "$KV_NAME" \
-            --name        "db-name" \
-            --query        "value" \
-            --output       tsv 2>/dev/null || echo "evideth")
+            --name       "db-name" \
+            --query      "value" \
+            --output     tsv 2>/dev/null || echo "evideth_db")
 
-          # Fallback: leer desde Container App env vars si Key Vault no tiene secretos nombrados así
+          # Fallback: leer desde Container App env vars si KV no tiene esos secretos
           if [ -z "$DB_USER" ]; then
             DB_USER=$(az containerapp show \
-              --name            evideth-dev-backend \
-              --resource-group  ${{ env.RESOURCE_GROUP }} \
-              --query           "properties.template.containers[0].env[?name=='DB_USER'].value | [0]" \
-              --output          tsv)
+              --name           evideth-dev-backend \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --query          "properties.template.containers[0].env[?name=='DB_USER'].value | [0]" \
+              --output         tsv)
           fi
 
           DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@${FQDN}:5432/${DB_NAME}?sslmode=require"
@@ -129,7 +123,7 @@ jobs:
         run: |
           az postgres flexible-server firewall-rule delete \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name            ${{ env.PG_SERVER_NAME }} \
-            --rule-name       ${{ env.FIREWALL_RULE }} \
+            --name           ${{ env.PG_SERVER_NAME }} \
+            --rule-name      ${{ env.FIREWALL_RULE }} \
             --yes || true
           echo "🔒 Firewall rule removed"
