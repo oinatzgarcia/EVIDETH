@@ -1,12 +1,14 @@
 # ─────────────────────────────────────────────────────────────
 # EVIDETH — migrate.yml
-# Ejecuta `alembic upgrade head` contra el PostgreSQL de Azure.
+# El servidor PostgreSQL es VNet-only (sin acceso público).
+# Las migraciones se ejecutan mediante un Container App Job efímero
+# que corre dentro del mismo managed environment (misma VNet)
+# usando la misma imagen del backend.
 #
-# Estrategia de firewall:
-#   1. Obtiene la IP pública del runner de GitHub Actions
-#   2. Abre temporalmente esa IP en el firewall de PostgreSQL
-#   3. Corre la migración
-#   4. Elimina la regla de firewall (always, incluso si falla)
+# Flujo:
+#   1. Crear un Container App Job con el comando alembic upgrade head
+#   2. Esperar a que termine
+#   3. Eliminar el job efímero
 # ─────────────────────────────────────────────────────────────
 name: DB Migrate
 
@@ -19,28 +21,18 @@ permissions:
   contents: read
 
 env:
-  PG_SERVER_NAME:  evideth-dev-pgserver
-  RESOURCE_GROUP:  evideth-dev-rg
-  FIREWALL_RULE:   github-actions-runner
+  RESOURCE_GROUP:   evideth-dev-rg
+  CAE_NAME:         evideth-dev-cae
+  BACKEND_APP:      evideth-dev-backend
+  ACR_NAME:         evidethdevacr94f04b
+  JOB_NAME:         evideth-migrate-job
 
 jobs:
   migrate:
-    name: Alembic Upgrade Head
+    name: Alembic Upgrade Head (via Container App Job)
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
       - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -48,82 +40,120 @@ jobs:
           tenant-id:       ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Get runner public IP
-        id: runner_ip
-        run: |
-          IP=$(curl -s https://api.ipify.org)
-          echo "ip=$IP" >> $GITHUB_OUTPUT
-          echo "🌐 Runner IP: $IP"
+      # Instalar extension containerapp si no está presente
+      - name: Install containerapp CLI extension
+        run: az extension add --name containerapp --upgrade -y
 
-      - name: Open PostgreSQL firewall for runner
+      # Obtener la imagen actual del backend (ya existente en ACR)
+      - name: Get current backend image
+        id: image
         run: |
-          az postgres flexible-server firewall-rule create \
-            --resource-group   ${{ env.RESOURCE_GROUP }} \
-            --name             ${{ env.PG_SERVER_NAME }} \
-            --rule-name        ${{ env.FIREWALL_RULE }} \
-            --start-ip-address ${{ steps.runner_ip.outputs.ip }} \
-            --end-ip-address   ${{ steps.runner_ip.outputs.ip }}
-          echo "✅ Firewall rule created for ${{ steps.runner_ip.outputs.ip }}"
-
-      - name: Build DATABASE_URL from Azure outputs
-        id: db_url
-        run: |
-          FQDN=$(az postgres flexible-server show \
+          IMAGE=$(az containerapp show \
+            --name           ${{ env.BACKEND_APP }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name           ${{ env.PG_SERVER_NAME }} \
-            --query          "fullyQualifiedDomainName" \
+            --query          "properties.template.containers[0].image" \
+            --output         tsv)
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+          echo "📦 Using image: $IMAGE"
+
+      # Obtener el DATABASE_URL del Container App (ya configurado por Terraform)
+      - name: Get DATABASE_URL from Container App env
+        id: dburl
+        run: |
+          DB_URL=$(az containerapp show \
+            --name           ${{ env.BACKEND_APP }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query          "properties.template.containers[0].env[?name=='DATABASE_URL'].value | [0]" \
             --output         tsv)
 
-          KV_NAME=$(az keyvault list \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --query          "[0].name" \
-            --output         tsv)
-
-          DB_USER=$(az keyvault secret show \
-            --vault-name "$KV_NAME" \
-            --name       "db-admin-user" \
-            --query      "value" \
-            --output     tsv 2>/dev/null || echo "")
-
-          DB_PASS=$(az keyvault secret show \
-            --vault-name "$KV_NAME" \
-            --name       "db-admin-password" \
-            --query      "value" \
-            --output     tsv 2>/dev/null || echo "")
-
-          DB_NAME=$(az keyvault secret show \
-            --vault-name "$KV_NAME" \
-            --name       "db-name" \
-            --query      "value" \
-            --output     tsv 2>/dev/null || echo "evideth_db")
-
-          # Fallback: leer desde Container App env vars si KV no tiene esos secretos
-          if [ -z "$DB_USER" ]; then
-            DB_USER=$(az containerapp show \
-              --name           evideth-dev-backend \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --query          "properties.template.containers[0].env[?name=='DB_USER'].value | [0]" \
-              --output         tsv)
+          # Si DATABASE_URL no está en env vars directas, construirlo desde secretos del Container App
+          if [ -z "$DB_URL" ] || [ "$DB_URL" = "None" ]; then
+            echo "⚠️ DATABASE_URL not found as plain env var, will rely on Container App secrets"
+            echo "use_secret=true" >> $GITHUB_OUTPUT
+          else
+            echo "database_url=$DB_URL" >> $GITHUB_OUTPUT
+            echo "use_secret=false" >> $GITHUB_OUTPUT
+            echo "✅ DATABASE_URL found"
           fi
 
-          DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@${FQDN}:5432/${DB_NAME}?sslmode=require"
-          echo "database_url=$DATABASE_URL" >> $GITHUB_OUTPUT
-          echo "✅ DATABASE_URL built for host: $FQDN"
-
-      - name: Run Alembic migrations
-        env:
-          DATABASE_URL: ${{ steps.db_url.outputs.database_url }}
+      # Eliminar job anterior si existiera (idempotente)
+      - name: Delete previous migration job if exists
         run: |
-          echo "🗄️  Running: alembic upgrade head"
-          alembic upgrade head
-          echo "✅ Migrations applied successfully"
+          az containerapp job delete \
+            --name           ${{ env.JOB_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --yes 2>/dev/null && echo "🗑️ Old job deleted" || echo "✅ No previous job"
 
-      - name: Remove PostgreSQL firewall rule (always)
+      # Crear Container App Job efímero con la misma imagen y entorno
+      # El job hereda los secretos del Container App environment
+      - name: Create & run migration job
+        run: |
+          az containerapp job create \
+            --name                ${{ env.JOB_NAME }} \
+            --resource-group      ${{ env.RESOURCE_GROUP }} \
+            --environment         ${{ env.CAE_NAME }} \
+            --trigger-type        Manual \
+            --replica-timeout     300 \
+            --replica-retry-limit 1 \
+            --replica-completion-count 1 \
+            --parallelism         1 \
+            --image               ${{ steps.image.outputs.image }} \
+            --cpu                 0.5 \
+            --memory              1Gi \
+            --registry-server     ${{ env.ACR_NAME }}.azurecr.io \
+            --registry-identity   system \
+            --secrets             "$(az containerapp show \
+                                      --name           ${{ env.BACKEND_APP }} \
+                                      --resource-group ${{ env.RESOURCE_GROUP }} \
+                                      --query          'properties.configuration.secrets' \
+                                      --output         json)" \
+            --env-vars            "$(az containerapp show \
+                                      --name           ${{ env.BACKEND_APP }} \
+                                      --resource-group ${{ env.RESOURCE_GROUP }} \
+                                      --query          'properties.template.containers[0].env' \
+                                      --output         json)" \
+            --command             "alembic" \
+            --args                "upgrade,head"
+
+          echo "🚀 Starting migration job..."
+          EXECUTION=$(az containerapp job start \
+            --name           ${{ env.JOB_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query          "name" \
+            --output         tsv)
+          echo "execution=$EXECUTION" >> $GITHUB_ENV
+          echo "⏳ Job execution: $EXECUTION"
+
+      # Esperar a que el job termine (polling cada 10s, timeout 5min)
+      - name: Wait for migration job to complete
+        run: |
+          echo "⏳ Waiting for job to finish..."
+          for i in $(seq 1 30); do
+            STATUS=$(az containerapp job execution show \
+              --name           ${{ env.JOB_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --job-execution-name "$execution" \
+              --query          "properties.status" \
+              --output         tsv 2>/dev/null || echo "Running")
+            echo "  [$i/30] Status: $STATUS"
+            if [ "$STATUS" = "Succeeded" ]; then
+              echo "✅ Migration succeeded!"
+              exit 0
+            elif [ "$STATUS" = "Failed" ]; then
+              echo "❌ Migration job failed!"
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "❌ Timeout waiting for migration job"
+          exit 1
+
+      # Limpiar el job efímero (siempre, incluso si falla)
+      - name: Delete migration job (cleanup)
         if: always()
         run: |
-          az postgres flexible-server firewall-rule delete \
+          az containerapp job delete \
+            --name           ${{ env.JOB_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name           ${{ env.PG_SERVER_NAME }} \
-            --rule-name      ${{ env.FIREWALL_RULE }} \
-            --yes || true
-          echo "🔒 Firewall rule removed"
+            --yes 2>/dev/null || true
+          echo "🧹 Migration job cleaned up"
