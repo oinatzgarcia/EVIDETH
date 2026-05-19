@@ -297,7 +297,8 @@ def export_verifications(
         writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
         writer.writerow(HEADERS)
         yield buf.getvalue()
-        buf.seek(0); buf.truncate(0)
+        buf.seek(0)
+        buf.truncate(0)
         for v in verifications:
             cam = (
                 v.segment.video.camera
@@ -319,7 +320,8 @@ def export_verifications(
                 v.ip_address or "",
             ])
             yield buf.getvalue()
-            buf.seek(0); buf.truncate(0)
+            buf.seek(0)
+        buf.truncate(0)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     return StreamingResponse(
         iter_csv(),
