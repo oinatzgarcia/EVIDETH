@@ -2,7 +2,6 @@
 # EVIDETH — migrate.yml
 # PostgreSQL es VNet-only. Las migraciones se ejecutan mediante un
 # Container App Job efímero dentro del mismo managed environment.
-# Usa credenciales admin del ACR (el SP no tiene roleAssignment/write).
 # ─────────────────────────────────────────────────────────────
 name: DB Migrate
 
@@ -38,7 +37,6 @@ jobs:
       - name: Install containerapp CLI extension
         run: az extension add --name containerapp --upgrade -y
 
-      # Imagen actual del backend
       - name: Get current backend image
         id: image
         run: |
@@ -50,7 +48,6 @@ jobs:
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
           echo "📦 Image: $IMAGE"
 
-      # Credenciales ACR admin (evita necesidad de roleAssignment/write)
       - name: Get ACR credentials
         id: acr
         run: |
@@ -65,9 +62,7 @@ jobs:
           echo "::add-mask::$ACR_PASS"
           echo "username=$ACR_USER" >> $GITHUB_OUTPUT
           echo "password=$ACR_PASS" >> $GITHUB_OUTPUT
-          echo "✅ ACR credentials retrieved"
 
-      # DATABASE_URL desde Key Vault + FQDN del servidor
       - name: Build DATABASE_URL
         id: dburl
         run: |
@@ -84,7 +79,6 @@ jobs:
             --vault-name "$KV" --name "db-password" \
             --query "value" --output tsv)
 
-          # Admin user: leer del Container App o usar fallback
           DB_USER=$(az containerapp show \
             --name           ${{ env.BACKEND_APP }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
@@ -101,7 +95,6 @@ jobs:
           echo "database_url=$DB_URL" >> $GITHUB_OUTPUT
           echo "✅ DATABASE_URL built (host: $FQDN, user: $DB_USER)"
 
-      # Limpiar job anterior
       - name: Delete previous migration job if exists
         run: |
           az containerapp job delete \
@@ -109,7 +102,6 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --yes 2>/dev/null && echo "🗑️ Old job deleted" || echo "✅ No previous job"
 
-      # Crear job con credenciales ACR admin (sin --registry-identity)
       - name: Create migration Container App Job
         run: |
           az containerapp job create \
@@ -130,7 +122,6 @@ jobs:
             --env-vars                 "DATABASE_URL=${{ steps.dburl.outputs.database_url }}"
           echo "✅ Job created"
 
-      # Arrancar y capturar execution name
       - name: Start migration job
         id: execution
         run: |
@@ -141,9 +132,10 @@ jobs:
           echo "name=$EXEC" >> $GITHUB_OUTPUT
           echo "⏳ Execution: $EXEC"
 
-      # Polling hasta Succeeded / Failed (timeout 5 min)
       - name: Wait for migration to complete
+        id: wait
         run: |
+          FINAL_STATUS="Unknown"
           for i in $(seq 1 30); do
             STATUS=$(az containerapp job execution show \
               --name               ${{ env.JOB_NAME }} \
@@ -152,14 +144,43 @@ jobs:
               --query              "properties.status" \
               --output             tsv 2>/dev/null || echo "Running")
             echo "  [$i/30] $STATUS"
-            if   [ "$STATUS" = "Succeeded" ]; then echo "✅ Migrations applied!"; exit 0
-            elif [ "$STATUS" = "Failed"    ]; then echo "❌ Migration failed!";    exit 1
+            FINAL_STATUS="$STATUS"
+            if   [ "$STATUS" = "Succeeded" ]; then break
+            elif [ "$STATUS" = "Failed"    ]; then break
             fi
             sleep 10
           done
-          echo "❌ Timeout"; exit 1
+          echo "status=$FINAL_STATUS" >> $GITHUB_OUTPUT
 
-      # Cleanup siempre
+      # ── Mostrar logs del container SIEMPRE (clave para debug) ──
+      - name: Show container logs
+        if: always()
+        run: |
+          echo "===== Container App Job Logs ====="
+          az containerapp job execution show \
+            --name               ${{ env.JOB_NAME }} \
+            --resource-group     ${{ env.RESOURCE_GROUP }} \
+            --job-execution-name "${{ steps.execution.outputs.name }}" \
+            --output             json 2>/dev/null || true
+
+          echo "===== Log Analytics Query ====="
+          WORKSPACE=$(az monitor log-analytics workspace list \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query          "[0].customerId" --output tsv 2>/dev/null || echo "")
+
+          if [ -n "$WORKSPACE" ]; then
+            az monitor log-analytics query \
+              --workspace "$WORKSPACE" \
+              --analytics-query "ContainerAppConsoleLogs_CL | where ContainerJobName_s == '${{ env.JOB_NAME }}' | order by TimeGenerated desc | take 50" \
+              --output table 2>/dev/null || echo "(logs not yet available in Log Analytics)"
+          fi
+
+      - name: Fail if migration failed
+        if: steps.wait.outputs.status != 'Succeeded'
+        run: |
+          echo "❌ Migration status: ${{ steps.wait.outputs.status }}"
+          exit 1
+
       - name: Cleanup migration job
         if: always()
         run: |
