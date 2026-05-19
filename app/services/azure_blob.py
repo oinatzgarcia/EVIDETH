@@ -23,7 +23,7 @@ from azure.storage.blob import (
     generate_blob_sas,
     BlobSasPermissions,
 )
-from azure.core.exceptions import ResourceNotFoundError, AzureError
+from azure.core.exceptions import ResourceNotFoundError
 
 from app.config import settings
 

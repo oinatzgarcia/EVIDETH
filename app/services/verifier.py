@@ -16,7 +16,6 @@ from app.db.models import (
 from app.services.video_processor import (
     segment_video, cleanup_segments, extract_frame_thumbnail
 )
-from app.utils.merkle import build_merkle_root
 import tempfile
 
 

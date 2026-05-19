@@ -11,12 +11,11 @@ from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
     PageBreak, HRFlowable, Image
 )
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER
 from datetime import datetime
 import hashlib
 from io import BytesIO
 from pathlib import Path
-import os
 
 
 class ForensicPDFGenerator:
