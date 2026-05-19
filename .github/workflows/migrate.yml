@@ -2,6 +2,7 @@
 # EVIDETH — migrate.yml
 # PostgreSQL es VNet-only. Las migraciones se ejecutan mediante un
 # Container App Job efímero dentro del mismo managed environment.
+# WORKDIR=/app, alembic.ini en /app, se sobreescribe CMD con alembic.
 # ─────────────────────────────────────────────────────────────
 name: DB Migrate
 
@@ -79,21 +80,11 @@ jobs:
             --vault-name "$KV" --name "db-password" \
             --query "value" --output tsv)
 
-          DB_USER=$(az containerapp show \
-            --name           ${{ env.BACKEND_APP }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --query          "properties.template.containers[0].env[?name=='DB_USER'].value | [0]" \
-            --output         tsv 2>/dev/null || echo "")
-
-          if [ -z "$DB_USER" ] || [ "$DB_USER" = "None" ]; then
-            DB_USER="evidethadmin"
-          fi
-
-          DB_URL="postgresql://${DB_USER}:${DB_PASS}@${FQDN}:5432/evideth_db?sslmode=require"
+          DB_URL="postgresql://evidethadmin:${DB_PASS}@${FQDN}:5432/evideth_db?sslmode=require"
           echo "::add-mask::$DB_PASS"
           echo "::add-mask::$DB_URL"
           echo "database_url=$DB_URL" >> $GITHUB_OUTPUT
-          echo "✅ DATABASE_URL built (host: $FQDN, user: $DB_USER)"
+          echo "✅ DATABASE_URL built (host: $FQDN)"
 
       - name: Delete previous migration job if exists
         run: |
@@ -102,6 +93,8 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --yes 2>/dev/null && echo "🗑️ Old job deleted" || echo "✅ No previous job"
 
+      # WORKDIR en la imagen es /app y alembic.ini está en /app.
+      # Se sobreescribe CMD (uvicorn) con alembic upgrade head.
       - name: Create migration Container App Job
         run: |
           az containerapp job create \
@@ -119,8 +112,10 @@ jobs:
             --registry-server          ${{ env.ACR_NAME }}.azurecr.io \
             --registry-username        "${{ steps.acr.outputs.username }}" \
             --registry-password        "${{ steps.acr.outputs.password }}" \
-            --env-vars                 "DATABASE_URL=${{ steps.dburl.outputs.database_url }}"
-          echo "✅ Job created"
+            --env-vars                 "DATABASE_URL=${{ steps.dburl.outputs.database_url }}" \
+            --command                  "alembic" \
+            --args                     "upgrade,head"
+          echo "✅ Job created (cmd: alembic upgrade head)"
 
       - name: Start migration job
         id: execution
@@ -152,18 +147,19 @@ jobs:
           done
           echo "status=$FINAL_STATUS" >> $GITHUB_OUTPUT
 
-      # ── Mostrar logs del container SIEMPRE (clave para debug) ──
-      - name: Show container logs
+      - name: Show container logs (Log Analytics)
         if: always()
         run: |
-          echo "===== Container App Job Logs ====="
+          echo "===== Execution JSON ====="
           az containerapp job execution show \
             --name               ${{ env.JOB_NAME }} \
             --resource-group     ${{ env.RESOURCE_GROUP }} \
             --job-execution-name "${{ steps.execution.outputs.name }}" \
             --output             json 2>/dev/null || true
 
-          echo "===== Log Analytics Query ====="
+          echo "===== Waiting 30s for Log Analytics ingestion ====="
+          sleep 30
+
           WORKSPACE=$(az monitor log-analytics workspace list \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --query          "[0].customerId" --output tsv 2>/dev/null || echo "")
@@ -171,8 +167,8 @@ jobs:
           if [ -n "$WORKSPACE" ]; then
             az monitor log-analytics query \
               --workspace "$WORKSPACE" \
-              --analytics-query "ContainerAppConsoleLogs_CL | where ContainerJobName_s == '${{ env.JOB_NAME }}' | order by TimeGenerated desc | take 50" \
-              --output table 2>/dev/null || echo "(logs not yet available in Log Analytics)"
+              --analytics-query "ContainerAppConsoleLogs_CL | where ContainerJobName_s contains '${{ env.JOB_NAME }}' | order by TimeGenerated desc | take 80 | project TimeGenerated, Log_s" \
+              --output table 2>/dev/null || echo "(sin logs en Log Analytics todavía)"
           fi
 
       - name: Fail if migration failed
