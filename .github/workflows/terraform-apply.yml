@@ -1,7 +1,8 @@
 # ─────────────────────────────────────────────────────────────
 # EVIDETH — terraform-apply.yml
 # 1. Llama a build-push para asegurar que la imagen existe en ACR
-# 2. Ejecuta terraform apply
+# 2. Importa recursos que pudieran estar fuera de sync (idempotente)
+# 3. Ejecuta terraform apply
 # Usa OIDC (Workload Identity Federation) — sin secretos.
 # ─────────────────────────────────────────────────────────────
 name: Terraform Apply
@@ -31,7 +32,7 @@ jobs:
   apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
-    needs: build-push          # <-- depende del job anterior
+    needs: build-push
 
     env:
       ARM_USE_OIDC: "true"
@@ -66,8 +67,32 @@ jobs:
         working-directory: terraform/
         run: terraform validate
 
+      # ── Import idempotente de la access policy del SP de Terraform ──
+      # El object_id del SP de OIDC puede diferir del que estaba en
+      # el tfstate si la App Registration fue recreada o el SP cambió.
+      # terraform import es idempotente: si ya está en el state, no falla.
+      - name: Import KV Access Policy (idempotent)
+        working-directory: terraform/
+        run: |
+          SUBSCRIPTION_ID="${{ vars.AZURE_SUBSCRIPTION_ID }}"
+          OBJECT_ID=$(az ad sp show \
+            --id "${{ vars.AZURE_CLIENT_ID }}" \
+            --query "id" \
+            --output tsv)
+          echo "🔑 SP object_id: $OBJECT_ID"
+
+          RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/evideth-dev-rg/providers/Microsoft.KeyVault/vaults/evideth-dev-kv-94f04b/objectId/${OBJECT_ID}"
+          echo "📦 Importing: $RESOURCE_ID"
+
+          # Si ya está en el state, terraform import devuelve exit 0
+          terraform import \
+            -var="subscription_id=${SUBSCRIPTION_ID}" \
+            -var="jwt_secret_key=placeholder" \
+            azurerm_key_vault_access_policy.terraform \
+            "$RESOURCE_ID" || true
+
       # Plan y Apply en un solo paso para evitar que un tfplan
-      # generado con region incorrecta sea reutilizado.
+      # generado con región incorrecta sea reutilizado.
       - name: Terraform Plan & Apply
         working-directory: terraform/
         run: |
