@@ -1,10 +1,3 @@
-# ─────────────────────────────────────────────────────────────
-# EVIDETH — terraform-apply.yml
-# 1. Llama a build-push para asegurar que la imagen existe en ACR
-# 2. Importa recursos que pudieran estar fuera de sync (idempotente)
-# 3. Ejecuta terraform apply
-# Usa OIDC (Workload Identity Federation) — sin secretos.
-# ─────────────────────────────────────────────────────────────
 name: Terraform Apply
 
 on:
@@ -20,7 +13,6 @@ permissions:
   contents: read
 
 jobs:
-  # ── Job 1: build y push de la imagen al ACR ──────────────────
   build-push:
     name: Build & Push Backend Image
     uses: ./.github/workflows/build-push.yml
@@ -28,7 +20,6 @@ jobs:
       id-token: write
       contents: read
 
-  # ── Job 2: Terraform apply (espera a que la imagen exista) ───
   apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
@@ -63,14 +54,35 @@ jobs:
         working-directory: terraform/
         run: terraform init
 
+      # ── Force-unlock stale lock (idempotente) ────────────────────────
+      # Si un apply anterior falló a mitad, el blob de lock queda huérfano.
+      # Leemos el Lock ID del blob de Azure directamente y lo forzamos a liberar.
+      # Si no hay lock, el az storage blob delete devuelve error que ignoramos.
+      - name: Force-unlock stale Terraform state lock
+        run: |
+          ACCOUNT="evidethtfstate"
+          CONTAINER="tfstate"
+          LOCK_BLOB="evideth.terraform.tfstate.lock"
+
+          # Obtener la storage key para borrar el blob de lock
+          STORAGE_KEY=$(az storage account keys list \
+            --resource-group evideth-dev-rg \
+            --account-name "$ACCOUNT" \
+            --query "[0].value" \
+            --output tsv)
+
+          # Intentar borrar el blob de lock huerfano (falla silenciosamente si no existe)
+          az storage blob delete \
+            --account-name "$ACCOUNT" \
+            --account-key  "$STORAGE_KEY" \
+            --container-name "$CONTAINER" \
+            --name "$LOCK_BLOB" 2>/dev/null && echo "🔓 Stale lock removed" || echo "✅ No stale lock found"
+
       - name: Terraform Validate
         working-directory: terraform/
         run: terraform validate
 
-      # ── Import idempotente de la access policy del SP de Terraform ──
-      # El object_id del SP de OIDC puede diferir del que estaba en
-      # el tfstate si la App Registration fue recreada o el SP cambió.
-      # terraform import es idempotente: si ya está en el state, no falla.
+      # ── Import idempotente de la access policy ─────────────────────
       - name: Import KV Access Policy (idempotent)
         working-directory: terraform/
         run: |
@@ -82,17 +94,14 @@ jobs:
           echo "🔑 SP object_id: $OBJECT_ID"
 
           RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/evideth-dev-rg/providers/Microsoft.KeyVault/vaults/evideth-dev-kv-94f04b/objectId/${OBJECT_ID}"
-          echo "📦 Importing: $RESOURCE_ID"
 
-          # Si ya está en el state, terraform import devuelve exit 0
           terraform import \
             -var="subscription_id=${SUBSCRIPTION_ID}" \
             -var="jwt_secret_key=placeholder" \
             azurerm_key_vault_access_policy.terraform \
             "$RESOURCE_ID" || true
 
-      # Plan y Apply en un solo paso para evitar que un tfplan
-      # generado con región incorrecta sea reutilizado.
+      # ── Plan & Apply ────────────────────────────────────────────────
       - name: Terraform Plan & Apply
         working-directory: terraform/
         run: |
