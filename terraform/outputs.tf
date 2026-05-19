@@ -86,7 +86,7 @@ output "tenant_id" {
 # ── Resumen de despliegue ─────────────────────────────────────
 output "deploy_summary" {
   description = "Resumen del despliegue"
-  value = <<-EOT
+  value       = <<-EOT
     ╔══════════════════════════════════════════════════════╗
     ║           EVIDETH — Despliegue completado            ║
     ╠══════════════════════════════════════════════════════╣

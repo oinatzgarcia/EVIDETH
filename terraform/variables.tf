@@ -47,13 +47,13 @@ variable "db_admin_user" {
 variable "db_name" {
   description = "Nombre de la base de datos (debe coincidir con DB_NAME del .env)"
   type        = string
-  default     = "evideth_db"   # Igual que DB_NAME en .env.example
+  default     = "evideth_db" # Igual que DB_NAME en .env.example
 }
 
 variable "db_sku" {
   description = "SKU del servidor PostgreSQL Flexible"
   type        = string
-  default     = "B_Standard_B1ms"   # ~10 EUR/mes — dev
+  default     = "B_Standard_B1ms" # ~10 EUR/mes — dev
   # Producción recomendado: "GP_Standard_D2s_v3"
 }
 

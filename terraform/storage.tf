@@ -10,7 +10,7 @@ resource "azurerm_storage_account" "main" {
   resource_group_name      = azurerm_resource_group.main.name
   location                 = azurerm_resource_group.main.location
   account_tier             = "Standard"
-  account_replication_type = "LRS"      # Locally Redundant (dev); usar GRS en prod
+  account_replication_type = "LRS" # Locally Redundant (dev); usar GRS en prod
   min_tls_version          = "TLS1_2"
 
   blob_properties {

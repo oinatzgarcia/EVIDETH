@@ -26,11 +26,11 @@ resource "azurerm_postgresql_flexible_server" "main" {
   # no se puede tener acceso público Y red privada simultáneamente
   public_network_access_enabled = false
 
-  sku_name   = var.db_sku     # B_Standard_B1ms (~10 EUR/mes)
-  storage_mb = 32768          # 32 GB
+  sku_name   = var.db_sku # B_Standard_B1ms (~10 EUR/mes)
+  storage_mb = 32768      # 32 GB
 
   backup_retention_days        = 7
-  geo_redundant_backup_enabled = false   # Solo en prod
+  geo_redundant_backup_enabled = false # Solo en prod
 
   # Azure gestiona zonas de disponibilidad automáticamente
   lifecycle {
@@ -45,7 +45,7 @@ resource "azurerm_postgresql_flexible_server" "main" {
 # ── Base de datos EVIDETH ─────────────────────────────────────
 # Nombre: evideth_db (igual que DB_NAME en .env.example)
 resource "azurerm_postgresql_flexible_server_database" "evideth" {
-  name      = var.db_name    # evideth_db
+  name      = var.db_name # evideth_db
   server_id = azurerm_postgresql_flexible_server.main.id
   collation = "en_US.utf8"
   charset   = "utf8"
