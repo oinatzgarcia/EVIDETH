@@ -53,7 +53,7 @@ def get_current_camera(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="API Key requerida"
         )
-    cameras = db.query(Camera).filter(Camera.is_active == True).all()
+    cameras = db.query(Camera).filter(Camera.is_active).all()
     for camera in cameras:
         if verify_api_key(api_key, camera.api_key):
             return camera
