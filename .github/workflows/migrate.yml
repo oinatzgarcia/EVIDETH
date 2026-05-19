@@ -1,8 +1,8 @@
 # ─────────────────────────────────────────────────────────────
 # EVIDETH — migrate.yml
-# PostgreSQL es VNet-only (sin acceso público).
-# Las migraciones se ejecutan mediante un Container App Job efímero
-# dentro del mismo managed environment (misma VNet que el backend).
+# PostgreSQL es VNet-only. Las migraciones se ejecutan mediante un
+# Container App Job efímero dentro del mismo managed environment.
+# Usa credenciales admin del ACR (el SP no tiene roleAssignment/write).
 # ─────────────────────────────────────────────────────────────
 name: DB Migrate
 
@@ -18,7 +18,9 @@ env:
   RESOURCE_GROUP: evideth-dev-rg
   CAE_NAME:       evideth-dev-cae
   BACKEND_APP:    evideth-dev-backend
+  ACR_NAME:       evidethdevacr94f04b
   JOB_NAME:       evideth-migrate-job
+  PG_SERVER:      evideth-dev-pgserver
 
 jobs:
   migrate:
@@ -36,7 +38,7 @@ jobs:
       - name: Install containerapp CLI extension
         run: az extension add --name containerapp --upgrade -y
 
-      # Obtener imagen actual del backend
+      # Imagen actual del backend
       - name: Get current backend image
         id: image
         run: |
@@ -48,8 +50,24 @@ jobs:
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
           echo "📦 Image: $IMAGE"
 
-      # Construir DATABASE_URL directamente desde los componentes de Azure
-      # El job necesita conectarse al PostgreSQL privado — usa el FQDN interno
+      # Credenciales ACR admin (evita necesidad de roleAssignment/write)
+      - name: Get ACR credentials
+        id: acr
+        run: |
+          ACR_USER=$(az acr credential show \
+            --name           ${{ env.ACR_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query          "username" --output tsv)
+          ACR_PASS=$(az acr credential show \
+            --name           ${{ env.ACR_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query          "passwords[0].value" --output tsv)
+          echo "::add-mask::$ACR_PASS"
+          echo "username=$ACR_USER" >> $GITHUB_OUTPUT
+          echo "password=$ACR_PASS" >> $GITHUB_OUTPUT
+          echo "✅ ACR credentials retrieved"
+
+      # DATABASE_URL desde Key Vault + FQDN del servidor
       - name: Build DATABASE_URL
         id: dburl
         run: |
@@ -59,33 +77,31 @@ jobs:
 
           FQDN=$(az postgres flexible-server show \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name evideth-dev-pgserver \
-            --query "fullyQualifiedDomainName" --output tsv)
+            --name           ${{ env.PG_SERVER }} \
+            --query          "fullyQualifiedDomainName" --output tsv)
 
           DB_PASS=$(az keyvault secret show \
             --vault-name "$KV" --name "db-password" \
             --query "value" --output tsv)
 
-          # El admin user lo lee del Container App (var DB_USER o db-user secret)
+          # Admin user: leer del Container App o usar fallback
           DB_USER=$(az containerapp show \
             --name           ${{ env.BACKEND_APP }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --query          "properties.template.containers[0].env[?name=='DB_USER'].value | [0]" \
-            --output         tsv)
+            --output         tsv 2>/dev/null || echo "")
 
-          # Fallback: user estándar de Azure PostgreSQL (admin@server)
           if [ -z "$DB_USER" ] || [ "$DB_USER" = "None" ]; then
             DB_USER="evidethadmin"
           fi
 
           DB_URL="postgresql://${DB_USER}:${DB_PASS}@${FQDN}:5432/evideth_db?sslmode=require"
-          # Enmascarar en logs
           echo "::add-mask::$DB_PASS"
           echo "::add-mask::$DB_URL"
           echo "database_url=$DB_URL" >> $GITHUB_OUTPUT
-          echo "✅ DATABASE_URL built (host: $FQDN)"
+          echo "✅ DATABASE_URL built (host: $FQDN, user: $DB_USER)"
 
-      # Limpiar job anterior si existiera
+      # Limpiar job anterior
       - name: Delete previous migration job if exists
         run: |
           az containerapp job delete \
@@ -93,7 +109,7 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --yes 2>/dev/null && echo "🗑️ Old job deleted" || echo "✅ No previous job"
 
-      # Crear job efímero con DATABASE_URL como env var directa
+      # Crear job con credenciales ACR admin (sin --registry-identity)
       - name: Create migration Container App Job
         run: |
           az containerapp job create \
@@ -108,20 +124,20 @@ jobs:
             --image                    "${{ steps.image.outputs.image }}" \
             --cpu                      0.5 \
             --memory                   1Gi \
-            --registry-server          evidethdevacr94f04b.azurecr.io \
-            --registry-identity        system \
+            --registry-server          ${{ env.ACR_NAME }}.azurecr.io \
+            --registry-username        "${{ steps.acr.outputs.username }}" \
+            --registry-password        "${{ steps.acr.outputs.password }}" \
             --env-vars                 "DATABASE_URL=${{ steps.dburl.outputs.database_url }}"
           echo "✅ Job created"
 
-      # Arrancar el job y capturar el execution name
+      # Arrancar y capturar execution name
       - name: Start migration job
         id: execution
         run: |
           EXEC=$(az containerapp job start \
             --name           ${{ env.JOB_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --query          "name" \
-            --output         tsv)
+            --query          "name" --output tsv)
           echo "name=$EXEC" >> $GITHUB_OUTPUT
           echo "⏳ Execution: $EXEC"
 
@@ -130,11 +146,11 @@ jobs:
         run: |
           for i in $(seq 1 30); do
             STATUS=$(az containerapp job execution show \
-              --name                 ${{ env.JOB_NAME }} \
-              --resource-group       ${{ env.RESOURCE_GROUP }} \
-              --job-execution-name   "${{ steps.execution.outputs.name }}" \
-              --query                "properties.status" \
-              --output               tsv 2>/dev/null || echo "Running")
+              --name               ${{ env.JOB_NAME }} \
+              --resource-group     ${{ env.RESOURCE_GROUP }} \
+              --job-execution-name "${{ steps.execution.outputs.name }}" \
+              --query              "properties.status" \
+              --output             tsv 2>/dev/null || echo "Running")
             echo "  [$i/30] $STATUS"
             if   [ "$STATUS" = "Succeeded" ]; then echo "✅ Migrations applied!"; exit 0
             elif [ "$STATUS" = "Failed"    ]; then echo "❌ Migration failed!";    exit 1
