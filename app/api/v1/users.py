@@ -16,34 +16,38 @@ router = APIRouter(
     responses={
         401: {"description": "JWT inválido"},
         403: {"description": "Sin permisos suficientes"},
-    }
+    },
 )
 
 
 # ── Schemas ─────────────────────────────────────────
+
 
 class UserUpdate(BaseModel):
     """
     Campos opcionales para actualizar un usuario.
     Solo se actualizan los campos que se incluyan en la petición.
     """
-    full_name: Optional[str]  = None
-    email:     Optional[EmailStr] = None
-    password:  Optional[str]  = None
-    role:      Optional[UserRole] = None    # Solo Admin
-    is_active: Optional[bool] = None        # Solo Admin
+
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    role: Optional[UserRole] = None  # Solo Admin
+    is_active: Optional[bool] = None  # Solo Admin
 
 
 class UserListResponse(BaseModel):
     """Respuesta paginada para listado de usuarios."""
-    total:    int
-    page:     int
+
+    total: int
+    page: int
     per_page: int
-    pages:    int
-    items:    list[UserResponse]
+    pages: int
+    items: list[UserResponse]
 
 
 # ── 1. Listar usuarios ─────────────────────────────
+
 
 @router.get(
     "/",
@@ -57,15 +61,15 @@ Filtros disponibles:
 - `role`: filtrar por rol (`admin`, `analyst`, `viewer`)
 - `is_active`: filtrar por estado activo/inactivo
 - `page` / `per_page`: paginación
-    """
+    """,
 )
 def list_users(
-    role:      Optional[UserRole] = None,
-    is_active: Optional[bool]     = None,
-    page:      int                = 1,
-    per_page:  int                = 20,
-    db:        Session            = Depends(get_db),
-    current_user: User            = Depends(require_admin)
+    role: Optional[UserRole] = None,
+    is_active: Optional[bool] = None,
+    page: int = 1,
+    per_page: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
 ):
     query = db.query(User)
 
@@ -75,19 +79,24 @@ def list_users(
         query = query.filter(User.is_active == is_active)
 
     total = query.count()
-    users = query.order_by(User.created_at.desc()) \
-        .offset((page - 1) * per_page).limit(per_page).all()
+    users = (
+        query.order_by(User.created_at.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
 
     return UserListResponse(
         total=total,
         page=page,
         per_page=per_page,
         pages=(total + per_page - 1) // per_page,
-        items=users
+        items=users,
     )
 
 
 # ── 2. Obtener usuario por ID ───────────────────────
+
 
 @router.get(
     "/{user_id}",
@@ -97,17 +106,16 @@ def list_users(
 Devuelve los datos de un usuario específico.
 - **Admin**: puede ver cualquier usuario
 - **Cualquier usuario**: solo puede verse a sí mismo
-    """
+    """,
 )
 def get_user(
-    user_id:  str,
-    db:       Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     if current_user.role != UserRole.ADMIN and str(current_user.id) != user_id:
         raise HTTPException(
-            status_code=403,
-            detail="No tienes permisos para ver este usuario"
+            status_code=403, detail="No tienes permisos para ver este usuario"
         )
 
     user = db.query(User).filter(User.id == user_id).first()
@@ -118,6 +126,7 @@ def get_user(
 
 # ── 3. Actualizar usuario ─────────────────────────
 
+
 @router.patch(
     "/{user_id}",
     response_model=UserResponse,
@@ -127,21 +136,20 @@ Actualiza campos de un usuario (PATCH — solo se envían los campos a cambiar).
 
 - **Admin**: puede cambiar cualquier campo de cualquier usuario, incluidos `role` e `is_active`
 - **Cualquier usuario**: puede cambiar `full_name`, `email` y `password` de su propia cuenta
-    """
+    """,
 )
 def update_user(
-    user_id:  str,
-    data:     UserUpdate,
-    db:       Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    user_id: str,
+    data: UserUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     is_admin = current_user.role == UserRole.ADMIN
-    is_self  = str(current_user.id) == user_id
+    is_self = str(current_user.id) == user_id
 
     if not is_admin and not is_self:
         raise HTTPException(
-            status_code=403,
-            detail="No tienes permisos para modificar este usuario"
+            status_code=403, detail="No tienes permisos para modificar este usuario"
         )
 
     user = db.query(User).filter(User.id == user_id).first()
@@ -153,10 +161,9 @@ def update_user(
         user.full_name = data.full_name
 
     if data.email is not None:
-        conflict = db.query(User).filter(
-            User.email == data.email,
-            User.id    != user_id
-        ).first()
+        conflict = (
+            db.query(User).filter(User.email == data.email, User.id != user_id).first()
+        )
         if conflict:
             raise HTTPException(status_code=400, detail="Email ya en uso")
         user.email = data.email
@@ -167,8 +174,7 @@ def update_user(
     # Campos exclusivos de Admin
     if (data.role is not None or data.is_active is not None) and not is_admin:
         raise HTTPException(
-            status_code=403,
-            detail="Solo Admin puede cambiar el rol o el estado activo"
+            status_code=403, detail="Solo Admin puede cambiar el rol o el estado activo"
         )
 
     if is_admin:
@@ -184,6 +190,7 @@ def update_user(
 
 # ── 4. Desactivar usuario (soft delete) ─────────────
 
+
 @router.delete(
     "/{user_id}",
     status_code=200,
@@ -193,17 +200,16 @@ Desactiva un usuario (soft delete — no se elimina de BD, solo se marca como in
 
 - No se puede desactivar la propia cuenta del Admin que hace la petición
 - Solo **Admin**
-    """
+    """,
 )
 def deactivate_user(
-    user_id:  str,
-    db:       Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
 ):
     if str(current_user.id) == user_id:
         raise HTTPException(
-            status_code=400,
-            detail="No puedes desactivar tu propia cuenta"
+            status_code=400, detail="No puedes desactivar tu propia cuenta"
         )
 
     user = db.query(User).filter(User.id == user_id).first()

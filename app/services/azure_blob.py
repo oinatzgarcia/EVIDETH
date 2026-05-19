@@ -10,6 +10,7 @@ Responsabilities:
 All methods are synchronous to stay compatible with the existing
 Threading-based async job runner in verification.py.
 """
+
 from __future__ import annotations
 
 import os
@@ -68,6 +69,7 @@ def _ensure_container() -> None:
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
+
 def upload_video(
     local_path: str,
     blob_name: str,
@@ -100,7 +102,9 @@ def upload_video(
     file_size = os.path.getsize(local_path)
     logger.info(
         "Uploading '%s' (%d bytes) → blob '%s'",
-        local_path, file_size, blob_name,
+        local_path,
+        file_size,
+        blob_name,
     )
 
     with open(local_path, "rb") as data:
@@ -185,7 +189,7 @@ def generate_sas_url(
     # Extract account name and key from the connection string
     conn_str = settings.AZURE_STORAGE_CONNECTION_STRING
     account_name: Optional[str] = None
-    account_key:  Optional[str] = None
+    account_key: Optional[str] = None
 
     for part in conn_str.split(";"):
         if part.startswith("AccountName="):

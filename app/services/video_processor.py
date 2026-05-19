@@ -17,10 +17,10 @@ SEGMENT_DURATION = 30  # segundos
 _EMPTY_HASH = hashlib.sha256(b"").hexdigest()
 
 # Timeouts por operación ffmpeg
-_TIMEOUT_DURATION  = 30   # ffprobe duración
-_TIMEOUT_SEGMENT   = 120  # cortar segmento
-_TIMEOUT_SECOND    = 10   # hash de un segundo individual (fallback)
-_TIMEOUT_THUMBNAIL = 8    # extraer frame JPEG
+_TIMEOUT_DURATION = 30  # ffprobe duración
+_TIMEOUT_SEGMENT = 120  # cortar segmento
+_TIMEOUT_SECOND = 10  # hash de un segundo individual (fallback)
+_TIMEOUT_THUMBNAIL = 8  # extraer frame JPEG
 
 
 def get_video_duration(video_path: str) -> float:
@@ -33,15 +33,20 @@ def get_video_duration(video_path: str) -> float:
       4. Fallback a SEGMENT_DURATION si todo falla
     """
     cmd = [
-        "ffprobe", "-v", "quiet",
-        "-print_format", "json",
+        "ffprobe",
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
         "-show_format",
         "-show_streams",
-        video_path
+        video_path,
     ]
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True,
+            cmd,
+            capture_output=True,
+            text=True,
             stdin=subprocess.DEVNULL,
             timeout=_TIMEOUT_DURATION,
         )
@@ -76,7 +81,7 @@ def get_video_duration(video_path: str) -> float:
 
     # 3. nb_frames / fps
     for stream in data.get("streams", []):
-        nb_frames    = stream.get("nb_frames")
+        nb_frames = stream.get("nb_frames")
         r_frame_rate = stream.get("r_frame_rate", "")
         if nb_frames and r_frame_rate and "/" in str(r_frame_rate):
             try:
@@ -117,27 +122,35 @@ def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
     width = height = 0
     try:
         probe_cmd = [
-            "ffprobe", "-v", "quiet",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height",
-            "-print_format", "json",
+            "ffprobe",
+            "-v",
+            "quiet",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-print_format",
+            "json",
             segment_path,
         ]
         probe = subprocess.run(
-            probe_cmd, capture_output=True, text=True,
-            stdin=subprocess.DEVNULL, timeout=10,
+            probe_cmd,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=10,
         )
         probe_data = json.loads(probe.stdout)
         streams = probe_data.get("streams", [])
         if streams:
-            width  = int(streams[0].get("width",  0))
+            width = int(streams[0].get("width", 0))
             height = int(streams[0].get("height", 0))
     except Exception:
         pass
 
     # ── Modo batch: escribir a fichero temporal (evita deadlock de pipe) ──
     if width > 0 and height > 0:
-        frame_bytes   = width * height * 3  # rgb24
+        frame_bytes = width * height * 3  # rgb24
         batch_timeout = duration_secs * 3 + 60
 
         raw_tmp = tempfile.NamedTemporaryFile(
@@ -147,11 +160,16 @@ def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
 
         try:
             cmd = [
-                "ffmpeg", "-y",
-                "-i", segment_path,
-                "-f", "rawvideo",
-                "-pix_fmt", "rgb24",
-                "-r", "1",
+                "ffmpeg",
+                "-y",
+                "-i",
+                segment_path,
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgb24",
+                "-r",
+                "1",
                 raw_tmp.name,
             ]
             r = subprocess.run(
@@ -166,7 +184,7 @@ def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
                     raw = fh.read()
                 hashes = []
                 for i in range(duration_secs):
-                    chunk = raw[i * frame_bytes: (i + 1) * frame_bytes]
+                    chunk = raw[i * frame_bytes : (i + 1) * frame_bytes]
                     hashes.append(
                         hashlib.sha256(chunk).hexdigest()
                         if len(chunk) == frame_bytes
@@ -196,11 +214,16 @@ def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
     for sec in range(duration_secs):
         cmd = [
             "ffmpeg",
-            "-i",       segment_path,
-            "-ss",      str(sec),
-            "-t",       "1",
-            "-f",       "rawvideo",
-            "-pix_fmt", "rgb24",
+            "-i",
+            segment_path,
+            "-ss",
+            str(sec),
+            "-t",
+            "1",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
             "pipe:1",
         ]
         try:
@@ -222,19 +245,28 @@ def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
     return hashes
 
 
-def extract_frame_thumbnail(video_path: str, second: int, quality: int = 5) -> Optional[str]:
+def extract_frame_thumbnail(
+    video_path: str, second: int, quality: int = 5
+) -> Optional[str]:
     """
     Extrae un frame JPEG del centro del segundo indicado.
     Devuelve la imagen codificada en base64, o None si falla.
     """
     cmd = [
-        "ffmpeg", "-y",
-        "-i",       video_path,
-        "-ss",      f"{second}.5",
-        "-vframes", "1",
-        "-f",       "image2",
-        "-vcodec",  "mjpeg",
-        "-q:v",     str(quality),
+        "ffmpeg",
+        "-y",
+        "-i",
+        video_path,
+        "-ss",
+        f"{second}.5",
+        "-vframes",
+        "1",
+        "-f",
+        "image2",
+        "-vcodec",
+        "mjpeg",
+        "-q:v",
+        str(quality),
         "pipe:1",
     ]
     try:
@@ -269,58 +301,65 @@ def segment_video(video_path: str, output_dir: str) -> List[Dict]:
     start = 0.0
 
     while start < duration:
-        end          = min(start + SEGMENT_DURATION, duration)
+        end = min(start + SEGMENT_DURATION, duration)
         seg_duration = end - start
-        is_complete  = seg_duration >= SEGMENT_DURATION
+        is_complete = seg_duration >= SEGMENT_DURATION
 
         if total_logical_segments == 1:
-            work_path   = video_path
+            work_path = video_path
             sha256_hash = calculate_sha256(work_path)
-            file_size   = os.path.getsize(work_path)
+            file_size = os.path.getsize(work_path)
         else:
             work_path = os.path.join(output_dir, f"segment_{segment_index:04d}.mp4")
             cmd = [
-                "ffmpeg", "-y",
-                "-i",    video_path,
-                "-ss",   str(start),
-                "-t",    str(seg_duration),
-                "-c",    "copy",
-                "-avoid_negative_ts", "1",
+                "ffmpeg",
+                "-y",
+                "-i",
+                video_path,
+                "-ss",
+                str(start),
+                "-t",
+                str(seg_duration),
+                "-c",
+                "copy",
+                "-avoid_negative_ts",
+                "1",
                 work_path,
             ]
             try:
                 result = subprocess.run(
                     cmd,
                     stdin=subprocess.DEVNULL,
-                    capture_output=True, text=True,
+                    capture_output=True,
+                    text=True,
                     timeout=_TIMEOUT_SEGMENT,
                 )
             except subprocess.TimeoutExpired:
-                raise RuntimeError(
-                    f"ffmpeg timeout al cortar segmento {segment_index}"
-                )
+                raise RuntimeError(f"ffmpeg timeout al cortar segmento {segment_index}")
             if result.returncode != 0:
                 raise RuntimeError(
                     f"ffmpeg error en segmento {segment_index}: {result.stderr}"
                 )
             sha256_hash = calculate_sha256(work_path)
-            file_size   = os.path.getsize(work_path)
+            file_size = os.path.getsize(work_path)
 
         second_hashes = extract_second_hashes(work_path, int(seg_duration))
-        merkle_root   = build_merkle_root(second_hashes)
+        merkle_root = build_merkle_root(second_hashes)
 
-        segments.append({
-            "segment_index":   segment_index,
-            "start_time_secs": int(start),
-            "end_time_secs":   int(end),
-            "duration_secs":   int(seg_duration),
-            "complete":        is_complete,
-            "sha256_hash":     sha256_hash,
-            "second_hashes":   second_hashes,
-            "merkle_root":     merkle_root,
-            "file_size_bytes": file_size,
-            "file_path":       work_path,
-        })
+        segments.append(
+            {
+                "segment_index": segment_index,
+                "start_time_secs": int(start),
+                "end_time_secs": int(end),
+                "duration_secs": int(seg_duration),
+                "complete": is_complete,
+                "sha256_hash": sha256_hash,
+                "second_hashes": second_hashes,
+                "merkle_root": merkle_root,
+                "file_size_bytes": file_size,
+                "file_path": work_path,
+            }
+        )
 
         segment_index += 1
         start = end

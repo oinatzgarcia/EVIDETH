@@ -4,29 +4,34 @@ from app.db.models import UserRole
 
 # ── Request schemas ───────────────────────
 
+
 class RegisterRequest(BaseModel):
-    email:     EmailStr
+    email: EmailStr
     full_name: str
-    password:  str
-    role:      UserRole = UserRole.VIEWER
+    password: str
+    role: UserRole = UserRole.VIEWER
+
 
 class LoginRequest(BaseModel):
-    email:    EmailStr
+    email: EmailStr
     password: str
+
 
 class RefreshRequest(BaseModel):
     refresh_token: str
 
+
 # ── Response schemas ──────────────────────
 
+
 class UserResponse(BaseModel):
-    id:        str
-    email:     str
+    id: str
+    email: str
     full_name: str
-    role:      UserRole
+    role: UserRole
     is_active: bool
 
-    @field_validator('id', mode='before')
+    @field_validator("id", mode="before")
     @classmethod
     def uuid_to_str(cls, v):
         return str(v)
@@ -35,9 +40,9 @@ class UserResponse(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    access_token:  str
+    access_token: str
     refresh_token: str
-    token_type:    str = "bearer"
+    token_type: str = "bearer"
     # El objeto user se incluye para que el frontend pueda almacenar
     # el rol sin necesidad de un fetch adicional a GET /auth/me.
     # Auth.setTokens(payload) en auth.js lo persiste en storage.

@@ -39,12 +39,12 @@ except RuntimeError:
     pass
 
 # ── Routers ───────────────────────────────────────────────────
-app.include_router(auth.router,         prefix="/api/v1")
-app.include_router(cameras.router,      prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(cameras.router, prefix="/api/v1")
 app.include_router(verification.router, prefix="/api/v1")
-app.include_router(users.router,        prefix="/api/v1")
-app.include_router(stats.router,        prefix="/api/v1")
-app.include_router(logs.router,         prefix="/api/v1")
+app.include_router(users.router, prefix="/api/v1")
+app.include_router(stats.router, prefix="/api/v1")
+app.include_router(logs.router, prefix="/api/v1")
 
 
 @app.get("/", include_in_schema=False)

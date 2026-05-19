@@ -5,8 +5,15 @@ from datetime import datetime, timezone, timedelta
 
 from app.db.session import get_db
 from app.db.models import (
-    User, Camera, Video, Segment, Verification,
-    UserRole, VideoStatus, SegmentStatus, VerificationResult
+    User,
+    Camera,
+    Video,
+    Segment,
+    Verification,
+    UserRole,
+    VideoStatus,
+    SegmentStatus,
+    VerificationResult,
 )
 from app.core.dependencies import require_analyst
 
@@ -21,7 +28,7 @@ router = APIRouter(
     responses={
         401: {"description": "JWT inválido"},
         403: {"description": "Sin permisos suficientes"},
-    }
+    },
 )
 
 
@@ -44,13 +51,10 @@ Devuelve estadísticas agregadas en tiempo real.
 - `last_24h`: actividad de las últimas 24 horas
 
 Requiere rol **Analyst** o **Admin**.
-    """
+    """,
 )
-def get_stats(
-    db: Session = Depends(get_db),
-    current_user  = Depends(require_analyst)
-):
-    now      = datetime.now(timezone.utc)
+def get_stats(db: Session = Depends(get_db), current_user=Depends(require_analyst)):
+    now = datetime.now(timezone.utc)
     is_admin = current_user.role == UserRole.ADMIN
 
     online_threshold = now - timedelta(seconds=CAMERA_ONLINE_THRESHOLD_SECONDS)
@@ -65,81 +69,85 @@ def get_stats(
     owned_cam_ids_sq = owned_cam_ids.subquery()
 
     # ── Cámaras ────────────────────────────────────────────────
-    total_cameras  = cam_q.count()
+    total_cameras = cam_q.count()
     active_cameras = cam_q.filter(Camera.is_active).count()
     online_cameras = cam_q.filter(
-        Camera.is_active,
-        Camera.last_seen >= online_threshold
+        Camera.is_active, Camera.last_seen >= online_threshold
     ).count()
 
     # ── Videos ────────────────────────────────────────────────
     vid_q = db.query(Video).filter(Video.camera_id.in_(owned_cam_ids_sq))
-    total_videos     = vid_q.count()
+    total_videos = vid_q.count()
     videos_by_status = {
-        s.value: (vid_q.filter(Video.status == s).count())
-        for s in VideoStatus
+        s.value: (vid_q.filter(Video.status == s).count()) for s in VideoStatus
     }
 
     # ── Segmentos ─────────────────────────────────────────────
-    owned_vid_ids_sq = db.query(Video.id).filter(
-        Video.camera_id.in_(owned_cam_ids_sq)
-    ).subquery()
+    owned_vid_ids_sq = (
+        db.query(Video.id).filter(Video.camera_id.in_(owned_cam_ids_sq)).subquery()
+    )
 
-    seg_q          = db.query(Segment).filter(Segment.video_id.in_(owned_vid_ids_sq))
+    seg_q = db.query(Segment).filter(Segment.video_id.in_(owned_vid_ids_sq))
     total_segments = seg_q.count()
     segs_by_status = {
-        s.value: (seg_q.filter(Segment.status == s).count())
-        for s in SegmentStatus
+        s.value: (seg_q.filter(Segment.status == s).count()) for s in SegmentStatus
     }
-    valid_segs     = segs_by_status.get("valid", 0)
-    integrity_rate = round(valid_segs / total_segments * 100, 2) if total_segments > 0 else 0.0
+    valid_segs = segs_by_status.get("valid", 0)
+    integrity_rate = (
+        round(valid_segs / total_segments * 100, 2) if total_segments > 0 else 0.0
+    )
 
     # ── Verificaciones ─────────────────────────────────────────
-    owned_seg_ids_sq = db.query(Segment.id).filter(
-        Segment.video_id.in_(owned_vid_ids_sq)
-    ).subquery()
+    owned_seg_ids_sq = (
+        db.query(Segment.id).filter(Segment.video_id.in_(owned_vid_ids_sq)).subquery()
+    )
 
-    verif_q        = db.query(Verification).filter(
+    verif_q = db.query(Verification).filter(
         Verification.segment_id.in_(owned_seg_ids_sq)
     )
-    total_verifs   = verif_q.count()
+    total_verifs = verif_q.count()
     verifs_by_result = {
         r.value: (verif_q.filter(Verification.result == r).count())
         for r in VerificationResult
     }
-    pass_verifs  = verifs_by_result.get("pass", 0)
-    success_rate = round(pass_verifs / total_verifs * 100, 2) if total_verifs > 0 else 0.0
+    pass_verifs = verifs_by_result.get("pass", 0)
+    success_rate = (
+        round(pass_verifs / total_verifs * 100, 2) if total_verifs > 0 else 0.0
+    )
 
     # ── Usuarios (solo Admin) ───────────────────────────────────
     users_section = None
     if is_admin:
-        total_users  = db.query(func.count(User.id)).scalar() or 0
-        active_users = db.query(func.count(User.id)).filter(User.is_active).scalar() or 0
+        total_users = db.query(func.count(User.id)).scalar() or 0
+        active_users = (
+            db.query(func.count(User.id)).filter(User.is_active).scalar() or 0
+        )
         users_by_role = {
             r.value: (
                 db.query(func.count(User.id))
                 .filter(User.role == r, User.is_active)
-                .scalar() or 0
+                .scalar()
+                or 0
             )
             for r in UserRole
         }
         users_section = {
-            "total":   total_users,
-            "active":  active_users,
+            "total": total_users,
+            "active": active_users,
             "by_role": users_by_role,
         }
 
     # ── Actividad últimas 24 h ───────────────────────────────────
-    yesterday    = now - timedelta(hours=24)
-    verifs_24h   = verif_q.filter(Verification.verified_at >= yesterday).count()
+    yesterday = now - timedelta(hours=24)
+    verifs_24h = verif_q.filter(Verification.verified_at >= yesterday).count()
     segments_24h = seg_q.filter(Segment.created_at >= yesterday).count()
-    videos_24h   = vid_q.filter(Video.created_at >= yesterday).count()
+    videos_24h = vid_q.filter(Video.created_at >= yesterday).count()
 
     response = {
         "cameras": {
-            "total":      total_cameras,
-            "active":     active_cameras,
-            "inactive":   total_cameras - active_cameras,
+            "total": total_cameras,
+            "active": active_cameras,
+            "inactive": total_cameras - active_cameras,
             "online_now": online_cameras,
         },
         "videos": {
@@ -157,9 +165,9 @@ def get_stats(
             "success_rate_pct": success_rate,
         },
         "last_24h": {
-            "verifications":     verifs_24h,
+            "verifications": verifs_24h,
             "segments_uploaded": segments_24h,
-            "videos_started":    videos_24h,
+            "videos_started": videos_24h,
         },
         "generated_at": now.isoformat(),
     }

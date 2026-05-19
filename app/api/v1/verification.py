@@ -1,4 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request, Query
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    UploadFile,
+    File,
+    Form,
+    Request,
+    Query,
+)
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any
@@ -14,7 +23,14 @@ import filetype
 import logging
 
 from app.db.session import get_db, SessionLocal
-from app.db.models import Video, Camera, Verification, Segment, VerificationResult, UserRole
+from app.db.models import (
+    Video,
+    Camera,
+    Verification,
+    Segment,
+    VerificationResult,
+    UserRole,
+)
 from app.core.dependencies import require_analyst
 from app.services.verifier import verify_video
 from app.services.job_store import JOB_STORE
@@ -30,28 +46,30 @@ router = APIRouter(
     responses={
         401: {"description": "JWT inválido"},
         403: {"description": "Sin permisos suficientes"},
-    }
+    },
 )
 
 
 # ── Constantes de validación de formato ──────────────────────────────────
 
-ALLOWED_EXTENSIONS = {".mp4"}   # solo MP4
+ALLOWED_EXTENSIONS = {".mp4"}  # solo MP4
 ALLOWED_MIMETYPES = {
     "video/mp4",
     "application/octet-stream",  # algunos grabadores legítimos
 }
-MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024   # 2 GB
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
 MAGIC_READ_BYTES = 2048
 
 
 # ── Helper: blob name convention ─────────────────────────────────────────
+
 
 def _blob_name(camera_id: str, video_db_id: str, ext: str) -> str:
     return f"cameras/{camera_id}/{video_db_id}{ext}"
 
 
 # ── Helper: valida extensión + magic bytes ────────────────────────────
+
 
 def _validate_video_file(upload: UploadFile) -> str:
     filename = upload.filename or ""
@@ -62,7 +80,7 @@ def _validate_video_file(upload: UploadFile) -> str:
             detail=(
                 f"Extensión no admitida: '{ext or '(ninguna)'}'. "
                 f"Solo se aceptan ficheros .mp4"
-            )
+            ),
         )
     header = upload.file.read(MAGIC_READ_BYTES)
     upload.file.seek(0)
@@ -77,19 +95,22 @@ def _validate_video_file(upload: UploadFile) -> str:
                 f"El contenido del fichero no es un MP4 válido. "
                 f"Tipo detectado: '{detected_mime}'. "
                 f"Asegúrate de no renombrar un .webm a .mp4."
-            )
+            ),
         )
     return ext
 
 
 # ── Helper: query con filtros + ownership ─────────────────────────────
 
-def _build_verification_query(db, camera_id, result, date_from, date_to, current_user=None):
+
+def _build_verification_query(
+    db, camera_id, result, date_from, date_to, current_user=None
+):
     query = (
         db.query(Verification)
-        .join(Segment,  Verification.segment_id == Segment.id)
-        .join(Video,    Segment.video_id         == Video.id)
-        .join(Camera,   Video.camera_id          == Camera.id)
+        .join(Segment, Verification.segment_id == Segment.id)
+        .join(Video, Segment.video_id == Video.id)
+        .join(Camera, Video.camera_id == Camera.id)
     )
     if current_user and current_user.role != UserRole.ADMIN:
         query = query.filter(Camera.owner_id == str(current_user.id))
@@ -99,7 +120,9 @@ def _build_verification_query(db, camera_id, result, date_from, date_to, current
         try:
             query = query.filter(Verification.result == VerificationResult(result))
         except ValueError:
-            raise HTTPException(status_code=400, detail="result debe ser: pass, fail, error")
+            raise HTTPException(
+                status_code=400, detail="result debe ser: pass, fail, error"
+            )
     if date_from:
         query = query.filter(Verification.verified_at >= date_from)
     if date_to:
@@ -114,10 +137,15 @@ def _check_camera_access(camera: Camera, current_user) -> None:
 
 # ── Helper: datos del reporte ──────────────────────────────────
 
-def _build_verification_report_data(video_id: str, db: Session, current_user) -> Dict[str, Any]:
+
+def _build_verification_report_data(
+    video_id: str, db: Session, current_user
+) -> Dict[str, Any]:
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
-        raise HTTPException(status_code=404, detail=f"Video with ID {video_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Video with ID {video_id} not found"
+        )
     camera = db.query(Camera).filter(Camera.id == video.camera_id).first()
     if camera:
         _check_camera_access(camera, current_user)
@@ -145,34 +173,36 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
             else:
                 failed_segments += 1
             segment_data = {
-                "segment_index":  seg.segment_index,
+                "segment_index": seg.segment_index,
                 "start_time_secs": seg.start_time_secs,
-                "end_time_secs":   seg.end_time_secs,
-                "result":          "pass" if segment_passed else "fail",
-                "hash":            seg.sha256_hash,
+                "end_time_secs": seg.end_time_secs,
+                "result": "pass" if segment_passed else "fail",
+                "hash": seg.sha256_hash,
                 "hash_calculated": latest_verification.computed_hash,
-                "hash_expected":   seg.sha256_hash,
-                "hash_match":      latest_verification.hash_match,
+                "hash_expected": seg.sha256_hash,
+                "hash_match": latest_verification.hash_match,
                 "signature_valid": latest_verification.signature_valid,
-                "verified_at":     latest_verification.verified_at.isoformat() if latest_verification.verified_at else None,
-                "merkle_match":    None,
-                "second_results":  None,
+                "verified_at": latest_verification.verified_at.isoformat()
+                if latest_verification.verified_at
+                else None,
+                "merkle_match": None,
+                "second_results": None,
                 "tampered_frames": {},
             }
         else:
             segment_data = {
-                "segment_index":  seg.segment_index,
+                "segment_index": seg.segment_index,
                 "start_time_secs": seg.start_time_secs,
-                "end_time_secs":   seg.end_time_secs,
-                "result":          "missing",
-                "hash":            seg.sha256_hash,
+                "end_time_secs": seg.end_time_secs,
+                "result": "missing",
+                "hash": seg.sha256_hash,
                 "hash_calculated": None,
-                "hash_expected":   seg.sha256_hash,
-                "hash_match":      None,
+                "hash_expected": seg.sha256_hash,
+                "hash_match": None,
                 "signature_valid": None,
-                "verified_at":     None,
-                "merkle_match":    None,
-                "second_results":  None,
+                "verified_at": None,
+                "merkle_match": None,
+                "second_results": None,
                 "tampered_frames": {},
             }
         segments_detail.append(segment_data)
@@ -183,7 +213,9 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
     elif failed_segments > 0:
         verdict = f"Video tampering detected - {failed_segments} segment(s) failed verification"
     else:
-        verdict = f"Incomplete verification - {missing_segments} segment(s) not yet verified"
+        verdict = (
+            f"Incomplete verification - {missing_segments} segment(s) not yet verified"
+        )
     latest_verification_time = None
     if segments:
         latest_verif = (
@@ -199,21 +231,21 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
     if getattr(video, "blob_name", None):
         blob_sas_url = generate_sas_url(video.blob_name, expiry_hours=1)
     return {
-        "video_id":      video_id,
-        "camera_id":     camera.camera_id if camera else None,
-        "filename":      video.filename,
+        "video_id": video_id,
+        "camera_id": camera.camera_id if camera else None,
+        "filename": video.filename,
         "duration_secs": video.duration_secs,
-        "verified_at":   latest_verification_time or datetime.utcnow().isoformat(),
-        "created_at":    video.created_at.isoformat() if video.created_at else None,
-        "integrity_ok":  integrity_ok,
-        "verdict":       verdict,
+        "verified_at": latest_verification_time or datetime.utcnow().isoformat(),
+        "created_at": video.created_at.isoformat() if video.created_at else None,
+        "integrity_ok": integrity_ok,
+        "verdict": verdict,
         "ecdsa_available": False,
-        "blob_sas_url":  blob_sas_url,
+        "blob_sas_url": blob_sas_url,
         "summary": {
             "total_segments": total_segments,
-            "passed":         passed_segments,
-            "failed":         failed_segments,
-            "missing":        missing_segments,
+            "passed": passed_segments,
+            "failed": failed_segments,
+            "missing": missing_segments,
         },
         "segments": segments_detail,
     }
@@ -223,18 +255,21 @@ def _build_verification_report_data(video_id: str, db: Session, current_user) ->
 # ENDPOINTS
 # ────────────────────────────────────────────────────────────────────
 
+
 @router.get("/", summary="Listar verificaciones")
 def list_verifications(
-    camera_id:  Optional[str]      = Query(None),
-    result:     Optional[str]      = Query(None),
-    date_from:  Optional[datetime] = Query(None),
-    date_to:    Optional[datetime] = Query(None),
-    page:       int                = Query(1,  ge=1),
-    per_page:   int                = Query(20, ge=1, le=100),
-    db:         Session            = Depends(get_db),
-    current_user = Depends(require_analyst)
+    camera_id: Optional[str] = Query(None),
+    result: Optional[str] = Query(None),
+    date_from: Optional[datetime] = Query(None),
+    date_to: Optional[datetime] = Query(None),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_analyst),
 ):
-    query = _build_verification_query(db, camera_id, result, date_from, date_to, current_user)
+    query = _build_verification_query(
+        db, camera_id, result, date_from, date_to, current_user
+    )
     total = query.count()
     items = (
         query.order_by(Verification.verified_at.desc())
@@ -243,24 +278,24 @@ def list_verifications(
         .all()
     )
     return {
-        "total":    total,
-        "page":     page,
+        "total": total,
+        "page": page,
         "per_page": per_page,
-        "pages":    (total + per_page - 1) // per_page,
+        "pages": (total + per_page - 1) // per_page,
         "items": [
             {
-                "id":              str(v.id),
-                "segment_id":      str(v.segment_id),
-                "result":          v.result,
-                "hash_match":      v.hash_match,
+                "id": str(v.id),
+                "segment_id": str(v.segment_id),
+                "result": v.result,
+                "hash_match": v.hash_match,
                 "signature_valid": v.signature_valid,
-                "computed_hash":   v.computed_hash,
-                "stored_hash":     v.stored_hash,
-                "error_message":   v.error_message,
-                "verified_at":     v.verified_at,
-                "ip_address":      v.ip_address,
-                "verified_by_id":  str(v.verified_by_id) if v.verified_by_id else None,
-                "video_id":        str(v.segment.video_id) if v.segment else None,
+                "computed_hash": v.computed_hash,
+                "stored_hash": v.stored_hash,
+                "error_message": v.error_message,
+                "verified_at": v.verified_at,
+                "ip_address": v.ip_address,
+                "verified_by_id": str(v.verified_by_id) if v.verified_by_id else None,
+                "video_id": str(v.segment.video_id) if v.segment else None,
                 "camera_id": (
                     v.segment.video.camera.camera_id
                     if v.segment and v.segment.video and v.segment.video.camera
@@ -274,24 +309,37 @@ def list_verifications(
 
 @router.get("/export", summary="Exportar verificaciones a CSV")
 def export_verifications(
-    camera_id:  Optional[str]      = Query(None),
-    result:     Optional[str]      = Query(None),
-    date_from:  Optional[datetime] = Query(None),
-    date_to:    Optional[datetime] = Query(None),
-    db:         Session            = Depends(get_db),
-    current_user = Depends(require_analyst)
+    camera_id: Optional[str] = Query(None),
+    result: Optional[str] = Query(None),
+    date_from: Optional[datetime] = Query(None),
+    date_to: Optional[datetime] = Query(None),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_analyst),
 ):
     verifications = (
-        _build_verification_query(db, camera_id, result, date_from, date_to, current_user)
+        _build_verification_query(
+            db, camera_id, result, date_from, date_to, current_user
+        )
         .order_by(Verification.verified_at.desc())
         .all()
     )
     HEADERS = [
-        "id", "camera_id", "video_id", "segment_id", "segment_index",
-        "result", "hash_match", "signature_valid",
-        "computed_hash", "stored_hash", "error_message",
-        "verified_at", "verified_by_id", "ip_address",
+        "id",
+        "camera_id",
+        "video_id",
+        "segment_id",
+        "segment_index",
+        "result",
+        "hash_match",
+        "signature_valid",
+        "computed_hash",
+        "stored_hash",
+        "error_message",
+        "verified_at",
+        "verified_by_id",
+        "ip_address",
     ]
+
     def iter_csv():
         buf = io.StringIO()
         writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
@@ -305,23 +353,28 @@ def export_verifications(
                 if v.segment and v.segment.video and v.segment.video.camera
                 else None
             )
-            writer.writerow([
-                str(v.id),
-                cam.camera_id if cam else "",
-                str(v.segment.video_id) if v.segment else "",
-                str(v.segment_id) if v.segment_id else "",
-                v.segment.segment_index if v.segment else "",
-                v.result if v.result else "",
-                v.hash_match, v.signature_valid,
-                v.computed_hash or "", v.stored_hash or "",
-                v.error_message or "",
-                v.verified_at.isoformat() if v.verified_at else "",
-                str(v.verified_by_id) if v.verified_by_id else "",
-                v.ip_address or "",
-            ])
+            writer.writerow(
+                [
+                    str(v.id),
+                    cam.camera_id if cam else "",
+                    str(v.segment.video_id) if v.segment else "",
+                    str(v.segment_id) if v.segment_id else "",
+                    v.segment.segment_index if v.segment else "",
+                    v.result if v.result else "",
+                    v.hash_match,
+                    v.signature_valid,
+                    v.computed_hash or "",
+                    v.stored_hash or "",
+                    v.error_message or "",
+                    v.verified_at.isoformat() if v.verified_at else "",
+                    str(v.verified_by_id) if v.verified_by_id else "",
+                    v.ip_address or "",
+                ]
+            )
             yield buf.getvalue()
             buf.seek(0)
         buf.truncate(0)
+
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     return StreamingResponse(
         iter_csv(),
@@ -339,33 +392,40 @@ def export_verifications(
     summary="Subir video para verificación (síncrono)",
 )
 async def upload_and_verify(
-    request:     Request,
-    video:       UploadFile = File(...),
-    camera_id:   str        = Form(...),
-    video_db_id: str        = Form(...),
-    db:          Session    = Depends(get_db),
-    current_user            = Depends(require_analyst)
+    request: Request,
+    video: UploadFile = File(...),
+    camera_id: str = Form(...),
+    video_db_id: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_analyst),
 ):
     if video.size is not None and video.size > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="Fichero demasiado grande. Máximo: 2 GB")
+        raise HTTPException(
+            status_code=413, detail="Fichero demasiado grande. Máximo: 2 GB"
+        )
     ext = _validate_video_file(video)
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
         raise HTTPException(status_code=404, detail="Cámara no encontrada")
     _check_camera_access(camera, current_user)
-    video_db = db.query(Video).filter(
-        Video.id == video_db_id, Video.camera_id == camera.id
-    ).first()
+    video_db = (
+        db.query(Video)
+        .filter(Video.id == video_db_id, Video.camera_id == camera.id)
+        .first()
+    )
     if not video_db:
         raise HTTPException(status_code=404, detail="Video no encontrado en BD")
-    temp_dir   = tempfile.mkdtemp(prefix="evideth_upload_")
+    temp_dir = tempfile.mkdtemp(prefix="evideth_upload_")
     video_path = os.path.join(temp_dir, f"upload{ext}")
     try:
         with open(video_path, "wb") as f:
             shutil.copyfileobj(video.file, f)
         report = verify_video(
-            video_path=video_path, camera_id=camera_id, video_db_id=video_db_id,
-            db=db, verified_by_id=str(current_user.id),
+            video_path=video_path,
+            camera_id=camera_id,
+            video_db_id=video_db_id,
+            db=db,
+            verified_by_id=str(current_user.id),
             ip_address=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent"),
         )
@@ -373,7 +433,7 @@ async def upload_and_verify(
         # must not invalidate an otherwise successful cryptographic verification.
         try:
             blob_name = _blob_name(camera_id, video_db_id, ext)
-            blob_url  = blob_upload(video_path, blob_name)
+            blob_url = blob_upload(video_path, blob_name)
             if blob_url and hasattr(video_db, "blob_name"):
                 video_db.blob_name = blob_name
                 db.commit()
@@ -403,15 +463,17 @@ async def upload_and_verify(
     status_code=202,
 )
 async def upload_and_verify_async(
-    request:     Request,
-    video:       UploadFile = File(...),
-    camera_id:   str        = Form(...),
-    video_db_id: str        = Form(...),
-    db:          Session    = Depends(get_db),
-    current_user            = Depends(require_analyst)
+    request: Request,
+    video: UploadFile = File(...),
+    camera_id: str = Form(...),
+    video_db_id: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_analyst),
 ):
     if video.size is not None and video.size > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="Fichero demasiado grande. Máximo: 2 GB")
+        raise HTTPException(
+            status_code=413, detail="Fichero demasiado grande. Máximo: 2 GB"
+        )
     ext = _validate_video_file(video)
 
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
@@ -419,29 +481,34 @@ async def upload_and_verify_async(
         raise HTTPException(status_code=404, detail="Cámara no encontrada")
     _check_camera_access(camera, current_user)
 
-    video_db = db.query(Video).filter(
-        Video.id == video_db_id, Video.camera_id == camera.id
-    ).first()
+    video_db = (
+        db.query(Video)
+        .filter(Video.id == video_db_id, Video.camera_id == camera.id)
+        .first()
+    )
     if not video_db:
         raise HTTPException(status_code=404, detail="Video no encontrado en BD")
 
-    temp_dir   = tempfile.mkdtemp(prefix="evideth_async_")
+    temp_dir = tempfile.mkdtemp(prefix="evideth_async_")
     video_path = os.path.join(temp_dir, f"upload{ext}")
     with open(video_path, "wb") as f:
         shutil.copyfileobj(video.file, f)
 
-    job_id     = str(uuid4())
-    user_id    = str(current_user.id)
+    job_id = str(uuid4())
+    user_id = str(current_user.id)
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
-    blob_name  = _blob_name(camera_id, video_db_id, ext)
+    blob_name = _blob_name(camera_id, video_db_id, ext)
 
     JOB_STORE.create(job_id)
-    JOB_STORE.update(job_id, status="running", progress=1, message="File saved, starting analysis…")
+    JOB_STORE.update(
+        job_id, status="running", progress=1, message="File saved, starting analysis…"
+    )
 
     def run_job():
         bg_db = SessionLocal()
         try:
+
             def cb(pct: int, msg: str):
                 logger.info("[job %s] %d%% — %s", job_id[:8], pct, msg)
                 JOB_STORE.update(job_id, progress=pct, message=msg)
@@ -465,7 +532,9 @@ async def upload_and_verify_async(
                 cb(97, "Uploading video to Azure Blob Storage…")
                 blob_url = blob_upload(video_path, blob_name)
                 if blob_url:
-                    video_record_upd = bg_db.query(Video).filter(Video.id == video_db_id).first()
+                    video_record_upd = (
+                        bg_db.query(Video).filter(Video.id == video_db_id).first()
+                    )
                     if video_record_upd and hasattr(video_record_upd, "blob_name"):
                         video_record_upd.blob_name = blob_name
                         bg_db.commit()
@@ -474,40 +543,42 @@ async def upload_and_verify_async(
                     "[job %s] Azure Blob upload failed (non-fatal): %s — "
                     "Verification result is unaffected. "
                     "Check AZURE_STORAGE_CONNECTION_STRING in your .env",
-                    job_id[:8], azure_exc,
+                    job_id[:8],
+                    azure_exc,
                 )
             # ─────────────────────────────────────────────────────────────
 
             video_record = bg_db.query(Video).filter(Video.id == video_db_id).first()
             full_report = {
-                "video_id":        report["video_id"],
-                "camera_id":       report["camera_id"],
-                "integrity_ok":    report["integrity_ok"],
-                "verdict":         report["verdict"],
+                "video_id": report["video_id"],
+                "camera_id": report["camera_id"],
+                "integrity_ok": report["integrity_ok"],
+                "verdict": report["verdict"],
                 "ecdsa_available": report.get("ecdsa_available", False),
-                "summary":         report["summary"],
-                "verified_at":     report["verified_at"],
-                "filename":        video_record.filename if video_record else None,
-                "duration_secs":   video_record.duration_secs if video_record else None,
-                "blob_url":        blob_url,
+                "summary": report["summary"],
+                "verified_at": report["verified_at"],
+                "filename": video_record.filename if video_record else None,
+                "duration_secs": video_record.duration_secs if video_record else None,
+                "blob_url": blob_url,
                 "created_at": (
                     video_record.created_at.isoformat()
-                    if video_record and video_record.created_at else None
+                    if video_record and video_record.created_at
+                    else None
                 ),
                 "segments": [
                     {
-                        "segment_index":  s["segment_index"],
+                        "segment_index": s["segment_index"],
                         "start_time_secs": s.get("start_time_secs"),
-                        "end_time_secs":   s.get("end_time_secs"),
-                        "result":          s["result"],
-                        "hash":            s.get("stored_hash"),
+                        "end_time_secs": s.get("end_time_secs"),
+                        "result": s["result"],
+                        "hash": s.get("stored_hash"),
                         "hash_calculated": s.get("computed_hash"),
-                        "hash_expected":   s.get("stored_hash"),
-                        "hash_match":      s.get("hash_match"),
+                        "hash_expected": s.get("stored_hash"),
+                        "hash_match": s.get("hash_match"),
                         "signature_valid": s.get("signature_valid"),
-                        "verified_at":     report["verified_at"],
-                        "merkle_match":    s.get("merkle_match"),
-                        "second_results":  s.get("second_results"),
+                        "verified_at": report["verified_at"],
+                        "merkle_match": s.get("merkle_match"),
+                        "second_results": s.get("second_results"),
                         "tampered_frames": s.get("tampered_frames") or {},
                     }
                     for s in report.get("segments", [])
@@ -521,7 +592,9 @@ async def upload_and_verify_async(
                 message="Verification complete",
                 result=full_report,
             )
-            logger.info("[job %s] done — integrity_ok=%s", job_id[:8], report["integrity_ok"])
+            logger.info(
+                "[job %s] done — integrity_ok=%s", job_id[:8], report["integrity_ok"]
+            )
 
         except Exception as exc:
             logger.exception("[job %s] FAILED: %s", job_id[:8], exc)
@@ -547,40 +620,36 @@ async def upload_and_verify_async(
 @router.get("/jobs/{job_id}", summary="Estado de verificación asíncrona")
 def get_job_status(
     job_id: str,
-    current_user = Depends(require_analyst),
+    current_user=Depends(require_analyst),
 ):
     job = JOB_STORE.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found or already expired")
     return {
-        "job_id":     job_id,
-        "status":     job.status,
-        "progress":   job.progress,
-        "message":    job.message,
-        "error":      job.error,
-        "result":     job.result if job.status == "done" else None,
+        "job_id": job_id,
+        "status": job.status,
+        "progress": job.progress,
+        "message": job.message,
+        "error": job.error,
+        "result": job.result if job.status == "done" else None,
         "updated_at": job.updated_at,
     }
 
 
 @router.get("/report/{video_id}", response_model=Dict[str, Any], summary="Reporte JSON")
 def get_verification_report(
-    video_id:    str,
-    db:          Session = Depends(get_db),
-    current_user         = Depends(require_analyst)
+    video_id: str, db: Session = Depends(get_db), current_user=Depends(require_analyst)
 ):
     return _build_verification_report_data(video_id, db, current_user)
 
 
 @router.get("/report/{video_id}/pdf", summary="Reporte forense PDF")
 def download_forensic_pdf(
-    video_id:    str,
-    db:          Session = Depends(get_db),
-    current_user         = Depends(require_analyst)
+    video_id: str, db: Session = Depends(get_db), current_user=Depends(require_analyst)
 ):
     report_data = _build_verification_report_data(video_id, db, current_user)
-    pdf_buffer  = ForensicPDFGenerator().generate_report(report_data)
-    ts       = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    pdf_buffer = ForensicPDFGenerator().generate_report(report_data)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     filename = f"EVIDETH_Forensic_Report_{video_id[:8]}_{ts}.pdf"
     return StreamingResponse(
         pdf_buffer,
@@ -595,11 +664,11 @@ def download_forensic_pdf(
 @router.get("/history/{video_id}", summary="Historial de verificaciones de un video")
 def verification_history(
     video_id: str,
-    result:   Optional[str] = Query(None),
-    page:     int           = Query(1,  ge=1),
-    per_page: int           = Query(20, ge=1, le=100),
-    db:       Session       = Depends(get_db),
-    current_user            = Depends(require_analyst)
+    result: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_analyst),
 ):
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
@@ -607,13 +676,17 @@ def verification_history(
     camera = db.query(Camera).filter(Camera.id == video.camera_id).first()
     if camera:
         _check_camera_access(camera, current_user)
-    segment_ids = [s.id for s in db.query(Segment).filter(Segment.video_id == video_id).all()]
+    segment_ids = [
+        s.id for s in db.query(Segment).filter(Segment.video_id == video_id).all()
+    ]
     query = db.query(Verification).filter(Verification.segment_id.in_(segment_ids))
     if result:
         try:
             query = query.filter(Verification.result == VerificationResult(result))
         except ValueError:
-            raise HTTPException(status_code=400, detail="result debe ser: pass, fail, error")
+            raise HTTPException(
+                status_code=400, detail="result debe ser: pass, fail, error"
+            )
     total = query.count()
     verifications = (
         query.order_by(Verification.verified_at.desc())
@@ -622,20 +695,20 @@ def verification_history(
         .all()
     )
     return {
-        "video_id":      video_id,
-        "total":         total,
-        "page":          page,
-        "per_page":      per_page,
-        "pages":         (total + per_page - 1) // per_page,
+        "video_id": video_id,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": (total + per_page - 1) // per_page,
         "verifications": [
             {
-                "id":              str(v.id),
-                "segment_id":      str(v.segment_id),
-                "result":          v.result,
-                "hash_match":      v.hash_match,
+                "id": str(v.id),
+                "segment_id": str(v.segment_id),
+                "result": v.result,
+                "hash_match": v.hash_match,
                 "signature_valid": v.signature_valid,
-                "verified_at":     v.verified_at,
-                "ip_address":      v.ip_address,
+                "verified_at": v.verified_at,
+                "ip_address": v.ip_address,
             }
             for v in verifications
         ],
@@ -645,37 +718,51 @@ def verification_history(
 @router.get("/{verification_id}", summary="Obtener verificación por ID")
 def get_verification(
     verification_id: str,
-    db:              Session = Depends(get_db),
-    current_user             = Depends(require_analyst)
+    db: Session = Depends(get_db),
+    current_user=Depends(require_analyst),
 ):
     v = db.query(Verification).filter(Verification.id == verification_id).first()
     if not v:
         raise HTTPException(status_code=404, detail="Verificación no encontrada")
     segment = v.segment
-    video   = segment.video  if segment else None
-    camera  = video.camera   if video   else None
+    video = segment.video if segment else None
+    camera = video.camera if video else None
     if camera:
         _check_camera_access(camera, current_user)
     return {
-        "id":              str(v.id),
-        "result":          v.result,
-        "hash_match":      v.hash_match,
+        "id": str(v.id),
+        "result": v.result,
+        "hash_match": v.hash_match,
         "signature_valid": v.signature_valid,
-        "computed_hash":   v.computed_hash,
-        "stored_hash":     v.stored_hash,
-        "error_message":   v.error_message,
-        "verified_at":     v.verified_at,
-        "ip_address":      v.ip_address,
-        "user_agent":      v.user_agent,
-        "verified_by_id":  str(v.verified_by_id) if v.verified_by_id else None,
+        "computed_hash": v.computed_hash,
+        "stored_hash": v.stored_hash,
+        "error_message": v.error_message,
+        "verified_at": v.verified_at,
+        "ip_address": v.ip_address,
+        "user_agent": v.user_agent,
+        "verified_by_id": str(v.verified_by_id) if v.verified_by_id else None,
         "segment": {
-            "id":              str(segment.id),
-            "segment_index":   segment.segment_index,
+            "id": str(segment.id),
+            "segment_index": segment.segment_index,
             "start_time_secs": segment.start_time_secs,
-            "end_time_secs":   segment.end_time_secs,
-            "sha256_hash":     segment.sha256_hash,
-            "status":          segment.status,
-        } if segment else None,
-        "video":  {"id": str(video.id),  "filename": video.filename,   "status": video.status}  if video  else None,
-        "camera": {"camera_id": camera.camera_id, "name": camera.name, "location": camera.location} if camera else None,
+            "end_time_secs": segment.end_time_secs,
+            "sha256_hash": segment.sha256_hash,
+            "status": segment.status,
+        }
+        if segment
+        else None,
+        "video": {
+            "id": str(video.id),
+            "filename": video.filename,
+            "status": video.status,
+        }
+        if video
+        else None,
+        "camera": {
+            "camera_id": camera.camera_id,
+            "name": camera.name,
+            "location": camera.location,
+        }
+        if camera
+        else None,
     }
