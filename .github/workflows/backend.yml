@@ -52,11 +52,13 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      - name: Install system dependencies (ffmpeg, OpenCV)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg libgl1
+
       - name: Install dependencies
         run: pip install -r requirements.txt
-
-      - name: Install dev tools (ruff, alembic)
-        run: pip install ruff alembic
 
       # ── Lint con Ruff ──────────────────────────────────
       - name: Ruff lint
@@ -68,7 +70,7 @@ jobs:
       # ── Comprobar que todos los módulos importan OK ────────
       - name: Import check
         run: |
-          python -c "from app.main import app; print('\u2705 app.main importado OK')"
+          python -c "from app.main import app; print('✅ app.main importado OK')"
 
       # ── Migraciones Alembic ───────────────────────────
       - name: Apply Alembic migrations
@@ -78,20 +80,20 @@ jobs:
         run: |
           PENDING=$(alembic check 2>&1 || true)
           if echo "$PENDING" | grep -q "Target database is not up to date"; then
-            echo "\u274c Hay migraciones pendientes sin generar"
+            echo "❌ Hay migraciones pendientes sin generar"
             exit 1
           else
-            echo "\u2705 Base de datos al d\u00eda"
+            echo "✅ Base de datos al día"
           fi
 
-      # ── Tests con pytest ─────────────────────────────
+      # ── Tests con pytest ──────────────────────────────
       - name: Run pytest
         run: |
           if [ -d "tests" ]; then
             pytest tests/ -v --tb=short
           else
-            echo "\u2139\ufe0f  No hay directorio tests/ todav\u00eda, saltando pytest"
+            echo "ℹ️  No hay directorio tests/ todavía, saltando pytest"
           fi
 
       - name: Backend check complete
-        run: echo "\u2705 Backend CI completado correctamente"
+        run: echo "✅ Backend CI completado correctamente"
