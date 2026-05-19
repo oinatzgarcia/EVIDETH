@@ -38,6 +38,8 @@ app.add_middleware(
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "http://localhost:3000",   # por si se usa un bundler en el futuro
+        # Azure Container Apps — producción
+        "https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -67,6 +69,12 @@ def root():
 
 @app.get("/health")
 def health():
+    return {"status": "healthy"}
+
+
+@app.get("/api/v1/health")
+def health_v1():
+    """Alias de /health para compatibilidad con Container Apps probes."""
     return {"status": "healthy"}
 
 
