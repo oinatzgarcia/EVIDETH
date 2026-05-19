@@ -1,0 +1,132 @@
+# ─────────────────────────────────────────────────────────────
+# EVIDETH — deploy.yml
+# Redeploy continuo del backend en Azure Container Apps.
+# Se activa cuando cambia código en app/ (sin tocar Terraform).
+#
+# Flujo:
+#   1. Build & push imagen al ACR (tag: latest + git SHA)
+#   2. az containerapp update  → nuevo revision con la imagen
+#   3. Llama a migrate.yml     → alembic upgrade head
+#   4. Health check            → verifica que la app responde
+# ─────────────────────────────────────────────────────────────
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - 'alembic/**'
+      - 'alembic.ini'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ACR_NAME:         evidethdevacr94f04b
+  IMAGE_NAME:       evideth-backend
+  CONTAINER_APP:    evideth-dev-backend
+  RESOURCE_GROUP:   evideth-dev-rg
+
+jobs:
+  # ── Job 1: Build & Push ──────────────────────────────────────
+  build-push:
+    name: Build & Push to ACR
+    runs-on: ubuntu-latest
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set image tag
+        id: meta
+        run: |
+          SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "tag=${SHA}" >> $GITHUB_OUTPUT
+          echo "full_image=${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${SHA}" >> $GITHUB_OUTPUT
+
+      - name: Login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push (SHA tag + latest)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+            ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+  # ── Job 2: Migrate (Alembic) ─────────────────────────────────
+  migrate:
+    name: DB Migrate
+    needs: build-push
+    uses: ./.github/workflows/migrate.yml
+    permissions:
+      id-token: write
+      contents: read
+
+  # ── Job 3: Update Container App ──────────────────────────────
+  deploy:
+    name: Update Container App
+    runs-on: ubuntu-latest
+    needs: [build-push, migrate]
+
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Update Container App revision
+        run: |
+          IMAGE="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ needs.build-push.outputs.image_tag }}"
+          echo "🚀 Deploying image: $IMAGE"
+          az containerapp update \
+            --name            ${{ env.CONTAINER_APP }} \
+            --resource-group  ${{ env.RESOURCE_GROUP }} \
+            --image           "$IMAGE"
+
+      - name: Wait for revision to be active
+        run: |
+          echo "⏳ Waiting for Container App to be ready..."
+          sleep 30
+
+      - name: Health check
+        run: |
+          URL=$(az containerapp show \
+            --name           ${{ env.CONTAINER_APP }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query          "properties.configuration.ingress.fqdn" \
+            --output         tsv)
+          echo "🔍 Health check: https://${URL}/api/v1/health"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://${URL}/api/v1/health")
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ Health check failed (HTTP $STATUS)"
+            exit 1
+          fi
+          echo "✅ Backend healthy at https://${URL}"
+          echo "📖 Swagger: https://${URL}/docs"

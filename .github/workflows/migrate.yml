@@ -1,0 +1,135 @@
+# ─────────────────────────────────────────────────────────────
+# EVIDETH — migrate.yml
+# Ejecuta `alembic upgrade head` contra el PostgreSQL de Azure.
+#
+# Estrategia de firewall:
+#   1. Obtiene la IP pública del runner de GitHub Actions
+#   2. Abre temporalmente esa IP en el firewall de PostgreSQL
+#   3. Corre la migración
+#   4. Elimina la regla de firewall (always, incluso si falla)
+#
+# Se puede llamar:
+#   - Manualmente (workflow_dispatch)
+#   - Desde deploy.yml (workflow_call)
+# ─────────────────────────────────────────────────────────────
+name: DB Migrate
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  PG_SERVER_NAME:  evideth-dev-pg
+  RESOURCE_GROUP:  evideth-dev-rg
+  FIREWALL_RULE:   github-actions-runner
+
+jobs:
+  migrate:
+    name: Alembic Upgrade Head
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get runner public IP
+        id: runner_ip
+        run: |
+          IP=$(curl -s https://api.ipify.org)
+          echo "ip=$IP" >> $GITHUB_OUTPUT
+          echo "🌐 Runner IP: $IP"
+
+      - name: Open PostgreSQL firewall for runner
+        run: |
+          az postgres flexible-server firewall-rule create \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name            ${{ env.PG_SERVER_NAME }} \
+            --rule-name       ${{ env.FIREWALL_RULE }} \
+            --start-ip-address ${{ steps.runner_ip.outputs.ip }} \
+            --end-ip-address   ${{ steps.runner_ip.outputs.ip }}
+          echo "✅ Firewall rule created for ${{ steps.runner_ip.outputs.ip }}"
+
+      - name: Build DATABASE_URL from Azure outputs
+        id: db_url
+        run: |
+          # Obtener FQDN del servidor PostgreSQL
+          FQDN=$(az postgres flexible-server show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name            ${{ env.PG_SERVER_NAME }} \
+            --query           "fullyQualifiedDomainName" \
+            --output          tsv)
+
+          # Obtener credenciales desde Key Vault (el SP tiene Get/List)
+          KV_NAME=$(az keyvault list \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query           "[0].name" \
+            --output          tsv)
+
+          DB_USER=$(az keyvault secret show \
+            --vault-name "$KV_NAME" \
+            --name        "db-admin-user" \
+            --query        "value" \
+            --output       tsv 2>/dev/null || echo "")
+
+          DB_PASS=$(az keyvault secret show \
+            --vault-name "$KV_NAME" \
+            --name        "db-admin-password" \
+            --query        "value" \
+            --output       tsv 2>/dev/null || echo "")
+
+          DB_NAME=$(az keyvault secret show \
+            --vault-name "$KV_NAME" \
+            --name        "db-name" \
+            --query        "value" \
+            --output       tsv 2>/dev/null || echo "evideth")
+
+          # Fallback: leer desde Container App env vars si Key Vault no tiene secretos nombrados así
+          if [ -z "$DB_USER" ]; then
+            DB_USER=$(az containerapp show \
+              --name            evideth-dev-backend \
+              --resource-group  ${{ env.RESOURCE_GROUP }} \
+              --query           "properties.template.containers[0].env[?name=='DB_USER'].value | [0]" \
+              --output          tsv)
+          fi
+
+          DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@${FQDN}:5432/${DB_NAME}?sslmode=require"
+          echo "database_url=$DATABASE_URL" >> $GITHUB_OUTPUT
+          echo "✅ DATABASE_URL built for host: $FQDN"
+
+      - name: Run Alembic migrations
+        env:
+          DATABASE_URL: ${{ steps.db_url.outputs.database_url }}
+        run: |
+          echo "🗄️  Running: alembic upgrade head"
+          alembic upgrade head
+          echo "✅ Migrations applied successfully"
+
+      - name: Remove PostgreSQL firewall rule (always)
+        if: always()
+        run: |
+          az postgres flexible-server firewall-rule delete \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name            ${{ env.PG_SERVER_NAME }} \
+            --rule-name       ${{ env.FIREWALL_RULE }} \
+            --yes || true
+          echo "🔒 Firewall rule removed"
