@@ -53,16 +53,12 @@ def get_stats(
     now      = datetime.now(timezone.utc)
     is_admin = current_user.role == UserRole.ADMIN
 
-    # Umbral de online: consistente con cameras.py
     online_threshold = now - timedelta(seconds=CAMERA_ONLINE_THRESHOLD_SECONDS)
 
-    # ── Subquery de cámaras accesibles para el usuario ──────────────────────
-    # Admin: todas las cámaras. Analyst/Viewer: solo las propias.
     cam_q = db.query(Camera)
     if not is_admin:
         cam_q = cam_q.filter(Camera.owner_id == str(current_user.id))
 
-    # IDs de cámaras accesibles — usado para filtrar videos/segmentos/verifs
     owned_cam_ids = db.query(Camera.id)
     if not is_admin:
         owned_cam_ids = owned_cam_ids.filter(Camera.owner_id == str(current_user.id))
@@ -70,9 +66,9 @@ def get_stats(
 
     # ── Cámaras ────────────────────────────────────────────────
     total_cameras  = cam_q.count()
-    active_cameras = cam_q.filter(Camera.is_active == True).count()
+    active_cameras = cam_q.filter(Camera.is_active).count()
     online_cameras = cam_q.filter(
-        Camera.is_active == True,
+        Camera.is_active,
         Camera.last_seen >= online_threshold
     ).count()
 
@@ -115,16 +111,14 @@ def get_stats(
     success_rate = round(pass_verifs / total_verifs * 100, 2) if total_verifs > 0 else 0.0
 
     # ── Usuarios (solo Admin) ───────────────────────────────────
-    # Analistas y viewers no necesitan conocer la distribución de usuarios
-    # del sistema — es información sensible de la plataforma.
     users_section = None
     if is_admin:
         total_users  = db.query(func.count(User.id)).scalar() or 0
-        active_users = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
+        active_users = db.query(func.count(User.id)).filter(User.is_active).scalar() or 0
         users_by_role = {
             r.value: (
                 db.query(func.count(User.id))
-                .filter(User.role == r, User.is_active == True)
+                .filter(User.role == r, User.is_active)
                 .scalar() or 0
             )
             for r in UserRole
@@ -135,7 +129,7 @@ def get_stats(
             "by_role": users_by_role,
         }
 
-    # ── Actividad últimas 24 h (acotada por ownership) ───────────────
+    # ── Actividad últimas 24 h ───────────────────────────────────
     yesterday    = now - timedelta(hours=24)
     verifs_24h   = verif_q.filter(Verification.verified_at >= yesterday).count()
     segments_24h = seg_q.filter(Segment.created_at >= yesterday).count()

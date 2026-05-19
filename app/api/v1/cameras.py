@@ -458,7 +458,6 @@ def upload_segment(
     if not video:
         raise HTTPException(status_code=404, detail="Video no encontrado o no pertenece a esta cámara")
 
-    # Rechazar vídeos registrados con codec WebM (por si acaso llegaron antes de la validación)
     if video.codec and video.codec.lower() in {"webm", "vp8", "vp9", "av1"}:
         raise HTTPException(
             status_code=400,
@@ -474,10 +473,10 @@ def upload_segment(
     ).first():
         raise HTTPException(status_code=409, detail=f"Segmento #{data.segment_index} ya registrado")
 
-    second_hashes_json   = json.dumps(data.second_hashes)   if data.second_hashes   else None
+    second_hashes_json    = json.dumps(data.second_hashes)    if data.second_hashes    else None
     frame_thumbnails_json = json.dumps(data.frame_thumbnails) if data.frame_thumbnails else None
-    has_full_crypto      = bool(data.ecdsa_signature and data.merkle_root)
-    status               = SegmentStatus.VALID if has_full_crypto else SegmentStatus.PENDING
+    has_full_crypto       = bool(data.ecdsa_signature and data.merkle_root)
+    status                = SegmentStatus.VALID if has_full_crypto else SegmentStatus.PENDING
 
     segment = Segment(
         video_id          = data.video_id,
@@ -566,8 +565,10 @@ def list_videos(
             query = query.filter(Video.status == VideoStatus(status))
         except ValueError:
             raise HTTPException(status_code=400, detail="status inválido")
-    if date_from: query = query.filter(Video.started_at >= date_from)
-    if date_to:   query = query.filter(Video.started_at <= date_to)
+    if date_from:
+        query = query.filter(Video.started_at >= date_from)
+    if date_to:
+        query = query.filter(Video.started_at <= date_to)
 
     total  = query.count()
     videos = query.order_by(Video.started_at.desc()) \
@@ -610,9 +611,12 @@ def update_camera(
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
         raise HTTPException(status_code=404, detail="Cámara no encontrada")
-    if data.name        is not None: camera.name        = data.name
-    if data.location    is not None: camera.location    = data.location
-    if data.description is not None: camera.description = data.description
+    if data.name is not None:
+        camera.name = data.name
+    if data.location is not None:
+        camera.location = data.location
+    if data.description is not None:
+        camera.description = data.description
     db.commit()
     db.refresh(camera)
     return _to_camera_detail(camera)
