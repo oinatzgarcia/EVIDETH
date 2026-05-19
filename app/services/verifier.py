@@ -217,13 +217,13 @@ def verify_video(
                 results.append(entry)
                 continue
 
-            # ── Nivel 1: hash fichero — INFORMATIVO ──────────────────────────
+            # ── Nivel 1: hash fichero — INFORMATIVO ───────────────────────────────────────
             # El hash del segmento MP4 puede diferir si el fichero fue remuxado
             # (cambio de contenedor sin re-codificar el stream H.264).
             # No se usa como criterio de veredicto — solo se registra.
             hash_match = computed["sha256_hash"] == stored.sha256_hash
 
-            # ── Nivel 2: Merkle root por segundo — DETERMINANTE ───────────
+            # ── Nivel 2: Merkle root por segundo — DETERMINANTE ─────────────
             computed_merkle = computed.get("merkle_root")
             stored_merkle   = stored.merkle_root
             merkle_match    = None
@@ -302,10 +302,14 @@ def verify_video(
                 result  = "pass"
                 stored.status = SegmentStatus.VALID
                 parts = ["✓ Íntegro"]
-                if merkle_match is True:      parts.append("Merkle OK")
-                if signature_valid is True:   parts.append("ECDSA OK")
-                elif signature_valid is None: parts.append(sig_detail)
-                if not hash_match:            parts.append("Hash fichero difiere (remux sin re-codificación)")
+                if merkle_match is True:
+                    parts.append("Merkle OK")
+                if signature_valid is True:
+                    parts.append("ECDSA OK")
+                elif signature_valid is None:
+                    parts.append(sig_detail)
+                if not hash_match:
+                    parts.append("Hash fichero difiere (remux sin re-codificación)")
                 detail = " — ".join(parts)
 
             entry = _make_entry(
