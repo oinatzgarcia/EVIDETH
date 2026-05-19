@@ -56,52 +56,29 @@ jobs:
 
       # ── Force-unlock stale lock (idempotente) ────────────────────────
       # Si un apply anterior falló a mitad, el blob de lock queda huérfano.
-      # Leemos el Lock ID del blob de Azure directamente y lo forzamos a liberar.
-      # Si no hay lock, el az storage blob delete devuelve error que ignoramos.
       - name: Force-unlock stale Terraform state lock
         run: |
           ACCOUNT="evidethtfstate"
           CONTAINER="tfstate"
           LOCK_BLOB="evideth.terraform.tfstate.lock"
 
-          # Obtener la storage key para borrar el blob de lock
           STORAGE_KEY=$(az storage account keys list \
             --resource-group evideth-dev-rg \
             --account-name "$ACCOUNT" \
             --query "[0].value" \
             --output tsv)
 
-          # Intentar borrar el blob de lock huerfano (falla silenciosamente si no existe)
           az storage blob delete \
             --account-name "$ACCOUNT" \
             --account-key  "$STORAGE_KEY" \
             --container-name "$CONTAINER" \
-            --name "$LOCK_BLOB" 2>/dev/null && echo "🔓 Stale lock removed" || echo "✅ No stale lock found"
+            --name "$LOCK_BLOB" 2>/dev/null \
+            && echo "🔓 Stale lock removed" || echo "✅ No stale lock found"
 
       - name: Terraform Validate
         working-directory: terraform/
         run: terraform validate
 
-      # ── Import idempotente de la access policy ─────────────────────
-      - name: Import KV Access Policy (idempotent)
-        working-directory: terraform/
-        run: |
-          SUBSCRIPTION_ID="${{ vars.AZURE_SUBSCRIPTION_ID }}"
-          OBJECT_ID=$(az ad sp show \
-            --id "${{ vars.AZURE_CLIENT_ID }}" \
-            --query "id" \
-            --output tsv)
-          echo "🔑 SP object_id: $OBJECT_ID"
-
-          RESOURCE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/evideth-dev-rg/providers/Microsoft.KeyVault/vaults/evideth-dev-kv-94f04b/objectId/${OBJECT_ID}"
-
-          terraform import \
-            -var="subscription_id=${SUBSCRIPTION_ID}" \
-            -var="jwt_secret_key=placeholder" \
-            azurerm_key_vault_access_policy.terraform \
-            "$RESOURCE_ID" || true
-
-      # ── Plan & Apply ────────────────────────────────────────────────
       - name: Terraform Plan & Apply
         working-directory: terraform/
         run: |
