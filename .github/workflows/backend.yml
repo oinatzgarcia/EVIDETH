@@ -55,6 +55,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Install dev tools (ruff, alembic)
+        run: pip install ruff alembic
+
       # ── Lint con Ruff ──────────────────────────────────
       - name: Ruff lint
         run: ruff check app/ --output-format=github
@@ -65,7 +68,7 @@ jobs:
       # ── Comprobar que todos los módulos importan OK ────────
       - name: Import check
         run: |
-          python -c "from app.main import app; print('✅ app.main importado OK')"
+          python -c "from app.main import app; print('\u2705 app.main importado OK')"
 
       # ── Migraciones Alembic ───────────────────────────
       - name: Apply Alembic migrations
@@ -75,20 +78,20 @@ jobs:
         run: |
           PENDING=$(alembic check 2>&1 || true)
           if echo "$PENDING" | grep -q "Target database is not up to date"; then
-            echo "❌ Hay migraciones pendientes sin generar"
+            echo "\u274c Hay migraciones pendientes sin generar"
             exit 1
           else
-            echo "✅ Base de datos al día"
+            echo "\u2705 Base de datos al d\u00eda"
           fi
 
-      # ── Tests con pytest ──────────────────────────────
+      # ── Tests con pytest ─────────────────────────────
       - name: Run pytest
         run: |
           if [ -d "tests" ]; then
             pytest tests/ -v --tb=short
           else
-            echo "ℹ️  No hay directorio tests/ todavía, saltando pytest"
+            echo "\u2139\ufe0f  No hay directorio tests/ todav\u00eda, saltando pytest"
           fi
 
       - name: Backend check complete
-        run: echo "✅ Backend CI completado correctamente"
+        run: echo "\u2705 Backend CI completado correctamente"
