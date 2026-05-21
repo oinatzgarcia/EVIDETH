@@ -1,43 +1,19 @@
 # EVIDETH — Docker Compose DESARROLLO LOCAL
 # ==============================================
-# Servicios:
-#   - PostgreSQL 15          → localhost:5432
-#   - Backend FastAPI        → localhost:8000   (API + dashboard admin)
-#   - Cliente de cámara      → localhost:8080   (Live Viewer, sin login)
-#   - Simulador de cámara    → (opcional, profile: simulator)
+# Entorno completo para desarrollo:
+#   - PostgreSQL 15
+#   - Backend FastAPI + Frontend estático
 #
 # Uso:
 #   1. Copiar .env.example → .env (raíz del proyecto)
 #   2. docker-compose -f docker-compose.dev.yml up -d
-#   3. Backend:  http://localhost:8000
-#      Cliente:  http://localhost:8080
+#   3. Acceder a http://localhost:8000
 #
 # Para crear el admin:
-#   docker-compose -f docker-compose.dev.yml exec backend python -c "
-#   from app.db.session import SessionLocal
-#   from app.db.models import User
-#   from app.core.security import get_password_hash
-#   db = SessionLocal()
-#   admin = User(
-#       email='admin@evideth.io',
-#       username='admin',
-#       full_name='EVIDETH Admin',
-#       hashed_password=get_password_hash('admin123'),
-#       is_active=True,
-#       is_superuser=True
-#   )
-#   db.add(admin)
-#   db.commit()
-#   print('✅ Admin creado: admin@evideth.io / admin123')
-#   db.close()
-#   "
+#   docker exec evideth-backend python scripts/seed_admin.py
 # ==============================================
 
 services:
-
-  # ──────────────────────────────────────────
-  # BASE DE DATOS
-  # ──────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
     container_name: evideth-postgres
@@ -56,10 +32,6 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # ──────────────────────────────────────────
-  # BACKEND (FastAPI) — Puerto 8000
-  # Dashboard admin, API REST, gestión de cámaras
-  # ──────────────────────────────────────────
   backend:
     build:
       context: .
@@ -91,13 +63,6 @@ services:
       uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
       "
 
-  # ──────────────────────────────────────────
-  # CLIENTE DE CÁMARA — Puerto 8080
-  # Live Viewer: interfaz pública sin login
-  # Redirige / → /pages/viewer/viewer.html
-  # NOTA: nginx-client.conf se monta SIN :ro para
-  #       que nginx pueda modificarlo al arrancar
-  # ──────────────────────────────────────────
   client:
     image: nginx:alpine
     container_name: evideth-client
@@ -105,41 +70,12 @@ services:
       - "8080:80"
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
-      - ./nginx-client.conf:/etc/nginx/conf.d/default.conf
-    restart: unless-stopped
-    depends_on:
-      - backend
-
-  # ──────────────────────────────────────────
-  # SIMULADOR DE CÁMARA (OPCIONAL)
-  # Activar con: --profile simulator
-  # ──────────────────────────────────────────
-  camera-simulator:
-    build:
-      context: ./simulator
-      dockerfile: Dockerfile
-    container_name: evideth-cam-simulator
-    env_file:
-      - ./simulator/.env
-    environment:
-      API_URL: http://backend:8000/api/v1
-    volumes:
-      - simulator-keys:/keys
-      - simulator-videos:/videos
+      - ./nginx-client.conf:/etc/nginx/conf.d/default.conf:rw
     depends_on:
       - backend
     restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    profiles:
-      - simulator
 
 volumes:
   postgres-data:
   backend-logs:
   backend-temp:
-  simulator-keys:
-  simulator-videos:
