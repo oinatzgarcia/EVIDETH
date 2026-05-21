@@ -9,6 +9,10 @@
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+<!-- Configuración de cámara — editar frontend/client.config.js -->
+<script src="/client.config.js"></script>
+
 <script>
 tailwind.config = {
   darkMode: 'class',
@@ -88,6 +92,9 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
 
 /* Noise overlay */
 .noise{position:absolute;inset:0;opacity:.03;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");pointer-events:none}
+
+/* Config loaded badge */
+.config-badge{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.05em}
 </style>
 </head>
 
@@ -139,6 +146,22 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
     </div>
     <h2 class="text-4xl font-bold mb-3 tracking-wider" style="color:#fff">Camera <span class="text-glow" style="color:#4a90e2">Live Viewer</span></h2>
     <p class="font-mono text-sm" style="color:#9ca3af">Simula el envío de vídeo desde una cámara al backend · Verifica la integridad en tiempo real</p>
+
+    <!-- Config status badge -->
+    <div class="mt-3 flex items-center justify-center gap-2">
+      <template x-if="configLoaded">
+        <div class="config-badge" style="background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.3);color:#3fb950">
+          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+          <span>Config loaded from client.config.js</span>
+        </div>
+      </template>
+      <template x-if="!configLoaded">
+        <div class="config-badge" style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#ef4444">
+          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+          <span>client.config.js not found — fill manually</span>
+        </div>
+      </template>
+    </div>
   </div>
 
 
@@ -183,7 +206,7 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
             <input type="text" x-model="config.backendUrl" :disabled="streaming"
                    class="w-full bg-black border px-3 py-2 font-mono text-xs focus:outline-none"
                    style="border-color:#2c5f8d;color:#e5e7eb"
-                   placeholder="https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io" />
+                   placeholder="https://evideth-dev-backend..." />
           </div>
           <div>
             <label class="block font-mono text-[10px] tracking-widest uppercase mb-1.5" style="color:#6b7280">Simulate Tampering</label>
@@ -454,17 +477,22 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
 
 
 <script>
-// URL del backend — se puede sobreescribir desde la UI
+// URL del backend por defecto
 const AZURE_BACKEND = 'https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io';
+
+// Lee la config de client.config.js si existe
+const _cfg = (typeof window.EVIDETH_CONFIG !== 'undefined') ? window.EVIDETH_CONFIG : {};
 
 function viewerApp() {
   return {
-    // Config
+    configLoaded: typeof window.EVIDETH_CONFIG !== 'undefined',
+
+    // Config — pre-rellena desde client.config.js
     config: {
-      cameraId:   '',
-      apiKey:     '',
+      cameraId:   _cfg.CAMERA_ID   || '',
+      apiKey:     _cfg.CAMERA_API_KEY || '',
       segmentSec: 30,
-      backendUrl: AZURE_BACKEND,
+      backendUrl: _cfg.BACKEND_URL  || AZURE_BACKEND,
       tamper:     false,
       source:     'simulated',
     },
@@ -502,6 +530,14 @@ function viewerApp() {
         }
       }, 1000);
       this._drawIdle();
+
+      // Log de estado de config al arrancar
+      if (this.configLoaded) {
+        if (this.config.cameraId) this.log(`Config loaded · Camera: ${this.config.cameraId}`, 'ok');
+        else this.log('client.config.js loaded but CAMERA_ID is empty', 'err');
+      } else {
+        this.log('client.config.js not found — fill credentials manually', 'info');
+      }
     },
 
     // ── Computed ──────────────────────────────────────
@@ -550,47 +586,35 @@ function viewerApp() {
       if (this.config.source === 'webcam' && this.videoEl) {
         ctx.drawImage(this.videoEl, 0, 0, 1280, 720);
       } else {
-        // Simulated scene
         const t = frameNum * 0.04;
         ctx.fillStyle = '#040810';
         ctx.fillRect(0, 0, 1280, 720);
-
-        // Gradient bg
         const grad = ctx.createRadialGradient(640,360,50,640,360,600);
         grad.addColorStop(0, 'rgba(31,67,140,0.15)');
         grad.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = grad;
         ctx.fillRect(0,0,1280,720);
-
-        // Grid
         ctx.strokeStyle = 'rgba(74,144,226,0.06)';
         ctx.lineWidth = 1;
         for (let x = 0; x < 1280; x += 60) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,720); ctx.stroke(); }
         for (let y = 0; y < 720; y += 60) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(1280,y); ctx.stroke(); }
-
-        // Moving objects (simulated)
         for (let i = 0; i < 3; i++) {
           const bx = (200 + i * 300 + Math.sin(t + i * 2.1) * 80) % 1100 + 100;
           const by = 300 + Math.cos(t * 0.7 + i * 1.5) * 120;
           ctx.fillStyle = `rgba(74,144,226,${0.15 + i*0.05})`;
           ctx.fillRect(bx - 15, by - 20, 30, 40);
         }
-
-        // Tamper distortion
         if (this.config.tamper && Math.random() > 0.7) {
           const gy = Math.random() * 680;
           ctx.fillStyle = 'rgba(239,68,68,0.08)';
           ctx.fillRect(0, gy, 1280, 8 + Math.random() * 20);
         }
-
-        // Overlay info
         ctx.fillStyle = 'rgba(74,144,226,0.6)';
         ctx.font = '12px Space Mono, monospace';
         ctx.textAlign = 'left';
         ctx.fillText(`CAM: ${this.config.cameraId}`, 20, 30);
         ctx.fillText(`FRAME: ${String(frameNum).padStart(6,'0')}`, 20, 48);
         ctx.fillText(`SEG: #${this.segments.length + 1} [${this.segElapsed}s]`, 20, 66);
-
         ctx.textAlign = 'right';
         ctx.fillStyle = 'rgba(74,144,226,0.4)';
         ctx.fillText('EVIDETH FORENSIC', 1260, 30);
@@ -601,7 +625,6 @@ function viewerApp() {
       }
     },
 
-    // ── Fake SHA-256 hex (client-side demo) ───────────
     _fakeHash() {
       const arr = new Uint8Array(32);
       crypto.getRandomValues(arr);
@@ -613,7 +636,6 @@ function viewerApp() {
       return Array.from(arr).map(b => b.toString(16).padStart(2,'0')).join('');
     },
 
-    // ── Start streaming ───────────────────────────────
     async startStreaming() {
       if (!this.config.cameraId || !this.config.apiKey) return;
       this.streaming    = true;
@@ -625,7 +647,6 @@ function viewerApp() {
       this.log(`Segment duration: ${this.config.segmentSec}s`, 'info');
       if (this.config.tamper) this.log('⚠ Tamper simulation ENABLED', 'err');
 
-      // Webcam source
       if (this.config.source === 'webcam') {
         try {
           this.mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -638,14 +659,9 @@ function viewerApp() {
         }
       }
 
-      // Send heartbeat to backend
       this._sendHeartbeat();
-
-      // Canvas render loop
       let frame = 0;
       this._canvasTimer = setInterval(() => { if (this.streaming) this._drawFrame(frame++); }, 33);
-
-      // Segment ticker
       this._segTimer = setInterval(() => {
         if (!this.streaming) return;
         this.segElapsed++;
@@ -656,7 +672,6 @@ function viewerApp() {
       }, 1000);
     },
 
-    // ── Stop streaming ────────────────────────────────
     stopStreaming() {
       this.streaming = false;
       clearInterval(this._canvasTimer);
@@ -667,7 +682,6 @@ function viewerApp() {
       this._drawIdle();
     },
 
-    // ── Close & submit segment ─────────────────────────
     async _closeSegment() {
       const segNum = this.segments.length + 1;
       const hash   = this._fakeHash();
@@ -676,7 +690,6 @@ function viewerApp() {
       this.log(`Seg #${segNum} · Computing SHA-256...`, 'info');
       this.log(`SHA-256: ${hash.substring(0,16)}...`, 'hash');
 
-      // POST segment to backend
       let signature = null;
       let valid = !isTampered;
       try {
@@ -726,7 +739,6 @@ function viewerApp() {
       }
     },
 
-    // ── Heartbeat ─────────────────────────────────────
     async _sendHeartbeat() {
       try {
         await fetch(
@@ -741,7 +753,6 @@ function viewerApp() {
       } catch { this.log('Heartbeat failed (backend unreachable)', 'err'); }
     },
 
-    // ── Verify all segments ───────────────────────────
     async verifyAll() {
       this.verifying = true;
       this.log('Starting full integrity verification...', 'info');
@@ -768,7 +779,6 @@ function viewerApp() {
       this.verifying = false;
     },
 
-    // ── Reset ─────────────────────────────────────────
     resetSession() {
       this.segments     = [];
       this.selectedSeg  = null;
