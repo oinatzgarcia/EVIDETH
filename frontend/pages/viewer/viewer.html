@@ -183,7 +183,7 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
             <input type="text" x-model="config.backendUrl" :disabled="streaming"
                    class="w-full bg-black border px-3 py-2 font-mono text-xs focus:outline-none"
                    style="border-color:#2c5f8d;color:#e5e7eb"
-                   placeholder="http://localhost:8000" />
+                   placeholder="https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io" />
           </div>
           <div>
             <label class="block font-mono text-[10px] tracking-widest uppercase mb-1.5" style="color:#6b7280">Simulate Tampering</label>
@@ -454,6 +454,9 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
 
 
 <script>
+// URL del backend — se puede sobreescribir desde la UI
+const AZURE_BACKEND = 'https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io';
+
 function viewerApp() {
   return {
     // Config
@@ -461,7 +464,7 @@ function viewerApp() {
       cameraId:   '',
       apiKey:     '',
       segmentSec: 30,
-      backendUrl: window.location.origin,
+      backendUrl: AZURE_BACKEND,
       tamper:     false,
       source:     'simulated',
     },
@@ -679,7 +682,7 @@ function viewerApp() {
       try {
         const payload = {
           segment_index: segNum,
-          hash_sha256:   isTampered ? this._fakeHash() : hash, // tampered: wrong hash
+          hash_sha256:   isTampered ? this._fakeHash() : hash,
           timestamp:     new Date().toISOString(),
         };
         const resp = await fetch(
