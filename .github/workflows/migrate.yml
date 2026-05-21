@@ -58,15 +58,12 @@ jobs:
           echo "username=$ACR_USER" >> $GITHUB_OUTPUT
           echo "password=$ACR_PASS" >> $GITHUB_OUTPUT
 
-      # Lee del Key Vault: db-password y jwt-secret-key
-      # Construye DATABASE_URL y extrae JWT_SECRET para inyectarlos todos
       - name: Build env vars from Key Vault
         id: secrets
         run: |
           KV=$(az keyvault list \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --query "[0].name" --output tsv)
-          echo "Key Vault: $KV"
 
           FQDN=$(az postgres flexible-server show \
             --resource-group ${{ env.RESOURCE_GROUP }} \
@@ -89,6 +86,7 @@ jobs:
 
           echo "database_url=$DB_URL"   >> $GITHUB_OUTPUT
           echo "jwt_secret=$JWT_SECRET" >> $GITHUB_OUTPUT
+          echo "fqdn=$FQDN"             >> $GITHUB_OUTPUT
           echo "DB host: $FQDN"
 
       - name: Delete previous migration job if exists
@@ -98,11 +96,11 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --yes 2>/dev/null && echo "Old job deleted" || echo "No previous job"
 
-      # Se inyectan TODAS las variables required de app/config.py:
-      #   DATABASE_URL, SECRET_KEY, JWT_SECRET_KEY
-      # El comando se pasa como lista separada por espacios (no comas)
-      # para que la CLI lo parsee correctamente.
-      - name: Create migration Container App Job
+      # Paso 1: crear el job SIN env vars (evita el bug de parsing de = en --env-vars)
+      # Paso 2: inyectar los secretos via `az containerapp job secret set` +
+      #         `az containerapp job update` que acepta secretrefs correctamente.
+      # Esto garantiza que DATABASE_URL con ?sslmode=require llega intacto al container.
+      - name: Create migration job (no env vars yet)
         run: |
           az containerapp job create \
             --name                     ${{ env.JOB_NAME }} \
@@ -119,14 +117,34 @@ jobs:
             --registry-server          ${{ env.ACR_NAME }}.azurecr.io \
             --registry-username        "${{ steps.acr.outputs.username }}" \
             --registry-password        "${{ steps.acr.outputs.password }}" \
-            --env-vars \
-              "DATABASE_URL=${{ steps.secrets.outputs.database_url }}" \
-              "SECRET_KEY=${{ steps.secrets.outputs.jwt_secret }}" \
-              "JWT_SECRET_KEY=${{ steps.secrets.outputs.jwt_secret }}" \
-              "APP_ENV=migration" \
-            --command "alembic" \
-            --args    "upgrade" "head"
-          echo "Job created (cmd: alembic upgrade head)"
+            --command                  "alembic" \
+            --args                     "upgrade" "head"
+          echo "Job skeleton created"
+
+      # Registrar los valores como secrets del job (soportan cualquier caracter)
+      - name: Set job secrets
+        run: |
+          az containerapp job secret set \
+            --name           ${{ env.JOB_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --secrets \
+              "db-url=${{ steps.secrets.outputs.database_url }}" \
+              "jwt-secret=${{ steps.secrets.outputs.jwt_secret }}" \
+              "app-env=migration"
+          echo "Secrets set"
+
+      # Actualizar el job apuntando las env vars a los secrets
+      - name: Wire env vars to secrets
+        run: |
+          az containerapp job update \
+            --name           ${{ env.JOB_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --set-env-vars \
+              "DATABASE_URL=secretref:db-url" \
+              "SECRET_KEY=secretref:jwt-secret" \
+              "JWT_SECRET_KEY=secretref:jwt-secret" \
+              "APP_ENV=secretref:app-env"
+          echo "Env vars wired"
 
       - name: Start migration job
         id: execution
