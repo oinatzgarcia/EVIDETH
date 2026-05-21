@@ -3,7 +3,6 @@
 # Entorno completo para desarrollo:
 #   - PostgreSQL 15
 #   - Backend FastAPI + Frontend estático
-#   - Simulador de cámara (opcional)
 #
 # Uso:
 #   1. Copiar .env.example → .env (raíz del proyecto)
@@ -11,24 +10,7 @@
 #   3. Acceder a http://localhost:8000
 #
 # Para crear el admin:
-#   docker-compose -f docker-compose.dev.yml exec backend python -c "
-#   from app.db.session import SessionLocal
-#   from app.db.models import User
-#   from app.core.security import get_password_hash
-#   db = SessionLocal()
-#   admin = User(
-#       email='admin@evideth.io',
-#       username='admin',
-#       full_name='EVIDETH Admin',
-#       hashed_password=get_password_hash('admin123'),
-#       is_active=True,
-#       is_superuser=True
-#   )
-#   db.add(admin)
-#   db.commit()
-#   print('✅ Admin creado: admin@evideth.io / admin123')
-#   db.close()
-#   "
+#   docker exec evideth-backend python scripts/seed_admin.py
 # ==============================================
 
 services:
@@ -58,16 +40,13 @@ services:
     env_file:
       - .env
     environment:
-      # Override para conexión al postgres del compose
       DATABASE_URL: postgresql://evideth_user:evideth_pass@postgres:5432/evideth_db
     ports:
       - "8000:8000"
     volumes:
-      # Desarrollo: montar código fuente para hot-reload
       - ./app:/app/app
       - ./frontend:/app/frontend
       - ./alembic:/app/alembic
-      # Logs y storage temporal
       - backend-logs:/app/logs
       - backend-temp:/tmp
     depends_on:
@@ -84,37 +63,19 @@ services:
       uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
       "
 
-  # Simulador de cámara (OPCIONAL — comentar si no se usa)
-  # Requiere simulator/.env con API_URL=http://backend:8000/api/v1
-  camera-simulator:
-    build:
-      context: ./simulator
-      dockerfile: Dockerfile
-    container_name: evideth-cam-simulator
-    env_file:
-      - ./simulator/.env
-    environment:
-      # Override para apuntar al backend del compose
-      API_URL: http://backend:8000/api/v1
+  client:
+    image: nginx:alpine
+    container_name: evideth-client
+    ports:
+      - "8080:80"
     volumes:
-      - simulator-keys:/keys
-      # Si SAVE_SEGMENTS_DIR está configurado, montar volumen
-      - simulator-videos:/videos
+      - ./frontend:/usr/share/nginx/html:ro
+      - ./nginx-client.conf:/etc/nginx/conf.d/default.conf:rw
     depends_on:
       - backend
     restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    # Comentar todo este servicio si no usas el simulador todavía
-    profiles:
-      - simulator
 
 volumes:
   postgres-data:
   backend-logs:
   backend-temp:
-  simulator-keys:
-  simulator-videos:
