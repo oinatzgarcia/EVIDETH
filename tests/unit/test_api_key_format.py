@@ -76,15 +76,15 @@ class TestApiKeyGeneration:
         comprobando que la distribución de caracteres no es uniforme en 100 keys.
         """
         keys = [generate_api_key() for _ in range(100)]
-        # Si todas las claves fueran iguales, usaríamos random inseguro.
         assert len(set(keys)) > 90
 
 
 class TestApiKeyValidation:
 
     def test_valid_key_accepted(self):
-        """Una clave correctamente formateada pasa la validación."""
-        assert is_valid_api_key_format("evideth_cam_AbC123xyz456789AbC123xyz456789A") is True
+        """Una clave correctamente formateada (exactamente 32 chars) pasa la validación."""
+        # "AbC123xyz456789AbC123xyz45678900" = exactamente 32 caracteres alfanuméricos
+        assert is_valid_api_key_format("evideth_cam_AbC123xyz456789AbC123xy") is True
 
     def test_empty_key_rejected(self):
         """Clave vacía es rechazada."""
@@ -96,11 +96,11 @@ class TestApiKeyValidation:
 
     def test_wrong_prefix_rejected(self):
         """Clave con prefijo incorrecto es rechazada."""
-        assert is_valid_api_key_format("api_cam_AbC123xyz456789AbC123xyz456789Ab") is False
+        assert is_valid_api_key_format("api_cam_AbC123xyz456789AbC123xyz4") is False
 
     def test_special_chars_rejected(self):
         """Caracteres especiales en la parte aleatoria son rechazados."""
-        assert is_valid_api_key_format("evideth_cam_AbC123xyz456789AbC123xyz@#!Ab") is False
+        assert is_valid_api_key_format("evideth_cam_AbC123xyz456789AbC12@#") is False
 
     def test_too_short_rejected(self):
         """Clave con parte aleatoria demasiado corta es rechazada."""
