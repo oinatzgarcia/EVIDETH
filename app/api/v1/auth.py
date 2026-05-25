@@ -1,16 +1,23 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from app.db.session import get_db
-from app.db.models import User
-from app.core.security import (
-    hash_password, verify_password,
-    create_access_token, create_refresh_token, decode_token
-)
-from app.schemas.auth import (
-    RegisterRequest, LoginRequest, RefreshRequest,
-    TokenResponse, UserResponse
-)
+
 from app.core.dependencies import get_current_user, require_admin
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    hash_password,
+    verify_password,
+)
+from app.db.models import User
+from app.db.session import get_db
+from app.schemas.auth import (
+    LoginRequest,
+    RefreshRequest,
+    RegisterRequest,
+    TokenResponse,
+    UserResponse,
+)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -25,13 +32,16 @@ def _build_token_response(user: User) -> TokenResponse:
     Auth.setTokens(payload) en auth.js persiste payload.user en storage.
     """
     return TokenResponse(
-        access_token=create_access_token({"sub": str(user.id), "role": user.role}),
+        access_token=create_access_token(
+            {"sub": str(user.id), "role": user.role.value}
+        ),
         refresh_token=create_refresh_token({"sub": str(user.id)}),
         user=UserResponse.model_validate(user),
     )
 
 
 # ── Endpoints ────────────────────────────────────────────
+
 
 @router.post(
     "/register",
@@ -49,12 +59,12 @@ o una migración de base de datos (`scripts/seed_admin.py`).
 - `POST /auth/register` → Admin (JWT Bearer requerido)
 - `POST /auth/login`    → público
 - `GET  /auth/me`       → cualquier usuario autenticado
-    """
+    """,
 )
 def register(
     data: RegisterRequest,
     db: Session = Depends(get_db),
-    _current_admin: User = Depends(require_admin)   # ◄─ RBAC: solo Admin crea usuarios
+    _current_admin: User = Depends(require_admin),  # ◄─ RBAC: solo Admin crea usuarios
 ):
     if db.query(User).filter(User.email == data.email).first():
         raise HTTPException(status_code=400, detail="Email ya registrado")
@@ -63,7 +73,7 @@ def register(
         email=data.email,
         full_name=data.full_name,
         password=hash_password(data.password),
-        role=data.role
+        role=data.role,
     )
     db.add(user)
     db.commit()
@@ -75,14 +85,14 @@ def register(
     "/login",
     response_model=TokenResponse,
     summary="Iniciar sesión",
-    description="Autenticación pública. Devuelve access token + refresh token + objeto user."
+    description="Autenticación pública. Devuelve access token + refresh token + objeto user.",
 )
 def login(data: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
     if not user or not verify_password(data.password, user.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email o contraseña incorrectos"
+            detail="Email o contraseña incorrectos",
         )
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Usuario inactivo")
@@ -94,7 +104,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     "/refresh",
     response_model=TokenResponse,
     summary="Renovar tokens",
-    description="Rota el access token usando un refresh token válido."
+    description="Rota el access token usando un refresh token válido.",
 )
 def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
     payload = decode_token(data.refresh_token)
@@ -112,7 +122,7 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
     "/me",
     response_model=UserResponse,
     summary="Usuario actual",
-    description="Devuelve los datos del usuario autenticado (cualquier rol)."
+    description="Devuelve los datos del usuario autenticado (cualquier rol).",
 )
 def get_me(current_user: User = Depends(get_current_user)):
     return current_user
