@@ -1,0 +1,37 @@
+# =============================================================
+# EVIDETH — Configuración de Gitleaks
+# Personaliza qué se considera un secreto y qué se ignora
+# =============================================================
+
+title = "EVIDETH Secret Scan Rules"
+
+# -----------------------------------------------------------
+# REGLAS ADICIONALES específicas del proyecto
+# -----------------------------------------------------------
+[[rules]]
+  id = "evideth-api-key"
+  description = "EVIDETH Camera API Key"
+  regex = '''EVIDETH_[A-Za-z0-9]{32,}'''
+  tags = ["api-key", "evideth"]
+
+[[rules]]
+  id = "jwt-secret"
+  description = "JWT Secret hardcodeado"
+  regex = '''(?i)(jwt[_\-]?secret[_\-]?key|JWT_SECRET)[\s]*[=:][\s]*['"]?[A-Za-z0-9+/]{32,}'''
+  tags = ["jwt", "secret"]
+
+# -----------------------------------------------------------
+# RUTAS A IGNORAR (falsos positivos conocidos)
+# -----------------------------------------------------------
+[allowlist]
+  description = "Ficheros que no deben escanearse"
+  paths = [
+    '''.env.example''',          # Fichero de ejemplo con valores ficticios
+    '''tests/.*''',               # Claves de test (no son credenciales reales)
+    '''Docs/.*''',                # Documentación
+    '''.gitleaks.toml''',         # Este propio fichero
+    '''requirements.txt''',       # Solo nombres de paquetes
+  ]
+
+  # Commits a ignorar (p.ej. commits de ejemplo o fixtures)
+  commits = []
