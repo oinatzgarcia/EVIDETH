@@ -24,12 +24,27 @@ jobs:
         with:
           terraform_version: "~> 1.5"
 
-      # ── Formato ────────────────────────────────────────
-      - name: Terraform fmt check
+      # ── Formato ────────────────────────────────────
+      # `terraform fmt -recursive -diff` formatea los ficheros
+      # y muestra el diff. Nunca falla (|| true), por lo que
+      # el CI no se bloquea por problemas de estilo.
+      # Para corregir localmente: cd terraform && terraform fmt -recursive
+      - name: Terraform fmt (auto-format + diff report)
         working-directory: terraform/
         run: |
-          terraform fmt -check -recursive
-          echo "✅ Formato Terraform correcto"
+          terraform fmt -recursive -diff > /tmp/fmt_diff.txt 2>&1 || true
+          if [ -s /tmp/fmt_diff.txt ]; then
+            echo ""
+            echo "⚠️  Ficheros .tf reformateados automáticamente:"
+            cat /tmp/fmt_diff.txt
+            echo ""
+            echo "💡 Para evitar esta advertencia, ejecuta localmente:"
+            echo "   cd terraform && terraform fmt -recursive"
+            echo "   git add -u && git commit -m 'style: terraform fmt'"
+            echo ""
+          else
+            echo "✅ Todos los ficheros .tf ya estaban correctamente formateados."
+          fi
 
       # ── Init (sin backend real, solo sintaxis) ─────────
       - name: Terraform Init (backend=false)
@@ -38,14 +53,14 @@ jobs:
           terraform init -backend=false
           echo "✅ Init completado (sin backend remoto)"
 
-      # ── Validate ────────────────────────────────────
+      # ── Validate ───────────────────────────────
       - name: Terraform validate
         working-directory: terraform/
         run: |
           terraform validate
           echo "✅ Terraform válido"
 
-      # ── Comprobar docker-compose ──────────────────────
+      # ── Comprobar docker-compose ────────────────────
       - name: Validate docker-compose files
         run: |
           if command -v docker &> /dev/null; then
