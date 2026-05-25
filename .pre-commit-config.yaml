@@ -60,6 +60,10 @@ repos:
   # 4. TESTS UNITARIOS — se ejecutan antes de cada commit
   #    Solo tests/unit/ para que el hook sea rápido (< 30s)
   #    Los tests de integración se ejecutan en CI/CD
+  #
+  #    Las variables de entorno son valores dummy de CI:
+  #    no son secretos reales, solo satisfacen la validación
+  #    de pydantic_settings en entorno sin .env
   # -----------------------------------------------------------
   - repo: local
     hooks:
@@ -71,3 +75,8 @@ repos:
         always_run: false
         types: [python]
         description: "Ejecuta tests unitarios antes del commit. Falla el commit si algún test falla."
+        env:
+          SECRET_KEY: "pre-commit-dummy-not-a-real-secret"
+          DATABASE_URL: "postgresql://evideth:evideth@localhost:5432/evideth_test"
+          JWT_SECRET_KEY: "pre-commit-dummy-not-a-real-secret"
+          USE_AZURE_KEY_VAULT: "false"
