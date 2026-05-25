@@ -44,12 +44,21 @@ jobs:
 
       - name: 🧪 Run unit tests with coverage
         env:
-          # Variables mínimas para que los imports de app/ no fallen
-          # (los tests unitarios no usan BD real)
-          DATABASE_URL: postgresql://fake:fake@localhost/fake
+          # Valores ficticios para satisfacer Pydantic Settings en CI.
+          # Los tests unitarios NO usan BD, JWT ni Azure reales.
           SECRET_KEY: ci-test-secret-key-not-real
+          DATABASE_URL: postgresql://fake:fake@localhost/fake
+          JWT_SECRET_KEY: ci-test-jwt-secret-key-not-real
+          JWT_ALGORITHM: HS256
+          JWT_ACCESS_TOKEN_EXPIRE_MINUTES: 30
+          JWT_REFRESH_TOKEN_EXPIRE_DAYS: 7
           AZURE_KEY_VAULT_URL: https://fake.vault.azure.net/
-          ENVIRONMENT: test
+          AZURE_CLIENT_ID: fake-client-id
+          AZURE_CLIENT_SECRET: fake-client-secret
+          AZURE_TENANT_ID: fake-tenant-id
+          AZURE_STORAGE_CONNECTION_STRING: ""
+          AZURE_BLOB_CONTAINER: evideth-videos
+          APP_ENV: test
         run: |
           pytest tests/unit/ \
             -v \
