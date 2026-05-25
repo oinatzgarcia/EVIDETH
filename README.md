@@ -1,16 +1,17 @@
 # EVIDETH
-🔐 EVIDETH - Forensic Video Integrity Verification System using cryptographic hashing (SHA-256) and ECDSA signatures.
+🔐 EVIDETH - Sistema Forense de Verificación de Integridad de Vídeo mediante hashing criptográfico (SHA-256) y firmas ECDSA.
+
 <div align="center">
-  <img src="Docs/Images/Logo.png" alt="EVIDETH Logo" width="360"/>
+  <img src="Docs/Images/Logo.png" alt="Logo EVIDETH" width="360"/>
   
   # EVIDETH
-  ### Forensic Video Integrity Verification System
+  ### Sistema Forense de Verificación de Integridad de Vídeo
   
-  **SHA-256 Hashing · ECDSA P-256 Signatures · Azure Cloud**
+  **Hashing SHA-256 · Firmas ECDSA P-256 · Azure Cloud**
   
   <br/>
   
-  <img src="Docs/Images/Dashboard.png" alt="EVIDETH Dashboard" width="85%"/>
+  <img src="Docs/Images/Dashboard.png" alt="Dashboard EVIDETH" width="85%"/>
   
   <br/>
   
@@ -23,61 +24,61 @@
 
 ---
 
-## 🎯 Overview
+## 🎯 Descripción General
 
-EVIDETH is a forensic-grade video integrity verification system that ensures authenticity and tamper-proof surveillance footage through cryptographic signatures.
+EVIDETH es un sistema de verificación de integridad de vídeo de grado forense que garantiza la autenticidad e inalterabilidad de grabaciones de vigilancia mediante firmas criptográficas.
 
-**Key Features:**
-- 🔐 SHA-256 + ECDSA P-256 cryptographic verification
-- 📹 30-second video segmentation for granular analysis
-- ☁️ Azure Key Vault integration
-- 🦉 Inspired by Athena's wisdom and vigilance
+**Características principales:**
+- 🔐 Verificación criptográfica SHA-256 + ECDSA P-256
+- 📹 Segmentación de vídeo en bloques de 30 segundos para análisis granular
+- ☁️ Integración con Azure Key Vault
+- 🦉 Inspirado en la sabiduría y vigilancia de Atenea
 
 ---
 
-## ☁️ Azure Cloud Infrastructure
+## ☁️ Infraestructura Azure
 
-EVIDETH is deployed on **Microsoft Azure** (Spain Central) using a private, security-first architecture. All resources live in the `evideth-dev-rg` resource group.
+EVIDETH está desplegado en **Microsoft Azure** (Spain Central) con una arquitectura privada y orientada a la seguridad. Todos los recursos se encuentran en el grupo de recursos `evideth-dev-rg`.
 
-### Architecture Overview
+### Visión General de la Arquitectura
 
-| Layer | Resource | Purpose |
+| Capa | Recurso | Función |
 |---|---|---|
-| **Network** | `capp-svc-lb` + `capp-svc-lb-ip` | Public load balancer & IP entry point |
-| **Network** | `evideth-dev-app-nsg` | Network Security Group — traffic rules |
-| **Network** | `evideth-dev-vnet` | Virtual Network with app + data subnets |
-| **Compute** | `evideth-dev-backend` (Container App) | FastAPI backend + static frontend |
-| **Compute** | `evideth-dev-cae` | Container Apps Environment |
-| **Registry** | `evidethdevacr94f04b.azurecr.io` | Docker image registry (CI/CD pipeline) |
-| **Database** | `evideth-dev-pgserver` | PostgreSQL Flexible Server — **private VNet only** |
-| **Database** | `evideth.postgres.database.azure.com` | Private DNS zone for PostgreSQL |
-| **Security** | `evideth-dev-kv-94f04b` | Key Vault — ECDSA P-256 key + JWT secret |
-| **Storage** | `evidethdevst94f04b` | Blob Storage — uploaded videos |
-| **Observability** | `evideth-dev-logs` | Log Analytics Workspace |
+| **Red** | `capp-svc-lb` + `capp-svc-lb-ip` | Balanceador de carga público e IP de entrada |
+| **Red** | `evideth-dev-app-nsg` | Grupo de seguridad de red — reglas de tráfico |
+| **Red** | `evideth-dev-vnet` | Red virtual con subnets de aplicación y datos |
+| **Cómputo** | `evideth-dev-backend` (Container App) | Backend FastAPI + frontend estático |
+| **Cómputo** | `evideth-dev-cae` | Entorno de Container Apps |
+| **Registro** | `evidethdevacr94f04b.azurecr.io` | Registro de imágenes Docker (pipeline CI/CD) |
+| **Base de datos** | `evideth-dev-pgserver` | PostgreSQL Flexible Server — **solo acceso privado por VNet** |
+| **Base de datos** | `evideth.postgres.database.azure.com` | Zona DNS privada para PostgreSQL |
+| **Seguridad** | `evideth-dev-kv-94f04b` | Key Vault — clave ECDSA P-256 + secreto JWT |
+| **Almacenamiento** | `evidethdevst94f04b` | Blob Storage — vídeos subidos |
+| **Observabilidad** | `evideth-dev-logs` | Área de trabajo de Log Analytics |
 
-### Key Security Decisions
+### Decisiones de Seguridad Clave
 
-- **PostgreSQL has no public endpoint** — accessible only within the VNet via private DNS zone.
-- **Key Vault access via Managed Identity** — no credentials stored in code or environment variables.
-- **CI/CD with OIDC** — GitHub Actions authenticates to Azure via Workload Identity Federation; no long-lived secrets in GitHub.
-- **JWT for users, API Keys for cameras** — separate authentication mechanisms per client type.
+- **PostgreSQL sin endpoint público** — accesible únicamente dentro de la VNet mediante zona DNS privada.
+- **Acceso a Key Vault mediante Managed Identity** — sin credenciales almacenadas en el código ni en variables de entorno.
+- **CI/CD con OIDC** — GitHub Actions se autentica en Azure mediante Workload Identity Federation; sin secretos de larga duración en GitHub.
+- **JWT para usuarios, API Keys para cámaras** — mecanismos de autenticación independientes según el tipo de cliente.
 
-### CI/CD Flow
-
-```
-GitHub Push → GitHub Actions (OIDC) → Build Docker image
-  → Push to ACR (evidethdevacr94f04b) → Update Container App
-```
-
-### Request Flow
+### Flujo CI/CD
 
 ```
-Camera (API Key) ──► Load Balancer ──► Container App
-                                           │
-                              ┌────────────┼────────────┐
-                              ▼            ▼            ▼
-                         Key Vault    PostgreSQL    Blob Storage
-                        (ECDSA key)  (hashes+sigs)   (videos)
+GitHub Push → GitHub Actions (OIDC) → Construcción imagen Docker
+  → Push al ACR (evidethdevacr94f04b) → Actualización Container App
 ```
 
-📄 **[Full Architecture Diagram (PDF)](Docs/Designs/Schemes/InfraestructuraAzure.pdf)**
+### Flujo de Petición
+
+```
+Cámara (API Key) ──► Balanceador de carga ──► Container App
+                                                    │
+                               ┌────────────────────┼────────────────────┐
+                               ▼                    ▼                    ▼
+                          Key Vault           PostgreSQL           Blob Storage
+                        (clave ECDSA)     (hashes + firmas)         (vídeos)
+```
+
+📄 **[Diagrama de Arquitectura Completo (PDF)](Docs/Designs/Schemes/InfraestructuraAzure.pdf)**
