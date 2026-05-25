@@ -256,3 +256,115 @@ Si se necesita exponer una nueva variable al backend:
 3. Referenciarla en `terraform-apply.yml` como `TF_VAR_nombre_variable`.
 4. Declararla en `terraform/variables.tf`.
 5. Inyectarla en el Container App dentro de `terraform/container_app.tf`.
+
+---
+
+## Pre-commit Hooks — Calidad y Seguridad Local
+
+Además de los workflows remotos de GitHub Actions, EVIDETH incorpora **hooks de pre-commit** que se ejecutan automáticamente en la máquina del desarrollador **antes de cada `git commit`**. Esto forma una primera línea de defensa que impide que secretos o código roto lleguen siquiera al repositorio remoto.
+
+### Filosofía: dos capas de protección
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  CAPA 1 — Local (pre-commit hooks)                          │
+│  Se ejecuta en tu máquina antes de `git commit`             │
+│  → Secret scan, formato, tests unitarios                    │
+└─────────────────────────────┬───────────────────────────────┘
+                              │ git push
+┌─────────────────────────────▼───────────────────────────────┐
+│  CAPA 2 — Remoto (GitHub Actions)                           │
+│  Se ejecuta en la nube después de `git push`                │
+│  → Tests unitarios + integración, build Docker, deploy      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+La combinación de ambas capas garantiza que **ningún secreto ni código roto llegue jamás al repositorio**.
+
+### Hooks configurados
+
+Definidos en `.pre-commit-config.yaml` en la raíz del proyecto:
+
+| Hook | Herramienta | Qué hace |
+|---|---|---|
+| `trailing-whitespace` | pre-commit-hooks | Elimina espacios al final de línea |
+| `end-of-file-fixer` | pre-commit-hooks | Asegura salto de línea al final de cada fichero |
+| `check-yaml` / `check-json` | pre-commit-hooks | Valida sintaxis de YAML y JSON |
+| `check-merge-conflict` | pre-commit-hooks | Detecta marcadores `<<<<<<` sin resolver |
+| `check-added-large-files` | pre-commit-hooks | Bloquea ficheros > 500 KB |
+| `detect-private-key` | pre-commit-hooks | Detecta claves privadas PEM/RSA hardcodeadas |
+| **`gitleaks`** | Gitleaks v8 | **Escanea el diff en busca de secretos y credenciales** |
+| `black` | Black 24.2 | Formatea el código Python automáticamente |
+| `isort` | isort 5.13 | Ordena los imports según PEP8 |
+| **`pytest tests/unit/`** | pytest | **Ejecuta tests unitarios — bloquea el commit si fallan** |
+
+### Secret Scan con Gitleaks
+
+[Gitleaks](https://github.com/gitleaks/gitleaks) es una herramienta de detección de secretos que analiza el **diff del commit** (no el histórico completo) en busca de:
+
+- Claves de API (Azure, AWS, GitHub tokens)
+- Credenciales JWT hardcodeadas
+- Contraseñas en variables de entorno
+- Claves privadas ECDSA/RSA
+- API Keys específicas de EVIDETH (`EVIDETH_[A-Za-z0-9]{32,}`)
+
+Las reglas personalizadas y las rutas a ignorar (tests, documentación, `.env.example`) se configuran en `.gitleaks.toml`.
+
+**Si Gitleaks detecta un secreto, el commit es bloqueado:**
+
+```
+🔍 Secret Scan (Gitleaks)................................................Failed
+- hook id: gitleaks
+- exit code: 1
+
+Finding: JWT_SECRET_KEY = "mi-clave-super-secreta"
+File: app/config.py
+Line: 12
+
+Solución: mover el valor a una variable de entorno (.env) y añadir .env al .gitignore
+```
+
+### Instalación (una sola vez por desarrollador)
+
+```bash
+# 1. Sincronizar los nuevos ficheros
+git pull origin main
+
+# 2. Registrar los hooks en el repositorio local
+#    (pre-commit ya está incluido en requirements.txt)
+pre-commit install
+
+# 3. Opcional: ejecutar sobre todos los ficheros ahora mismo
+pre-commit run --all-files
+```
+
+A partir de ese momento, cada `git commit` ejecuta los hooks automáticamente. Si alguno falla, el commit queda bloqueado y se muestra el motivo.
+
+### Saltar un hook puntualmente
+
+```bash
+# Saltar todos los hooks (solo en casos excepcionales justificados)
+git commit --no-verify -m "mensaje"
+
+# Ver el detalle de lo que falló
+pre-commit run --verbose
+
+# Ejecutar solo el secret scan
+pre-commit run gitleaks
+
+# Ejecutar solo los tests
+pre-commit run unit-tests
+```
+
+> ⚠️ El uso de `--no-verify` debe quedar justificado en el mensaje del commit. En un entorno de producción real, los commits sin verificación deberían requerir aprobación del equipo.
+
+### Diferencia entre pre-commit y GitHub Actions
+
+| Dimensión | Pre-commit (local) | GitHub Actions (remoto) |
+|---|---|---|
+| **Cuándo se ejecuta** | Antes del `git commit` | Después del `git push` |
+| **Quién lo ve** | Solo el desarrollador | Todo el equipo y el historial de CI |
+| **Tests ejecutados** | Solo unitarios (rápidos, < 30s) | Unitarios + integración + características |
+| **Secret scan** | ✅ Gitleaks (diff del commit) | ✅ En `ci.yml` (histórico completo) |
+| **Formato de código** | ✅ Black + isort (auto-fix) | ✅ Verificación (sin auto-fix) |
+| **Requisito** | Instalación manual por desarrollador | Automático en cada push |
