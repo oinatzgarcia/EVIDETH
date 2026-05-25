@@ -17,15 +17,16 @@ Ejecución:
 """
 
 import hashlib
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.main import app
-from app.db.session import get_db, Base
+from app.core.security import generate_api_key, hash_api_key, hash_password
 from app.db.models import User, UserRole
-from app.core.security import hash_password, generate_api_key, hash_api_key
+from app.db.session import Base, get_db
+from app.main import app
 
 # ── Base de datos SQLite en memoria para tests ─────────────────────────────
 
@@ -50,6 +51,7 @@ app.dependency_overrides[get_db] = override_get_db
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_db():
@@ -76,7 +78,7 @@ def db_session():
 def admin_user(db_session):
     """Crea un usuario Admin en la BD de test."""
     user = User(
-        email="admin@evideth.test",
+        email="admin@evideth.com",
         full_name="Admin Test",
         password=hash_password("Admin1234!"),
         role=UserRole.ADMIN,
@@ -92,7 +94,7 @@ def admin_user(db_session):
 def analyst_user(db_session):
     """Crea un usuario Analyst en la BD de test."""
     user = User(
-        email="analyst@evideth.test",
+        email="analyst@evideth.com",
         full_name="Analyst Test",
         password=hash_password("Analyst1234!"),
         role=UserRole.ANALYST,
@@ -109,7 +111,7 @@ def admin_token(client, admin_user):
     """Devuelve el JWT de acceso del admin."""
     resp = client.post(
         "/api/v1/auth/login",
-        json={"email": "admin@evideth.test", "password": "Admin1234!"},
+        json={"email": "admin@evideth.com", "password": "Admin1234!"},
     )
     assert resp.status_code == 200
     return resp.json()["access_token"]
@@ -120,7 +122,7 @@ def analyst_token(client, analyst_user):
     """Devuelve el JWT de acceso del analyst."""
     resp = client.post(
         "/api/v1/auth/login",
-        json={"email": "analyst@evideth.test", "password": "Analyst1234!"},
+        json={"email": "analyst@evideth.com", "password": "Analyst1234!"},
     )
     assert resp.status_code == 200
     return resp.json()["access_token"]
@@ -155,6 +157,7 @@ def active_video_id(client, registered_camera):
 # TEST 1: Health check
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestHealth:
     def test_health_returns_200(self, client):
         """
@@ -172,6 +175,7 @@ class TestHealth:
 # TEST 2-4: Autenticación
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestAuth:
     def test_login_admin_returns_jwt(self, client, admin_user):
         """
@@ -180,14 +184,14 @@ class TestAuth:
         """
         resp = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@evideth.test", "password": "Admin1234!"},
+            json={"email": "admin@evideth.com", "password": "Admin1234!"},
         )
         assert resp.status_code == 200
         body = resp.json()
         assert "access_token" in body
         assert "refresh_token" in body
         assert body["user"]["role"] == "admin"
-        assert body["user"]["email"] == "admin@evideth.test"
+        assert body["user"]["email"] == "admin@evideth.com"
 
     def test_login_wrong_password_returns_401(self, client, admin_user):
         """
@@ -197,7 +201,7 @@ class TestAuth:
         """
         resp = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@evideth.test", "password": "WrongPassword!"},
+            json={"email": "admin@evideth.com", "password": "WrongPassword!"},
         )
         assert resp.status_code == 401
 
@@ -213,7 +217,7 @@ class TestAuth:
         )
         assert resp.status_code == 200
         body = resp.json()
-        assert body["email"] == "admin@evideth.test"
+        assert body["email"] == "admin@evideth.com"
         assert body["role"] == "admin"
 
     def test_me_without_token_returns_401(self, client):
@@ -239,6 +243,7 @@ class TestAuth:
 # ══════════════════════════════════════════════════════════════════════════════
 # TEST 5-7: RBAC — Control de acceso basado en roles
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TestRBAC:
     def test_analyst_cannot_register_camera(self, client, analyst_token):
@@ -280,6 +285,7 @@ class TestRBAC:
 # TEST 8-9: Gestión de cámaras
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestCameras:
     def test_admin_registers_camera(self, client, admin_token):
         """
@@ -300,7 +306,7 @@ class TestCameras:
         body = resp.json()
         assert body["camera_id"] == "CAM-REGISTER-TEST"
         assert "api_key" in body
-        assert body["api_key"] is not None          # Solo se devuelve en la creación
+        assert body["api_key"] is not None  # Solo se devuelve en la creación
         assert body["is_active"] is True
 
     def test_duplicate_camera_id_returns_400(self, client, admin_token):
@@ -360,6 +366,7 @@ class TestCameras:
 # TEST 10-12: Segmentos — flujo de captura forense
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class TestSegments:
     def test_start_video_with_api_key(self, client, registered_camera):
         """
@@ -397,7 +404,7 @@ class TestSegments:
         assert resp.status_code == 201
         body = resp.json()
         assert body["sha256_hash"] == fake_hash
-        assert body["status"] == "pending"    # Sin firma ECDSA → PENDING
+        assert body["status"] == "pending"  # Sin firma ECDSA → PENDING
         assert body["segment_index"] == 0
 
     def test_upload_duplicate_segment_returns_409(self, client, registered_camera, active_video_id):
@@ -411,7 +418,7 @@ class TestSegments:
             "/api/v1/cameras/segments",
             json={
                 "video_id": active_video_id,
-                "segment_index": 0,          # mismo índice → conflicto
+                "segment_index": 0,  # mismo índice → conflicto
                 "start_time_secs": 0,
                 "end_time_secs": 30,
                 "sha256_hash": fake_hash,
@@ -433,7 +440,7 @@ class TestSegments:
                 "segment_index": 99,
                 "start_time_secs": 990,
                 "end_time_secs": 1020,
-                "sha256_hash": "este-no-es-un-hash-valido",   # formato inválido
+                "sha256_hash": "este-no-es-un-hash-valido",  # formato inválido
             },
             headers={"X-API-Key": registered_camera["api_key"]},
         )
