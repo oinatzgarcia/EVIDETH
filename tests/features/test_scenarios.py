@@ -33,47 +33,56 @@ from app.main import app
 import secrets
 import re
 
-# ── Base de datos en memoria para tests ──────────────────────
-
-SQLITE_URL = "sqlite:///./test_features.db"
-engine = create_engine(SQLITE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-def override_get_db():
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-app.dependency_overrides[get_db] = override_get_db
-
-
 # ── Fixtures ─────────────────────────────────────────────────
 
 
-@pytest.fixture(scope="module", autouse=True)
-def setup_database():
-    """Crea las tablas antes del módulo y las elimina al final."""
+@pytest.fixture(scope="class")
+def db_engine():
+    """
+    Motor SQLite en memoria por clase de test.
+    Cada escenario (clase) arranca con una BD totalmente limpia.
+    """
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+    )
     Base.metadata.create_all(bind=engine)
-    yield
+    yield engine
     Base.metadata.drop_all(bind=engine)
+    engine.dispose()
 
 
-@pytest.fixture(scope="module")
-def client():
+@pytest.fixture(scope="class")
+def client(db_engine):
+    """
+    TestClient con BD aislada por escenario.
+    Se sobreescribe get_db para apuntar al motor del escenario.
+    """
+    TestingSessionLocal = sessionmaker(
+        autocommit=False, autoflush=False, bind=db_engine
+    )
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as c:
         yield c
+    app.dependency_overrides.pop(get_db, None)
 
 
-@pytest.fixture(scope="module")
-def admin_token():
+@pytest.fixture(scope="class")
+def admin_token(db_engine):
     """
-    Crea un usuario admin en BD y devuelve su JWT.
-    Fixture de módulo: el admin persiste en todos los escenarios.
+    Crea un usuario admin en la BD del escenario y devuelve su JWT.
     """
+    TestingSessionLocal = sessionmaker(
+        autocommit=False, autoflush=False, bind=db_engine
+    )
     db = TestingSessionLocal()
     try:
         admin = db.query(User).filter(User.email == "admin@evideth.test").first()
@@ -88,8 +97,7 @@ def admin_token():
             db.add(admin)
             db.commit()
             db.refresh(admin)
-        token = create_access_token({"sub": str(admin.id), "role": admin.role.value})
-        return token
+        return create_access_token({"sub": str(admin.id), "role": admin.role.value})
     finally:
         db.close()
 
@@ -111,6 +119,7 @@ def _valid_sha256() -> str:
 # ═══════════════════════════════════════════════════════════════
 
 
+@pytest.mark.usefixtures("client", "admin_token")
 class TestScenario1CameraLifecycle:
     """
     Escenario: Una cámara se registra, opera (heartbeat) y se desactiva.
@@ -132,11 +141,6 @@ class TestScenario1CameraLifecycle:
     _api_key: str = ""
 
     def test_step1_register_camera(self, client, admin_token):
-        """
-        Paso 1: El admin registra la cámara.
-        La API Key se devuelve una única vez en texto claro;
-        a partir de ahí solo se almacena su hash SHA-256.
-        """
         resp = client.post(
             "/api/v1/cameras/",
             json={
@@ -153,9 +157,6 @@ class TestScenario1CameraLifecycle:
         TestScenario1CameraLifecycle._api_key = data["api_key"]
 
     def test_step2_camera_appears_in_list(self, client, admin_token):
-        """
-        Paso 2: La cámara recién registrada aparece en el listado.
-        """
         resp = client.get(
             "/api/v1/cameras/",
             params={"is_active": True},
@@ -166,9 +167,6 @@ class TestScenario1CameraLifecycle:
         assert self._camera_id in ids
 
     def test_step3_heartbeat_succeeds(self, client):
-        """
-        Paso 3: La cámara activa puede enviar heartbeats.
-        """
         resp = client.post(
             "/api/v1/cameras/heartbeat",
             headers={"X-API-Key": TestScenario1CameraLifecycle._api_key},
@@ -177,10 +175,6 @@ class TestScenario1CameraLifecycle:
         assert resp.json()["camera_id"] == self._camera_id
 
     def test_step4_deactivate_camera(self, client, admin_token):
-        """
-        Paso 4: El admin desactiva la cámara (baja lógica, no borrado físico).
-        Los datos históricos se preservan para auditoría forense.
-        """
         resp = client.patch(
             f"/api/v1/cameras/{self._camera_id}/deactivate",
             headers=_auth(admin_token),
@@ -189,12 +183,6 @@ class TestScenario1CameraLifecycle:
         assert resp.json()["is_active"] is False
 
     def test_step5_heartbeat_rejected_after_deactivation(self, client):
-        """
-        Paso 5: La cámara desactivada no puede enviar heartbeats.
-        Su API Key sigue siendo válida criptográficamente, pero el sistema
-        rechaza las peticiones de cámaras inactivas (401).
-        Ref: NIST SP 800-57 — revocación operacional de credenciales.
-        """
         resp = client.post(
             "/api/v1/cameras/heartbeat",
             headers={"X-API-Key": TestScenario1CameraLifecycle._api_key},
@@ -209,20 +197,10 @@ class TestScenario1CameraLifecycle:
 # ═══════════════════════════════════════════════════════════════
 
 
+@pytest.mark.usefixtures("client", "admin_token")
 class TestScenario2ForensicCaptureFlow:
     """
     Escenario: Una cámara graba un video y un analista verifica los segmentos.
-
-    Pasos:
-      1. Admin registra cámara de captura
-      2. Cámara inicia grabación (POST /videos)
-      3. Cámara sube 3 segmentos de 30 s cada uno
-      4. Analista consulta los segmentos y verifica cobertura temporal continua
-
-    Garantías forenses:
-      - Cobertura temporal: 0-30, 30-60, 60-90 segundos sin huecos.
-      - Los SHA-256 enviados por la cámara coinciden con los almacenados.
-      - Ningún segmento puede duplicarse (idempotencia del índice).
     """
 
     _camera_id: str = "sc2-forensic-cam"
@@ -240,10 +218,6 @@ class TestScenario2ForensicCaptureFlow:
         TestScenario2ForensicCaptureFlow._api_key = resp.json()["api_key"]
 
     def test_step2_camera_starts_video(self, client):
-        """
-        Paso 2: La cámara inicia una nueva grabación.
-        El servidor asigna un ID único al video y registra started_at.
-        """
         resp = client.post(
             "/api/v1/cameras/videos",
             json={"filename": "sc2_capture.mp4", "fps": 25.0, "resolution": "1920x1080"},
@@ -255,14 +229,9 @@ class TestScenario2ForensicCaptureFlow:
         TestScenario2ForensicCaptureFlow._video_id = data["id"]
 
     def test_step3_camera_uploads_three_segments(self, client):
-        """
-        Paso 3: La cámara sube 3 segmentos con cobertura temporal continua.
-        Cada segmento tiene su propio SHA-256 único.
-        """
         video_id = TestScenario2ForensicCaptureFlow._video_id
         api_key = TestScenario2ForensicCaptureFlow._api_key
         hashes = []
-
         for i in range(3):
             h = _valid_sha256()
             hashes.append(h)
@@ -278,16 +247,9 @@ class TestScenario2ForensicCaptureFlow:
                 headers={"X-API-Key": api_key},
             )
             assert resp.status_code == 201, f"Segmento {i} falló: {resp.text}"
-
         TestScenario2ForensicCaptureFlow._hashes = hashes
 
     def test_step4_analyst_queries_video_segments(self, client, admin_token):
-        """
-        El analista consulta los segmentos del video y verifica:
-        - Los 3 segmentos están presentes
-        - La cobertura temporal es continua (0-30, 30-60, 60-90)
-        - Los hashes coinciden con los enviados por la cámara
-        """
         video_id = TestScenario2ForensicCaptureFlow._video_id
         resp = client.get(
             f"/api/v1/cameras/videos/{video_id}/segments",
@@ -296,15 +258,10 @@ class TestScenario2ForensicCaptureFlow:
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert data["total"] == 3
-
         segments = sorted(data["segments"], key=lambda s: s["segment_index"])
         stored_hashes = [s["sha256_hash"] for s in segments]
-        expected_hashes = [
-            h.lower() for h in TestScenario2ForensicCaptureFlow._hashes
-        ]
-        assert stored_hashes == expected_hashes, (
-            "Los hashes almacenados no coinciden con los enviados por la cámara"
-        )
+        expected_hashes = [h.lower() for h in TestScenario2ForensicCaptureFlow._hashes]
+        assert stored_hashes == expected_hashes
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -312,31 +269,16 @@ class TestScenario2ForensicCaptureFlow:
 # ═══════════════════════════════════════════════════════════════
 
 
+@pytest.mark.usefixtures("client", "admin_token")
 class TestScenario3Rbac:
     """
     Escenario: Ciclo de vida completo de un analista forense.
-
-    Pasos:
-      1. Admin crea cuenta de analista
-      2. Analista se autentifica y obtiene JWT
-      3. Analista puede leer cámaras (operación permitida)
-      4. Analista no puede eliminar usuarios (operación prohibida)
-      5. Admin desactiva al analista
-      6. Analista desactivado es rechazado aunque tenga JWT vigente
-
-    Garantías:
-      - Principio de menor privilegio (OWASP ASVS §4.2)
-      - Revocación inmediata: el sistema comprueba is_active en cada
-        petición, no solo en el momento del login (NIST SP 800-53 AC-2)
     """
 
     analyst_email: str = "analyst.sc3@evideth.test"
     analyst_password: str = "Analyst1234!"
 
     def test_step1_admin_creates_analyst(self, client, admin_token):
-        """
-        El admin crea una cuenta de analista forense a través de la API.
-        """
         resp = client.post(
             "/api/v1/users/",
             json={
@@ -354,9 +296,6 @@ class TestScenario3Rbac:
         TestScenario3Rbac._analyst_id = data["id"]
 
     def test_step2_analyst_logs_in(self, client):
-        """
-        El analista se autentica y obtiene un JWT válido.
-        """
         resp = client.post(
             "/api/v1/auth/login",
             json={"email": self.analyst_email, "password": self.analyst_password},
@@ -367,9 +306,6 @@ class TestScenario3Rbac:
         TestScenario3Rbac._analyst_token = data["access_token"]
 
     def test_step3_analyst_can_read_cameras(self, client):
-        """
-        El analista activo puede consultar la lista de cámaras (operación de lectura).
-        """
         resp = client.get(
             "/api/v1/cameras/",
             headers=_auth(TestScenario3Rbac._analyst_token),
@@ -377,10 +313,6 @@ class TestScenario3Rbac:
         assert resp.status_code == 200, resp.text
 
     def test_step4_analyst_cannot_delete_user(self, client):
-        """
-        El analista no puede gestionar usuarios (operación solo de ADMIN).
-        Verifica el principio de menor privilegio.
-        """
         resp = client.delete(
             f"/api/v1/users/{TestScenario3Rbac._analyst_id}",
             headers=_auth(TestScenario3Rbac._analyst_token),
@@ -390,11 +322,6 @@ class TestScenario3Rbac:
         )
 
     def test_step5_admin_deactivates_analyst(self, client, admin_token):
-        """
-        El admin desactiva la cuenta del analista.
-        La desactivación es inmediata: aunque el JWT no haya expirado,
-        el usuario no puede acceder al sistema.
-        """
         resp = client.patch(
             f"/api/v1/users/{TestScenario3Rbac._analyst_id}/deactivate",
             headers=_auth(admin_token),
@@ -403,12 +330,6 @@ class TestScenario3Rbac:
         assert resp.json()["is_active"] is False
 
     def test_step6_deactivated_analyst_cannot_operate(self, client):
-        """
-        El analista desactivado no puede operar aunque tenga un JWT válido.
-        El sistema comprueba is_active en cada petición, no solo en el login.
-        Esto garantiza revocación inmediata sin necesidad de esperar a que
-        el token expire (protección frente a tokens comprometidos).
-        """
         resp = client.get(
             "/api/v1/cameras/",
             headers=_auth(TestScenario3Rbac._analyst_token),
@@ -423,20 +344,10 @@ class TestScenario3Rbac:
 # ═══════════════════════════════════════════════════════════════
 
 
+@pytest.mark.usefixtures("client", "admin_token")
 class TestScenario4DataIntegrityGuard:
     """
     Escenario: El sistema rechaza datos forenses inválidos o duplicados.
-
-    El API aplica múltiples capas de validación antes de persistir
-    cualquier segmento, garantizando que solo entran datos íntegros.
-
-    Pasos:
-      1. Setup: registrar cámara y video
-      2. Rechazar hash truncado (422 — longitud incorrecta)
-      3. Rechazar hash no-hexadecimal (422 — caracteres inválidos)
-      4. Aceptar segmento válido (201)
-      5. Rechazar duplicado del mismo índice (409 Conflict)
-      6. Rechazar rango temporal negativo end <= start (422)
     """
 
     _camera_id: str = "sc4-integrity-cam"
@@ -461,7 +372,6 @@ class TestScenario4DataIntegrityGuard:
         TestScenario4DataIntegrityGuard._video_id = resp2.json()["id"]
 
     def test_step2_reject_truncated_hash(self, client):
-        """Hash de 32 chars en lugar de 64 → 422 Unprocessable Entity."""
         resp = client.post(
             "/api/v1/cameras/segments",
             json={
@@ -469,14 +379,13 @@ class TestScenario4DataIntegrityGuard:
                 "segment_index": 0,
                 "start_time_secs": 0,
                 "end_time_secs": 30,
-                "sha256_hash": "a" * 32,  # truncado — inválido
+                "sha256_hash": "a" * 32,
             },
             headers={"X-API-Key": TestScenario4DataIntegrityGuard._api_key},
         )
         assert resp.status_code == 422, resp.text
 
     def test_step3_reject_non_hex_hash(self, client):
-        """Hash con caracteres no-hexadecimales → 422."""
         resp = client.post(
             "/api/v1/cameras/segments",
             json={
@@ -484,14 +393,13 @@ class TestScenario4DataIntegrityGuard:
                 "segment_index": 0,
                 "start_time_secs": 0,
                 "end_time_secs": 30,
-                "sha256_hash": "z" * 64,  # no es hex válido
+                "sha256_hash": "z" * 64,
             },
             headers={"X-API-Key": TestScenario4DataIntegrityGuard._api_key},
         )
         assert resp.status_code == 422, resp.text
 
     def test_step4_accept_valid_segment(self, client):
-        """Segmento completamente válido → 201 Created."""
         resp = client.post(
             "/api/v1/cameras/segments",
             json={
@@ -506,16 +414,11 @@ class TestScenario4DataIntegrityGuard:
         assert resp.status_code == 201, resp.text
 
     def test_step5_reject_duplicate_segment(self, client):
-        """
-        El índice 0 ya fue registrado en el paso anterior.
-        El sistema rechaza duplicados con 409 Conflict.
-        Garantiza idempotencia del registro forense.
-        """
         resp = client.post(
             "/api/v1/cameras/segments",
             json={
                 "video_id": TestScenario4DataIntegrityGuard._video_id,
-                "segment_index": 0,  # duplicado
+                "segment_index": 0,
                 "start_time_secs": 0,
                 "end_time_secs": 30,
                 "sha256_hash": _valid_sha256(),
@@ -525,14 +428,13 @@ class TestScenario4DataIntegrityGuard:
         assert resp.status_code == 409, resp.text
 
     def test_step6_reject_negative_time_range(self, client):
-        """end_time_secs <= start_time_secs → 422."""
         resp = client.post(
             "/api/v1/cameras/segments",
             json={
                 "video_id": TestScenario4DataIntegrityGuard._video_id,
                 "segment_index": 99,
                 "start_time_secs": 60,
-                "end_time_secs": 30,  # end < start → inválido
+                "end_time_secs": 30,
                 "sha256_hash": _valid_sha256(),
             },
             headers={"X-API-Key": TestScenario4DataIntegrityGuard._api_key},
@@ -545,23 +447,10 @@ class TestScenario4DataIntegrityGuard:
 # ═══════════════════════════════════════════════════════════════
 
 
+@pytest.mark.usefixtures("client", "admin_token")
 class TestScenario5MultiCamera:
     """
     Escenario: Dos cámaras operan en paralelo sin interferencia.
-
-    Pasos:
-      1. Registrar cámara A y cámara B
-      2. Cada cámara inicia su propio video
-      3. Cada cámara sube 2 segmentos a su video
-      4. Cámara B intenta escribir en el video de cámara A → rechazado
-      5. Los conteos de segmentos son independientes (no se mezclan)
-
-    Garantías:
-      - Aislamiento de datos entre cámaras (OWASP ASVS §4.2)
-      - Una API Key solo autoriza operaciones sobre los videos
-        de su propia cámara
-      - El sistema devuelve 404 cuando el video no pertenece a la cámara
-        (no revela la existencia del recurso ajeno — security through opacity)
     """
 
     cam_a_id: str = "sc5-cam-alpha"
@@ -612,43 +501,24 @@ class TestScenario5MultiCamera:
                 )
 
     def test_step4_camera_b_cannot_write_to_camera_a_video(self, client):
-        """
-        La cámara B no puede enviar segmentos al video de la cámara A.
-        El sistema valida que la API Key pertenece a la cámara propietaria
-        del video.
-
-        Comportamiento esperado:
-        - 404: el sistema no revela la existencia del video ajeno
-          (security through opacity — RFC 7231 §6.5.4)
-        - 403: explícito si el sistema distingue autenticado vs. autorizado
-
-        Ambas respuestas son válidas y seguras; 404 es preferible porque
-        no informa al atacante sobre la existencia del recurso.
-        """
         video_id_a = TestScenario5MultiCamera._video_id_alpha
         api_key_b = TestScenario5MultiCamera._api_key_beta
-
         resp = client.post(
             "/api/v1/cameras/segments",
             json={
-                "video_id": video_id_a,  # video de cámara A
+                "video_id": video_id_a,
                 "segment_index": 99,
                 "start_time_secs": 0,
                 "end_time_secs": 30,
                 "sha256_hash": _valid_sha256(),
             },
-            headers={"X-API-Key": api_key_b},  # pero API Key de cámara B
+            headers={"X-API-Key": api_key_b},
         )
-        # 404 es correcto (opacity) o 403 (explícito). Ambos aceptables.
         assert resp.status_code in (401, 403, 404), (
             f"Cámara B no debería poder escribir en video de cámara A: {resp.status_code}"
         )
 
     def test_step5_verify_segment_counts_are_independent(self, client, admin_token):
-        """
-        Cada video tiene exactamente sus propios 2 segmentos.
-        Los conteos no se mezclan entre cámaras.
-        """
         for suffix in ("alpha", "beta"):
             video_id = getattr(TestScenario5MultiCamera, f"_video_id_{suffix}")
             resp = client.get(
