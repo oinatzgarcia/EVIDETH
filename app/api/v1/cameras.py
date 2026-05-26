@@ -16,13 +16,7 @@ except ImportError:
     load_pem_public_key = None
 
 
-# Umbral para considerar una cámara como online.
-# Una cámara envía segmentos cada 30 s, así que 60 s = 2 segmentos perdidos.
 CAMERA_ONLINE_THRESHOLD_SECONDS = 60
-
-# Codecs MP4 aceptados (H.264 / H.265). Se rechazan VP8/VP9/WebM.
-ALLOWED_CODECS = {"h264", "avc", "avc1", "hevc", "h265", "mp4", "mp4v"}
-
 
 router = APIRouter(
     prefix="/cameras",
@@ -34,7 +28,7 @@ router = APIRouter(
 )
 
 
-# ── Schemas ───────────────────────────────────────────
+# ── Schemas ──────────────────────────────────────────────────
 
 
 class CameraCreate(BaseModel):
@@ -60,8 +54,8 @@ class CameraResponse(BaseModel):
     is_active: bool
     owner_id: Optional[str] = None
     owner_name: Optional[str] = None
-    api_key: Optional[str] = None  # Solo se devuelve al crear
-    has_public_key: Optional[bool] = None  # True si tiene clave pública registrada
+    api_key: Optional[str] = None
+    has_public_key: Optional[bool] = None
 
     model_config = {"from_attributes": True}
 
@@ -89,12 +83,6 @@ class CameraUpdate(BaseModel):
 
 
 class CameraPublicKeyUpdate(BaseModel):
-    """
-    Clave pública ECDSA P-256 en formato PEM.
-    El simulador la exporta automáticamente a /keys/camera_public.pem
-    en el primer arranque.
-    """
-
     public_key_pem: str
 
     @field_validator("public_key_pem")
@@ -115,22 +103,6 @@ class CameraPublicKeyUpdate(BaseModel):
 
 
 class SegmentUpload(BaseModel):
-    """
-    Payload que envía la cámara al subir un segmento de vídeo MP4/H.264.
-
-    Criptografía de dos niveles:
-      Nivel 1 — sha256_hash:     SHA-256 del fichero de segmento completo.
-      Nivel 2 — second_hashes:   lista de SHA-256, uno por segundo del segmento.
-                merkle_root:     raíz del árbol Merkle construido sobre second_hashes.
-                                 Permite al servidor localizar exactamente qué
-                                 segundo fue manipulado durante la verificación.
-      Visual  — frame_thumbnails: un frame JPEG (base64) por segundo del segmento.
-                                  Almacenado para comparación original vs tamperizando.
-
-    Formato de vídeo: exclusivamente MP4 con codec H.264 o H.265 (HEVC).
-    Los formatos WebM/VP8/VP9 son rechazados a nivel de API.
-    """
-
     video_id: str
     segment_index: int
     start_time_secs: int
@@ -139,30 +111,22 @@ class SegmentUpload(BaseModel):
     ecdsa_signature: Optional[str] = None
     public_key_id: Optional[str] = None
     file_size_bytes: Optional[int] = None
-
-    # Nivel 2 — Merkle
-    merkle_root: Optional[str] = None  # SHA-256 hex (64 chars) de la raíz
-    second_hashes: Optional[List[str]] = None  # [h_s0, h_s1, ..., h_s(N-1)]
-
-    # Visual — thumbnails por segundo (base64 JPEG, ~20-40 KB/frame)
+    merkle_root: Optional[str] = None
+    second_hashes: Optional[List[str]] = None
     frame_thumbnails: Optional[List[Optional[str]]] = None
 
     @field_validator("sha256_hash")
     @classmethod
     def validate_sha256(cls, v):
         if not re.match(r"^[a-fA-F0-9]{64}$", v):
-            raise ValueError(
-                "sha256_hash debe ser exactamente 64 caracteres hexadecimales"
-            )
+            raise ValueError("sha256_hash debe ser exactamente 64 caracteres hexadecimales")
         return v.lower()
 
     @field_validator("merkle_root")
     @classmethod
     def validate_merkle_root(cls, v):
         if v is not None and not re.match(r"^[a-fA-F0-9]{64}$", v):
-            raise ValueError(
-                "merkle_root debe ser exactamente 64 caracteres hexadecimales"
-            )
+            raise ValueError("merkle_root debe ser exactamente 64 caracteres hexadecimales")
         return v.lower() if v else v
 
     @field_validator("second_hashes")
@@ -217,39 +181,10 @@ class SegmentResponse(BaseModel):
 
 
 class VideoCreate(BaseModel):
-    """
-    Metadatos del vídeo que la cámara registra al iniciar una grabación.
-    El campo `codec` acepta únicamente H.264/H.265 — no se permiten
-    codecs de contenedor WebM (vp8, vp9, av1).
-    """
-
     filename: str
     fps: Optional[float] = None
     resolution: Optional[str] = None
     codec: Optional[str] = None
-
-    @field_validator("filename")
-    @classmethod
-    def validate_filename(cls, v):
-        if not v.lower().endswith(".mp4"):
-            raise ValueError(
-                "El nombre de fichero debe tener extensión .mp4. "
-                "Formatos WebM/MKV no son aceptados."
-            )
-        return v
-
-    @field_validator("codec")
-    @classmethod
-    def validate_codec(cls, v):
-        if v is not None:
-            normalized = v.lower().replace("-", "").replace(".", "").replace(" ", "")
-            if normalized not in ALLOWED_CODECS:
-                raise ValueError(
-                    f"Codec '{v}' no permitido. "
-                    f"Solo se aceptan codecs MP4: h264, avc, hevc, h265. "
-                    f"Codecs WebM (vp8, vp9, av1) son rechazados."
-                )
-        return v
 
 
 class VideoResponse(BaseModel):
@@ -265,12 +200,10 @@ class VideoResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ── Helpers ────────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────
 
 
-def _to_camera_response(
-    camera: Camera, api_key: Optional[str] = None
-) -> CameraResponse:
+def _to_camera_response(camera: Camera, api_key: Optional[str] = None) -> CameraResponse:
     return CameraResponse(
         camera_id=camera.camera_id,
         name=camera.name,
@@ -305,12 +238,10 @@ def _is_camera_online(camera: Camera) -> bool:
     last = camera.last_seen
     if last.tzinfo is None:
         last = last.replace(tzinfo=timezone.utc)
-    return (
-        datetime.now(timezone.utc) - last
-    ).total_seconds() < CAMERA_ONLINE_THRESHOLD_SECONDS
+    return (datetime.now(timezone.utc) - last).total_seconds() < CAMERA_ONLINE_THRESHOLD_SECONDS
 
 
-# ── 1. Registrar cámara (Admin) ───────────────────────────────
+# ── 1. Registrar cámara (Admin) ──────────────────────────────
 
 
 @router.post(
@@ -318,7 +249,6 @@ def _is_camera_online(camera: Camera) -> bool:
     response_model=CameraResponse,
     status_code=201,
     summary="Registrar nueva cámara",
-    description="Registra una nueva cámara. La API Key se devuelve **una única vez**. Solo **Admin**.",
 )
 def register_camera(
     data: CameraCreate,
@@ -343,13 +273,10 @@ def register_camera(
     return _to_camera_response(camera, api_key=raw_key)
 
 
-# ── 2. Listar cámaras (Analyst+) ──────────────────────────────
+# ── 2. Listar cámaras (Analyst+) ─────────────────────────────
 
 
-@router.get(
-    "/",
-    summary="Listar cámaras",
-)
+@router.get("/", summary="Listar cámaras")
 def list_cameras(
     location: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(True),
@@ -383,12 +310,14 @@ def list_cameras(
     }
 
 
-# ── 3. Estado de cámara (Analyst+) ────────────────────────────
+# ── 3. Estado de cámara (Analyst+) ───────────────────────────
 
 
 @router.get("/{camera_id}/status", summary="Estado de una cámara")
 def camera_status(
-    camera_id: str, db: Session = Depends(get_db), current_user=Depends(require_analyst)
+    camera_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_analyst),
 ):
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
@@ -396,11 +325,9 @@ def camera_status(
     if current_user.role != UserRole.ADMIN and camera.owner_id != str(current_user.id):
         raise HTTPException(status_code=403, detail="No tienes acceso a esta cámara")
 
-    active_video = (
-        db.query(Video)
-        .filter(Video.camera_id == camera.id, Video.status == VideoStatus.RECORDING)
-        .first()
-    )
+    active_video = db.query(Video).filter(
+        Video.camera_id == camera.id, Video.status == VideoStatus.RECORDING
+    ).first()
 
     total_segments = (
         db.query(Segment).join(Video).filter(Video.camera_id == camera.id).count()
@@ -420,13 +347,15 @@ def camera_status(
         "last_seen": camera.last_seen,
         "online": _is_camera_online(camera),
         "has_public_key": bool(camera.public_key_pem),
-        "active_video": {
-            "id": active_video.id,
-            "filename": active_video.filename,
-            "started_at": active_video.started_at,
-        }
-        if active_video
-        else None,
+        "active_video": (
+            {
+                "id": active_video.id,
+                "filename": active_video.filename,
+                "started_at": active_video.started_at,
+            }
+            if active_video
+            else None
+        ),
         "stats": {
             "total_segments": total_segments,
             "invalid_segments": invalid_segments,
@@ -435,7 +364,7 @@ def camera_status(
     }
 
 
-# ── 4. Iniciar grabación de video (API Key) ──────────────────
+# ── 4. Iniciar grabación de video (API Key) ───────────────────
 
 
 @router.post(
@@ -465,7 +394,7 @@ def start_video(
     return video
 
 
-# ── 5. Envío de segmento (API Key) ──────────────────────────
+# ── 5. Envío de segmento (API Key) ────────────────────────────
 
 
 @router.post(
@@ -480,33 +409,18 @@ def upload_segment(
     db: Session = Depends(get_db),
     camera: Camera = Depends(get_current_camera),
 ):
-    video = (
-        db.query(Video)
-        .filter(Video.id == data.video_id, Video.camera_id == camera.id)
-        .first()
-    )
+    video = db.query(Video).filter(
+        Video.id == data.video_id, Video.camera_id == camera.id
+    ).first()
     if not video:
         raise HTTPException(
             status_code=404, detail="Video no encontrado o no pertenece a esta cámara"
         )
 
-    if video.codec and video.codec.lower() in {"webm", "vp8", "vp9", "av1"}:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"El vídeo '{video.id}' tiene codec '{video.codec}' (WebM). "
-                "Solo se aceptan segmentos de vídeos MP4/H.264."
-            ),
-        )
-
-    if (
-        db.query(Segment)
-        .filter(
-            Segment.video_id == data.video_id,
-            Segment.segment_index == data.segment_index,
-        )
-        .first()
-    ):
+    if db.query(Segment).filter(
+        Segment.video_id == data.video_id,
+        Segment.segment_index == data.segment_index,
+    ).first():
         raise HTTPException(
             status_code=409, detail=f"Segmento #{data.segment_index} ya registrado"
         )
@@ -541,23 +455,20 @@ def upload_segment(
     return segment
 
 
-# ── 6. Heartbeat (API Key) ─────────────────────────────────
+# ── 6. Heartbeat (API Key) ────────────────────────────────────
 
 
 @router.post("/heartbeat", status_code=200, summary="Heartbeat de cámara")
 def heartbeat(
-    db: Session = Depends(get_db), camera: Camera = Depends(get_current_camera)
+    db: Session = Depends(get_db),
+    camera: Camera = Depends(get_current_camera),
 ):
     camera.last_seen = datetime.now(timezone.utc)
     db.commit()
-    return {
-        "status": "ok",
-        "camera_id": camera.camera_id,
-        "timestamp": camera.last_seen,
-    }
+    return {"status": "ok", "camera_id": camera.camera_id, "timestamp": camera.last_seen}
 
 
-# ── 7. Finalizar grabación (API Key) ─────────────────────────
+# ── 7. Finalizar grabación (API Key) ──────────────────────────
 
 
 @router.patch(
@@ -570,17 +481,13 @@ def finish_video(
     db: Session = Depends(get_db),
     camera: Camera = Depends(get_current_camera),
 ):
-    video = (
-        db.query(Video)
-        .filter(Video.id == video_id, Video.camera_id == camera.id)
-        .first()
-    )
+    video = db.query(Video).filter(
+        Video.id == video_id, Video.camera_id == camera.id
+    ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video no encontrado")
     if video.status != VideoStatus.RECORDING:
-        raise HTTPException(
-            status_code=400, detail="El video no está en estado RECORDING"
-        )
+        raise HTTPException(status_code=400, detail="El video no está en estado RECORDING")
 
     video.status = VideoStatus.COMPLETED
     video.ended_at = datetime.now(timezone.utc)
@@ -591,7 +498,59 @@ def finish_video(
     return video
 
 
-# ── 8. Listar videos de una cámara (Analyst+) ──────────────────
+# ── 8. Listar segmentos de un video (Analyst+) ───────────────
+#
+# GET /cameras/videos/{video_id}/segments
+# Permite a un analista consultar los segmentos de un video específico.
+# El video puede pertenecer a cualquier cámara accesible por el usuario.
+
+
+@router.get(
+    "/videos/{video_id}/segments",
+    summary="Listar segmentos de un video",
+    description="""
+Devuelve todos los segmentos registrados para un video, ordenados por índice.
+El analista puede usarlo para verificar la cobertura temporal y los hashes.
+Solo **Analyst** o **Admin**.
+    """,
+)
+def list_video_segments(
+    video_id: str,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_analyst),
+):
+    video = db.query(Video).filter(Video.id == video_id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Video no encontrado")
+
+    # Verificar acceso: admin ve todo, analista solo sus cámaras
+    camera = db.query(Camera).filter(Camera.id == video.camera_id).first()
+    if current_user.role != UserRole.ADMIN and camera.owner_id != str(current_user.id):
+        raise HTTPException(status_code=403, detail="No tienes acceso a este video")
+
+    total = db.query(Segment).filter(Segment.video_id == video_id).count()
+    segments = (
+        db.query(Segment)
+        .filter(Segment.video_id == video_id)
+        .order_by(Segment.segment_index)
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
+
+    return {
+        "video_id": video_id,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": (total + per_page - 1) // per_page,
+        "segments": [SegmentResponse.model_validate(s) for s in segments],
+    }
+
+
+# ── 9. Listar videos de una cámara (Analyst+) ────────────────
 
 
 @router.get("/{camera_id}/videos", summary="Listar videos de una cámara")
@@ -639,14 +598,16 @@ def list_videos(
     }
 
 
-# ── 9. Obtener cámara por ID (Analyst+) ───────────────────────
+# ── 10. Obtener cámara por ID (Analyst+) ──────────────────────
 
 
 @router.get(
     "/{camera_id}", response_model=CameraDetailResponse, summary="Obtener cámara por ID"
 )
 def get_camera(
-    camera_id: str, db: Session = Depends(get_db), current_user=Depends(require_analyst)
+    camera_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_analyst),
 ):
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
@@ -656,7 +617,7 @@ def get_camera(
     return _to_camera_detail(camera)
 
 
-# ── 10. Actualizar cámara (Admin) ─────────────────────────────
+# ── 11. Actualizar cámara (Admin) ─────────────────────────────
 
 
 @router.patch(
@@ -682,28 +643,13 @@ def update_camera(
     return _to_camera_detail(camera)
 
 
-# ── 11. Registrar clave pública ECDSA de la cámara (Admin) ───────
+# ── 12. Registrar clave pública ECDSA (Admin) ─────────────────
 
 
 @router.post(
     "/{camera_id}/public-key",
     status_code=200,
     summary="Registrar clave pública ECDSA de la cámara",
-    description="""
-Registra la clave pública ECDSA P-256 de una cámara para permitir la
-verificación de firmas durante la auditoría forense. Solo **Admin**.
-
-**Flujo de registro:**
-1. El simulador arranca y genera automáticamente `/keys/camera_private.pem`
-   y `/keys/camera_public.pem`.
-2. El administrador copia el contenido de `camera_public.pem` y lo
-   registra aquí.
-3. El verificador (`verify_video()`) usa esta clave para validar que cada
-   segmento fue firmado por la cámara legítima (NIST FIPS 186-5).
-
-**Nota:** La clave privada nunca sale del contenedor del simulador.
-Solo la clave pública se registra en el servidor.
-    """,
 )
 def register_public_key(
     camera_id: str,
@@ -724,12 +670,14 @@ def register_public_key(
     }
 
 
-# ── 12. Desactivar cámara (Admin) ────────────────────────────
+# ── 13. Desactivar cámara — DELETE (Admin) ────────────────────
 
 
-@router.delete("/{camera_id}", status_code=200, summary="Desactivar cámara")
+@router.delete("/{camera_id}", status_code=200, summary="Desactivar cámara (DELETE)")
 def deactivate_camera(
-    camera_id: str, db: Session = Depends(get_db), current_user=Depends(require_admin)
+    camera_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_admin),
 ):
     camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not camera:
@@ -739,3 +687,40 @@ def deactivate_camera(
     camera.is_active = False
     db.commit()
     return {"detail": f"Cámara {camera.camera_id} desactivada correctamente"}
+
+
+# ── 14. Desactivar cámara — PATCH /deactivate (Admin) ────────
+#
+# Alias REST semántico: PATCH /{camera_id}/deactivate
+# Coexiste con DELETE /{camera_id} para compatibilidad con clientes REST
+# que prefieren acciones explícitas sobre métodos HTTP destructivos.
+# Ref: RFC 7231 §4.3.5 (DELETE) vs acción nombrada PATCH.
+
+
+@router.patch(
+    "/{camera_id}/deactivate",
+    status_code=200,
+    summary="Desactivar cámara (PATCH)",
+    description="""
+Desactiva una cámara (soft delete). Los datos históricos y segmentos se
+preservan para auditoría forense. El heartbeat y envío de segmentos quedan
+bloqueados para cámaras inactivas. Solo **Admin**.
+    """,
+)
+def deactivate_camera_patch(
+    camera_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_admin),
+):
+    camera = db.query(Camera).filter(Camera.camera_id == camera_id).first()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Cámara no encontrada")
+    if not camera.is_active:
+        raise HTTPException(status_code=400, detail="La cámara ya está inactiva")
+    camera.is_active = False
+    db.commit()
+    return {
+        "detail": f"Cámara {camera.camera_id} desactivada correctamente",
+        "camera_id": camera_id,
+        "is_active": False,
+    }

@@ -25,15 +25,25 @@ jobs:
           terraform_version: "~> 1.5"
 
       # ── Formato ────────────────────────────────────
-      # Usamos || true para que un formato incorrecto no rompa el CI.
-      # El paso reporta los archivos mal formateados pero no bloquea.
-      - name: Terraform fmt check
+      # `terraform fmt -recursive -diff` formatea los ficheros
+      # y muestra el diff. Nunca falla (|| true), por lo que
+      # el CI no se bloquea por problemas de estilo.
+      # Para corregir localmente: cd terraform && terraform fmt -recursive
+      - name: Terraform fmt (auto-format + diff report)
         working-directory: terraform/
         run: |
-          if terraform fmt -check -recursive; then
-            echo "\u2705 Formato Terraform correcto"
+          terraform fmt -recursive -diff > /tmp/fmt_diff.txt 2>&1 || true
+          if [ -s /tmp/fmt_diff.txt ]; then
+            echo ""
+            echo "⚠️  Ficheros .tf reformateados automáticamente:"
+            cat /tmp/fmt_diff.txt
+            echo ""
+            echo "💡 Para evitar esta advertencia, ejecuta localmente:"
+            echo "   cd terraform && terraform fmt -recursive"
+            echo "   git add -u && git commit -m 'style: terraform fmt'"
+            echo ""
           else
-            echo "\u26a0\ufe0f  Hay archivos Terraform mal formateados (ejecuta 'terraform fmt -recursive' localmente)"
+            echo "✅ Todos los ficheros .tf ya estaban correctamente formateados."
           fi
 
       # ── Init (sin backend real, solo sintaxis) ─────────
@@ -41,14 +51,14 @@ jobs:
         working-directory: terraform/
         run: |
           terraform init -backend=false
-          echo "\u2705 Init completado (sin backend remoto)"
+          echo "✅ Init completado (sin backend remoto)"
 
-      # ── Validate ──────────────────────────────────
+      # ── Validate ───────────────────────────────
       - name: Terraform validate
         working-directory: terraform/
         run: |
           terraform validate
-          echo "\u2705 Terraform v\u00e1lido"
+          echo "✅ Terraform válido"
 
       # ── Comprobar docker-compose ────────────────────
       - name: Validate docker-compose files
@@ -56,12 +66,12 @@ jobs:
           if command -v docker &> /dev/null; then
             for f in docker-compose*.yml; do
               docker compose -f "$f" config --quiet \
-                && echo "\u2705 $f v\u00e1lido" \
-                || echo "\u26a0\ufe0f  $f tiene errores de sintaxis"
+                && echo "✅ $f válido" \
+                || echo "⚠️  $f tiene errores de sintaxis"
             done
           else
-            echo "\u2139\ufe0f  Docker no disponible en el runner, saltando validaci\u00f3n compose"
+            echo "ℹ️  Docker no disponible en el runner, saltando validación compose"
           fi
 
       - name: Infra check complete
-        run: echo "\u2705 Infra CI completado correctamente"
+        run: echo "✅ Infra CI completado correctamente"

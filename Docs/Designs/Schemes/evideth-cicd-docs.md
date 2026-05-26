@@ -13,10 +13,14 @@ Los workflows se organizan en **4 ficheros** dentro de `.github/workflows/`:
 ```
 .github/
 └── workflows/
-    ├── ci.yml          # Orquestador — punto de entrada principal
-    ├── backend.yml     # Validación del backend (reutilizable)
-    ├── frontend.yml    # Validación del frontend (reutilizable)
-    └── infra.yml       # Validación de infraestructura (reutilizable)
+    ├── ci.yml                  # Orquestador — punto de entrada principal
+    ├── backend.yml             # Validación del backend (reutilizable)
+    ├── frontend.yml            # Validación del frontend (reutilizable)
+    ├── infra.yml               # Validación de infraestructura (reutilizable)
+    ├── build-push.yml          # Build Docker + push a ACR
+    ├── terraform-apply.yml     # Aprovisionamiento de infraestructura en Azure
+    ├── terraform-plan.yml      # Plan de infraestructura en PRs
+    └── terraform-destroy.yml   # ⚠️ Destrucción TOTAL de infraestructura (manual)
 ```
 
 Los workflows `backend.yml`, `frontend.yml` e `infra.yml` son **reutilizables** (`on: workflow_call`).  
@@ -34,7 +38,7 @@ flowchart TD
     B --> D[frontend.yml]
     B --> E[infra.yml]
 
-    C --> F{¿Todo verde?}
+    C --> F{?¿Todo verde?}
     D --> F
     E --> F
 
@@ -218,7 +222,7 @@ jobs:
 
 **Disparado por:** `ci.yml` vía `workflow_call`.
 
-**Responsabilidad:** Validar el código Terraform (`fmt`, `validate`, `plan`) sin aplicar cambios.
+**Responsabilidad:** Validar el código Terraform (`fmt`, `validate`) sin aplicar cambios. El formato se aplica automáticamente y las diferencias se reportan como advertencia sin bloquear el pipeline.
 
 ```yaml
 name: Infrastructure
@@ -230,41 +234,176 @@ jobs:
   terraform:
     runs-on: ubuntu-latest
 
-    permissions:
-      id-token: write   # necesario para OIDC
-      contents: read
-
     steps:
       - uses: actions/checkout@v4
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: '~1.7'
+          terraform_version: '~> 1.5'
 
-      - name: Azure Login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Terraform fmt (auto-format + diff report)
+        working-directory: terraform/
+        run: |
+          terraform fmt -recursive -diff > /tmp/fmt_diff.txt 2>&1 || true
+          if [ -s /tmp/fmt_diff.txt ]; then
+            echo "⚠️  Ficheros .tf reformateados. Ejecuta localmente:"
+            echo "   cd terraform && terraform fmt -recursive"
+            cat /tmp/fmt_diff.txt
+          else
+            echo "✅ Formato Terraform correcto"
+          fi
 
-      - name: Terraform Init
-        working-directory: infra/
-        run: terraform init -backend-config="key=evideth-dev.tfstate"
-
-      - name: Terraform Format check
-        working-directory: infra/
-        run: terraform fmt -check -recursive
+      - name: Terraform Init (backend=false)
+        working-directory: terraform/
+        run: terraform init -backend=false
 
       - name: Terraform Validate
-        working-directory: infra/
+        working-directory: terraform/
         run: terraform validate
+```
 
-      - name: Terraform Plan
-        working-directory: infra/
-        run: terraform plan -out=tfplan
-        env:
-          TF_VAR_environment: dev
+---
+
+### `build-push.yml` — Build Docker + Push a ACR
+
+**Disparadores:** Push a `main` con cambios en `app/`, `Dockerfile` o `requirements.txt`. También llamado por `terraform-apply.yml` vía `workflow_call`.
+
+**Responsabilidad:** Construir la imagen Docker del backend FastAPI y publicarla en el Azure Container Registry (ACR) del proyecto.
+
+**Imagen resultante:**
+```
+evidethdevacr94f04b.azurecr.io/evideth-backend:latest
+```
+
+---
+
+### `terraform-apply.yml` — Aprovisionamiento
+
+**Disparadores:** Push a `main` con cambios en `terraform/`. También lanzable manualmente.
+
+**Responsabilidad:** Aprovisionar o actualizar la infraestructura de Azure en dos jobs encadenados:
+1. **Job 1** — `build-push`: garantiza que la imagen Docker existe en ACR
+2. **Job 2** — `apply`: ejecuta `terraform plan` + `terraform apply`
+
+---
+
+### `terraform-plan.yml` — Plan en PRs
+
+**Disparadores:** Pull Request contra `main` con cambios en `terraform/`.
+
+**Responsabilidad:** Ejecutar `terraform plan` sin aplicar cambios y publicar el resultado como comentario en el PR para revisión antes del merge.
+
+---
+
+### `terraform-destroy.yml` — Destrucción de infraestructura
+
+> ⚠️ **ADVERTENCIA:** Este workflow destruye **TODA** la infraestructura de Azure de forma **irreversible**. Debe usarse únicamente al finalizar el proyecto o cuando se necesite un reprovisioning completo desde cero.
+
+**Disparador:** Únicamente `workflow_dispatch` (lanzamiento manual desde la UI de GitHub). **Nunca** se activa por push, PR ni schedule.
+
+#### Doble salvaguarda
+
+El workflow implementa dos capas de protección en serie:
+
+```mermaid
+flowchart LR
+    A([workflow_dispatch]) --> B{Salvaguarda 1\nDisparo manual}
+    B --> C[Job: confirm]
+    C --> D{Salvaguarda 2\n¿Escribiste\n'DESTROY'?}
+    D -- ❌ No --> E([Workflow cancelado\nNada modificado])
+    D -- ✅ Sí --> F[Job: destroy]
+    F --> G[terraform plan -destroy]
+    G --> H[terraform apply -destroy]
+    H --> I([✅ Infraestructura eliminada])
+```
+
+| Salvaguarda | Mecanismo | Efecto si falla |
+|---|---|---|
+| **1. Disparo manual** | `on: workflow_dispatch` exclusivo | No hay forma de activarlo accidentalmente |
+| **2. Confirmación escrita** | Input requerido: exactamente `DESTROY` | Job `confirm` falla con exit 1; `destroy` no arranca |
+
+#### Inputs del workflow
+
+| Campo | Obligatorio | Descripción |
+|---|---|---|
+| `confirmation` | ✅ Sí | Debe contener exactamente `DESTROY` (mayúsculas) |
+| `reason` | No | Motivo del destroy — queda registrado en el log |
+
+#### Cómo lanzarlo
+
+1. GitHub → **Actions** → `🚨 Terraform DESTROY`
+2. Pulsar **Run workflow**
+3. Rellenar los campos:
+   - `confirmation`: `DESTROY`
+   - `reason`: (opcional) motivo
+4. Pulsar **Run workflow** y confirmar
+
+#### Jobs
+
+```yaml
+jobs:
+  confirm:    # Verifica que confirmation == "DESTROY"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comprobar confirmación
+        run: |
+          if [ "${{ github.event.inputs.confirmation }}" != "DESTROY" ]; then
+            echo "❌ Confirmación incorrecta. Destroy cancelado."
+            exit 1
+          fi
+          echo "✅ Confirmación válida"
+
+  destroy:
+    needs: confirm     # Solo arranca si confirm tuvo éxito
+    environment: destroy   # Entorno con revisor opcional en GitHub
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2  # OIDC — sin secretos
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform init
+        working-directory: terraform/
+      - name: Terraform Plan Destroy (preview)
+        run: terraform plan -destroy -out=tfdestroyplan
+        working-directory: terraform/
+      - name: Terraform Destroy
+        run: terraform apply -destroy -auto-approve tfdestroyplan
+        working-directory: terraform/
+```
+
+#### Comportamiento post-destroy
+
+| Recurso | Estado tras el destroy | Motivo |
+|---|---|---|
+| Container App, PostgreSQL, Key Vault, ACR, Blob Storage | ❌ Eliminado | Gestionado por Terraform |
+| Storage Account del estado Terraform (`evidethtfstate`) | ✅ Conservado | **Intencionado** — no gestionado por Terraform |
+| Estado `.tfstate` en Azure Blob | ✅ Conservado | Necesario para re-desplegar sin conflictos |
+
+> El Storage Account del tfstate se conserva para permitir un `terraform apply` posterior sin necesidad de reinicializar el backend desde cero.
+
+#### Re-despliegue tras un destroy
+
+Para restaurar toda la infraestructura después de un destroy:
+
+```bash
+# Opción A — desde GitHub Actions (recomendado)
+Actions → Terraform Apply → Run workflow
+
+# Opción B — localmente
+cd terraform
+terraform init
+terraform apply
+```
+
+#### Protección adicional recomendada (entorno GitHub)
+
+Crear el entorno `destroy` en `GitHub → Settings → Environments` y añadir un **Required reviewer**. Con esta configuración, ninguna ejecución del destroy arranca sin aprobación explícita, añadiendo una tercera capa de seguridad.
+
+```
+Entornos configurados en GitHub:
+  └── destroy
+      ├── Required reviewers: [oinatzgarcia]
+      └── Wait timer: 0 min (o configurar un delay de seguridad)
 ```
 
 ---
@@ -315,9 +454,10 @@ La rama `main` tiene las siguientes reglas activas en GitHub:
 
 | Secreto | Usado en | Propósito |
 |---------|----------|-----------|
-| `AZURE_CLIENT_ID` | `infra.yml`, `build-push.yml` | Managed Identity OIDC |
-| `AZURE_TENANT_ID` | `infra.yml`, `build-push.yml` | Tenant Azure |
-| `AZURE_SUBSCRIPTION_ID` | `infra.yml`, `build-push.yml` | Suscripción Azure |
+| `AZURE_CLIENT_ID` | `infra.yml`, `build-push.yml`, `terraform-destroy.yml` | Managed Identity OIDC |
+| `AZURE_TENANT_ID` | `infra.yml`, `build-push.yml`, `terraform-destroy.yml` | Tenant Azure |
+| `AZURE_SUBSCRIPTION_ID` | `infra.yml`, `build-push.yml`, `terraform-destroy.yml` | Suscripción Azure |
+| `JWT_SECRET_KEY` | `terraform-apply.yml`, `terraform-destroy.yml` | Clave JWT del backend |
 
 > ⚠️ No se almacena ningún `CLIENT_SECRET`, `password` ni token de larga duración.  
 > Los tokens OIDC tienen vida útil de minutos y se generan por workflow run.
@@ -326,13 +466,14 @@ La rama `main` tiene las siguientes reglas activas en GitHub:
 
 ## Resumen de jobs por evento
 
-| Evento | `backend` | `frontend` | `infra` | `ci-success` |
-|--------|-----------|------------|---------|--------------|
-| Push a `app/**` | ✅ Ejecuta | ⏭️ Skip | ⏭️ Skip | ✅ |
-| Push a `templates/**` | ⏭️ Skip | ✅ Ejecuta | ⏭️ Skip | ✅ |
-| Push a `infra/**` | ⏭️ Skip | ⏭️ Skip | ✅ Ejecuta | ✅ |
-| Push a `main` (full) | ✅ Ejecuta | ✅ Ejecuta | ✅ Ejecuta | ✅ |
-| PR → `main` | Según paths | Según paths | Según paths | ✅ Siempre |
+| Evento | `backend` | `frontend` | `infra` | `ci-success` | `destroy` |
+|--------|-----------|------------|---------|--------------|----------|
+| Push a `app/**` | ✅ Ejecuta | ⏭️ Skip | ⏭️ Skip | ✅ | — |
+| Push a `templates/**` | ⏭️ Skip | ✅ Ejecuta | ⏭️ Skip | ✅ | — |
+| Push a `terraform/**` | ⏭️ Skip | ⏭️ Skip | ✅ Ejecuta | ✅ | — |
+| Push a `main` (full) | ✅ Ejecuta | ✅ Ejecuta | ✅ Ejecuta | ✅ | — |
+| PR → `main` | Según paths | Según paths | Según paths | ✅ Siempre | — |
+| `workflow_dispatch` manual | — | — | — | — | ✅ Con confirmación |
 
 ---
 

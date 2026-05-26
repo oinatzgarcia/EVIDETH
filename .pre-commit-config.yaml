@@ -1,0 +1,84 @@
+# =============================================================
+# EVIDETH — Pre-commit hooks
+# Se ejecutan automáticamente ANTES de cada `git commit`
+#
+# Instalación (una sola vez):
+#   pip install pre-commit
+#   pre-commit install
+#
+# Ejecución manual sobre todos los ficheros:
+#   pre-commit run --all-files
+# =============================================================
+
+repos:
+
+  # -----------------------------------------------------------
+  # 1. HOOKS BÁSICOS DE CALIDAD
+  # -----------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace        # Elimina espacios al final de línea
+      - id: end-of-file-fixer          # Asegura salto de línea al final
+      - id: check-yaml                 # Valida sintaxis de ficheros YAML
+      - id: check-json                 # Valida sintaxis de ficheros JSON
+      - id: check-merge-conflict       # Detecta marcadores de merge sin resolver
+      - id: check-added-large-files    # Bloquea ficheros > 500KB
+        args: ['--maxkb=500']
+      - id: detect-private-key         # Detecta claves privadas PEM/RSA hardcodeadas
+
+  # -----------------------------------------------------------
+  # 2. SECRET SCAN — Gitleaks
+  #    Detecta credenciales, tokens, API keys y secretos
+  #    antes de que lleguen al repositorio
+  # -----------------------------------------------------------
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.2
+    hooks:
+      - id: gitleaks
+        name: "🔍 Secret Scan (Gitleaks)"
+        description: "Escanea el diff del commit en busca de secretos y credenciales"
+
+  # -----------------------------------------------------------
+  # 3. FORMATO DE CÓDIGO — Black + isort
+  # -----------------------------------------------------------
+  - repo: https://github.com/psf/black
+    rev: 24.2.0
+    hooks:
+      - id: black
+        name: "🎨 Formato Python (Black)"
+        language_version: python3
+
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        name: "📦 Orden de imports (isort)"
+        args: ["--profile", "black"]
+
+  # -----------------------------------------------------------
+  # 4. TESTS UNITARIOS — se ejecutan antes de cada commit
+  #    Solo tests/unit/ para que el hook sea rápido (< 30s)
+  #    Los tests de integración se ejecutan en CI/CD
+  #
+  #    NOTA: `language: system` ignora el bloque `env:` en
+  #    pre-commit. Las variables se inyectan directamente
+  #    en el comando `entry` usando el prefijo `env VAR=val`.
+  #    Son valores dummy de CI, no secretos reales.
+  # -----------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: unit-tests
+        name: "🧪 Tests unitarios (pytest)"
+        entry: >-
+          env
+          SECRET_KEY=pre-commit-dummy-not-a-real-secret
+          DATABASE_URL=postgresql://evideth:evideth@localhost:5432/evideth_test
+          JWT_SECRET_KEY=pre-commit-dummy-not-a-real-secret
+          USE_AZURE_KEY_VAULT=false
+          pytest tests/unit/ -v --tb=short -q
+        language: system
+        pass_filenames: false
+        always_run: false
+        types: [python]
+        description: "Ejecuta tests unitarios antes del commit. Falla el commit si algún test falla."

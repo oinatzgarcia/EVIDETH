@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional
+from datetime import datetime
 from pydantic import BaseModel, EmailStr
 
 from app.db.session import get_db
@@ -20,7 +21,19 @@ router = APIRouter(
 )
 
 
-# ── Schemas ─────────────────────────────────────────
+# ── Schemas ──────────────────────────────────────────────────
+
+
+class UserCreate(BaseModel):
+    """
+    Payload para que el Admin cree un nuevo usuario en el sistema.
+    La contraseña se almacena siempre como hash bcrypt.
+    """
+
+    email: EmailStr
+    full_name: str
+    password: str
+    role: UserRole = UserRole.ANALYST
 
 
 class UserUpdate(BaseModel):
@@ -32,8 +45,8 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
     password: Optional[str] = None
-    role: Optional[UserRole] = None  # Solo Admin
-    is_active: Optional[bool] = None  # Solo Admin
+    role: Optional[UserRole] = None
+    is_active: Optional[bool] = None
 
 
 class UserListResponse(BaseModel):
@@ -46,22 +59,49 @@ class UserListResponse(BaseModel):
     items: list[UserResponse]
 
 
-# ── 1. Listar usuarios ─────────────────────────────
+# ── 1. Crear usuario (Admin) ─────────────────────────────────
+
+
+@router.post(
+    "/",
+    response_model=UserResponse,
+    status_code=201,
+    summary="Crear usuario",
+    description="""
+Crea un nuevo usuario en el sistema. Solo **Admin**.
+
+El campo `role` admite: `admin`, `analyst`, `viewer`.
+La contraseña se almacena como hash bcrypt — nunca en claro.
+    """,
+)
+def create_user(
+    data: UserCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    if db.query(User).filter(User.email == data.email).first():
+        raise HTTPException(status_code=400, detail="Email ya registrado")
+
+    user = User(
+        email=data.email,
+        full_name=data.full_name,
+        password=hash_password(data.password),
+        role=data.role,
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+# ── 2. Listar usuarios (Admin) ───────────────────────────────
 
 
 @router.get(
     "/",
     response_model=UserListResponse,
     summary="Listar usuarios",
-    description="""
-Devuelve todos los usuarios del sistema con paginación y filtros opcionales.
-Solo **Admin**.
-
-Filtros disponibles:
-- `role`: filtrar por rol (`admin`, `analyst`, `viewer`)
-- `is_active`: filtrar por estado activo/inactivo
-- `page` / `per_page`: paginación
-    """,
 )
 def list_users(
     role: Optional[UserRole] = None,
@@ -72,7 +112,6 @@ def list_users(
     current_user: User = Depends(require_admin),
 ):
     query = db.query(User)
-
     if role is not None:
         query = query.filter(User.role == role)
     if is_active is not None:
@@ -95,18 +134,13 @@ def list_users(
     )
 
 
-# ── 2. Obtener usuario por ID ───────────────────────
+# ── 3. Obtener usuario por ID ────────────────────────────────
 
 
 @router.get(
     "/{user_id}",
     response_model=UserResponse,
     summary="Obtener usuario por ID",
-    description="""
-Devuelve los datos de un usuario específico.
-- **Admin**: puede ver cualquier usuario
-- **Cualquier usuario**: solo puede verse a sí mismo
-    """,
 )
 def get_user(
     user_id: str,
@@ -124,19 +158,13 @@ def get_user(
     return user
 
 
-# ── 3. Actualizar usuario ─────────────────────────
+# ── 4. Actualizar usuario ────────────────────────────────────
 
 
 @router.patch(
     "/{user_id}",
     response_model=UserResponse,
     summary="Actualizar usuario",
-    description="""
-Actualiza campos de un usuario (PATCH — solo se envían los campos a cambiar).
-
-- **Admin**: puede cambiar cualquier campo de cualquier usuario, incluidos `role` e `is_active`
-- **Cualquier usuario**: puede cambiar `full_name`, `email` y `password` de su propia cuenta
-    """,
 )
 def update_user(
     user_id: str,
@@ -156,14 +184,13 @@ def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    # Campos editables por cualquier usuario (sobre sí mismo)
     if data.full_name is not None:
         user.full_name = data.full_name
 
     if data.email is not None:
-        conflict = (
-            db.query(User).filter(User.email == data.email, User.id != user_id).first()
-        )
+        conflict = db.query(User).filter(
+            User.email == data.email, User.id != user_id
+        ).first()
         if conflict:
             raise HTTPException(status_code=400, detail="Email ya en uso")
         user.email = data.email
@@ -171,10 +198,10 @@ def update_user(
     if data.password is not None:
         user.password = hash_password(data.password)
 
-    # Campos exclusivos de Admin
     if (data.role is not None or data.is_active is not None) and not is_admin:
         raise HTTPException(
-            status_code=403, detail="Solo Admin puede cambiar el rol o el estado activo"
+            status_code=403,
+            detail="Solo Admin puede cambiar el rol o el estado activo",
         )
 
     if is_admin:
@@ -188,19 +215,55 @@ def update_user(
     return user
 
 
-# ── 4. Desactivar usuario (soft delete) ─────────────
+# ── 5. Desactivar usuario — PATCH /deactivate (Admin) ────────
+#
+# Alias REST semántico coexistente con DELETE /{user_id}.
+# El test de RBAC (Escenario 3) usa este endpoint para verificar
+# que la revocación es inmediata incluso con JWT vigente.
+
+
+@router.patch(
+    "/{user_id}/deactivate",
+    status_code=200,
+    summary="Desactivar usuario (PATCH)",
+    description="""
+Desactiva un usuario (soft delete). La sesión activa queda revocada
+inmediatamente: el middleware `get_current_user` comprueba `is_active`
+en cada petición, no solo en el login. Solo **Admin**.
+    """,
+)
+def deactivate_user_patch(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    if str(current_user.id) == user_id:
+        raise HTTPException(
+            status_code=400, detail="No puedes desactivar tu propia cuenta"
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if not user.is_active:
+        raise HTTPException(status_code=400, detail="El usuario ya está inactivo")
+
+    user.is_active = False
+    db.commit()
+    return {
+        "detail": f"Usuario {user.email} desactivado correctamente",
+        "user_id": user_id,
+        "is_active": False,
+    }
+
+
+# ── 6. Desactivar usuario — DELETE (Admin) ───────────────────
 
 
 @router.delete(
     "/{user_id}",
     status_code=200,
-    summary="Desactivar usuario",
-    description="""
-Desactiva un usuario (soft delete — no se elimina de BD, solo se marca como inactivo).
-
-- No se puede desactivar la propia cuenta del Admin que hace la petición
-- Solo **Admin**
-    """,
+    summary="Desactivar usuario (DELETE)",
 )
 def deactivate_user(
     user_id: str,

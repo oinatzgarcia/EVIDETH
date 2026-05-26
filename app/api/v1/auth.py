@@ -1,28 +1,28 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from app.db.session import get_db
-from app.db.models import User
+
+from app.core.dependencies import get_current_user, require_admin
 from app.core.security import (
-    hash_password,
-    verify_password,
     create_access_token,
     create_refresh_token,
     decode_token,
+    hash_password,
+    verify_password,
 )
+from app.db.models import User
+from app.db.session import get_db
 from app.schemas.auth import (
-    RegisterRequest,
     LoginRequest,
     RefreshRequest,
+    RegisterRequest,
     TokenResponse,
     UserResponse,
 )
-from app.core.dependencies import get_current_user, require_admin
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 # ── Helper ───────────────────────────────────────────────
-
 
 def _build_token_response(user: User) -> TokenResponse:
     """Construye la respuesta de token incluyendo el objeto user.
@@ -32,7 +32,9 @@ def _build_token_response(user: User) -> TokenResponse:
     Auth.setTokens(payload) en auth.js persiste payload.user en storage.
     """
     return TokenResponse(
-        access_token=create_access_token({"sub": str(user.id), "role": user.role}),
+        access_token=create_access_token(
+            {"sub": str(user.id), "role": user.role.value}
+        ),
         refresh_token=create_refresh_token({"sub": str(user.id)}),
         user=UserResponse.model_validate(user),
     )
