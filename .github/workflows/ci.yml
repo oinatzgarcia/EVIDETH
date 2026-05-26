@@ -5,7 +5,7 @@
 # Detecta qué ha cambiado con dorny/paths-filter y llama
 # solo los workflows reutilizables necesarios:
 #   • frontend.yml  → templates / static
-#   • backend.yml   → app / alembic / requirements / Dockerfile
+#   • backend.yml   → app / tests / alembic / requirements / Dockerfile
 #   • infra.yml     → terraform / docker-compose
 # ─────────────────────────────────────────────────────────────
 name: CI
@@ -48,6 +48,7 @@ jobs:
               - '.github/workflows/frontend.yml'
             backend:
               - 'app/**'
+              - 'tests/**'
               - 'alembic/**'
               - 'alembic.ini'
               - 'requirements.txt'
