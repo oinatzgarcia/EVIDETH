@@ -12,10 +12,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# ── Lifespan ──────────────────────────────────────────────────
+# ── Lifespan ─────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Intenta crear tablas pero no crashea si la BD no está lista
+    # Startup: intenta crear tablas pero no crashea si la BD no está lista
     # (las migraciones de Alembic son la fuente de verdad del esquema)
     try:
         models.Base.metadata.create_all(bind=engine)
@@ -23,10 +23,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"DB not ready at startup (will retry on first request): {e}")
     yield
-    engine.dispose()
+    # Shutdown: libera conexiones si las hay; ignora errores en entornos
+    # de test donde el engine de producción nunca llegó a conectarse.
+    try:
+        engine.dispose()
+    except Exception as e:
+        logger.debug(f"engine.dispose() skipped during shutdown: {e}")
 
 
-# ── App ──────────────────────────────────────────────────
+# ── App ────────────────────────────────────────────────
+
 app = FastAPI(
     title="EVIDETH API",
     description="Forensic Video Integrity Verification System",
@@ -35,7 +41,7 @@ app = FastAPI(
 )
 
 
-# ── CORS ──────────────────────────────────────────────────
+# ── CORS ────────────────────────────────────────────────
 # allow_origins incluye localhost (dev) + dominios Azure (prod)
 # CORS_ORIGINS puede sobrescribirse via variable de entorno
 _raw_origins = getattr(settings, "CORS_ORIGINS", "")
@@ -58,7 +64,8 @@ app.add_middleware(
 )
 
 
-# ── Routers ────────────────────────────────────────────────
+# ── Routers ──────────────────────────────────────────────
+
 app.include_router(auth.router,         prefix="/api/v1")
 app.include_router(users.router,        prefix="/api/v1")
 app.include_router(cameras.router,      prefix="/api/v1")
@@ -67,20 +74,20 @@ app.include_router(stats.router,        prefix="/api/v1")
 app.include_router(logs.router,         prefix="/api/v1")
 
 
-# ── Health check (ruta que usan los probes de Azure) ─────────
+# ── Health check (ruta que usan los probes de Azure) ───────────
 # Terraform apunta liveness/readiness a /api/v1/health
 @app.get("/api/v1/health", tags=["Health"])
 def health():
     return {"status": "healthy", "version": "2.0.0"}
 
 
-# ── Alias raíz ───────────────────────────────────────────────
+# ── Alias raíz ───────────────────────────────────────────
 @app.get("/health", include_in_schema=False)
 def health_root():
     return {"status": "healthy"}
 
 
-# ── Redirect raíz al frontend ────────────────────────────────
+# ── Redirect raíz al frontend ─────────────────────────────
 @app.get("/", include_in_schema=False)
 def root():
     return RedirectResponse(url="/frontend/pages/login/login.html", status_code=302)
