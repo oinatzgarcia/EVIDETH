@@ -10,6 +10,11 @@ Cubre el ciclo completo del sistema:
   4. CASO FAIL: corromper 1 byte del vídeo → integrity_ok=False
   5. CASO MERKLE: verificar que los segundos manipulados se identifican
 
+Nota sobre la corrupción del MP4:
+  Un fichero MP4 tiene estructura [ftyp][moov (metadata ~0-25%)][mdat (frames ~25-100%)].
+  Para que ffmpeg re-extraiga segmentos con hashes distintos la corrupción DEBE caer
+  en la zona mdat. Por eso usamos offset = 60% del fichero.
+
 Ejecución:
     pytest tests/integration/test_verification_e2e.py -v
 """
@@ -36,7 +41,7 @@ from app.services.verifier import verify_video
 from app.utils.merkle import build_merkle_root, get_merkle_proof, verify_merkle_proof
 
 
-# ── Fixtures ──────────────────────────────────────────────────────────────────
+# ── Fixtures ──────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="module")
 def db_session():
@@ -135,7 +140,7 @@ def registered_video(db_session, test_video_path):
     return camera, video, db_segments
 
 
-# ── Tests unitarios: Módulo Merkle ──────────────────────────────────────────
+# ── Tests unitarios: Módulo Merkle ────────────────────────────────────────────
 
 class TestMerkleTree:
     def test_single_leaf(self):
@@ -206,8 +211,11 @@ class TestVerificationE2E:
 
     def test_fail_corrupted_video(self, db_session, registered_video, test_video_path):
         """
-        CASO FAIL: modificar 1 byte en el vídeo → debe detectar manipulación.
-        El byte se modifica en la mitad del archivo (zona de datos de vídeo).
+        CASO FAIL: modificar 1 byte en la zona mdat del vídeo → detecta manipulación.
+
+        La corrupción se aplica al 60% del fichero (zona mdat — datos de frames).
+        Si se aplica en el 20% (zona moov — metadata/índice), ffmpeg puede ignorarla
+        al re-extraer los frames y los hashes no cambian.
         """
         camera, video, _ = registered_video
         corrupted_path = corrupt_video(test_video_path)
@@ -274,7 +282,7 @@ class TestVerificationE2E:
             )
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def video_path_copy(src: str) -> str:
     """Devuelve el mismo path (el test no modifica el original)."""
@@ -283,22 +291,27 @@ def video_path_copy(src: str) -> str:
 
 def corrupt_video(src: str) -> str:
     """
-    Copia el vídeo y modifica 1 byte en el primer segmento de datos.
-    Devuelve la ruta del vídeo corrompido.
+    Copia el vídeo y corrompe 1 byte en la zona mdat (frame data).
+
+    Estructura MP4:
+      [ftyp box] [moov box ~0-25% — metadata, índice] [mdat box ~25-100% — frames]
+
+    El offset debe caer en mdat para que ffmpeg re-extraiga frames con hashes distintos.
+    moov puede ser ignorado/reconstruido por ffmpeg aunque esté corrompido.
+    Se usa 60% del fichero para garantizar que estamos bien dentro de mdat.
     """
     import shutil
     dst = src.replace(".mp4", "_corrupted.mp4")
     shutil.copy2(src, dst)
 
     file_size = os.path.getsize(dst)
-    # Modificar un byte en el 20% del fichero (zona de datos de vídeo)
-    corrupt_offset = int(file_size * 0.20)
+    # 60% del fichero → zona mdat (frame data), nunca moov
+    corrupt_offset = int(file_size * 0.60)
 
     with open(dst, "r+b") as f:
         f.seek(corrupt_offset)
         original_byte = f.read(1)
         f.seek(corrupt_offset)
-        # XOR con 0xFF para invertir el byte (garantiza cambio)
         f.write(bytes([original_byte[0] ^ 0xFF]))
 
     return dst
