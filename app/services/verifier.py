@@ -10,32 +10,21 @@ from datetime import datetime, timezone
 import os
 
 from app.db.models import (
-    Camera, Segment, Verification, Video,
-    SegmentStatus, VerificationResult,
+    Camera,
+    Segment,
+    Verification,
+    Video,
+    SegmentStatus,
+    VerificationResult,
 )
 from app.services.video_processor import (
-    segment_video, cleanup_segments, extract_frame_thumbnail
+    segment_video,
+    cleanup_segments,
+    extract_frame_thumbnail,
 )
 from app.utils.merkle import build_merkle_root
+from app.utils.crypto import verify_ecdsa_signature  # noqa: F401  (re-export)
 import tempfile
-
-
-def verify_ecdsa_signature(
-    merkle_root:    str,
-    signature_b64:  str,
-    public_key_pem: str,
-) -> bool:
-    try:
-        public_key = serialization.load_pem_public_key(public_key_pem.encode())
-        padded     = signature_b64 + "==" * (4 - len(signature_b64) % 4 if len(signature_b64) % 4 else 0)
-        signature  = base64.urlsafe_b64decode(padded)
-        data       = bytes.fromhex(merkle_root)
-        public_key.verify(signature, data, ec.ECDSA(hashes.SHA256()))
-        return True
-    except InvalidSignature:
-        return False
-    except Exception:
-        return False
 
 
 def _get_camera_public_key(camera_id: str, db: Session) -> Optional[str]:
@@ -46,7 +35,7 @@ def _get_camera_public_key(camera_id: str, db: Session) -> Optional[str]:
 
 
 def _compare_second_hashes(
-    computed_seconds:    List[str],
+    computed_seconds: List[str],
     stored_seconds_json: Optional[Union[str, list]],
 ) -> Optional[List[Dict]]:
     """
@@ -62,27 +51,29 @@ def _compare_second_hashes(
         stored_seconds = json.loads(stored_seconds_json)
 
     results = []
-    count   = max(len(computed_seconds), len(stored_seconds))
-    empty   = hashlib.sha256(b"").hexdigest()
+    count = max(len(computed_seconds), len(stored_seconds))
+    empty = hashlib.sha256(b"").hexdigest()
 
     for i in range(count):
-        comp  = computed_seconds[i] if i < len(computed_seconds) else empty
-        stor  = stored_seconds[i]   if i < len(stored_seconds)  else None
+        comp = computed_seconds[i] if i < len(computed_seconds) else empty
+        stor = stored_seconds[i] if i < len(stored_seconds) else None
         match = (comp == stor) if stor is not None else False
-        results.append({
-            "second_index":  i,
-            "computed_hash": comp,
-            "stored_hash":   stor,
-            "hash_match":    match,
-            "tampered":      not match,
-        })
+        results.append(
+            {
+                "second_index": i,
+                "computed_hash": comp,
+                "stored_hash": stor,
+                "hash_match": match,
+                "tampered": not match,
+            }
+        )
 
     return results
 
 
 def _extract_tampered_frames(
-    video_path:        str,
-    second_results:    List[Dict],
+    video_path: str,
+    second_results: List[Dict],
     stored_thumbnails: Optional[Union[str, list]],
 ) -> Dict[str, Dict]:
     """
@@ -110,11 +101,11 @@ def _extract_tampered_frames(
             continue
         sec = sr["second_index"]
 
-        current_frame  = extract_frame_thumbnail(video_path, sec)
+        current_frame = extract_frame_thumbnail(video_path, sec)
         original_frame = stored[sec] if sec < len(stored) else None
 
         frames[str(sec)] = {
-            "current_frame":  current_frame,
+            "current_frame": current_frame,
             "original_frame": original_frame,
         }
 
@@ -125,15 +116,16 @@ def _extract_tampered_frames(
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def verify_video(
-    video_path:     str,
-    camera_id:      str,
-    video_db_id:    str,
-    db:             Session,
+    video_path: str,
+    camera_id: str,
+    video_db_id: str,
+    db: Session,
     verified_by_id: Optional[str] = None,
-    ip_address:     Optional[str] = None,
-    user_agent:     Optional[str] = None,
-    progress_cb:    Optional[Callable[[int, str], None]] = None,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
+    progress_cb: Optional[Callable[[int, str], None]] = None,
 ) -> Dict:
     """
     Verificación de integridad con 4 niveles criptográficos.
@@ -149,6 +141,7 @@ def verify_video(
                      the caller is responsible for setting 0 (start) and
                      100 (finish).
     """
+
     def _cb(pct: int, msg: str):
         if progress_cb:
             progress_cb(pct, msg)
@@ -164,26 +157,33 @@ def verify_video(
     if not stored_segments:
         raise ValueError(f"No hay segmentos almacenados para el video {video_db_id}")
 
-    video_record     = db.query(Video).filter(Video.id == video_db_id).first()
-    stored_file_hash = getattr(video_record, "file_hash", None) if video_record else None
+    video_record = db.query(Video).filter(Video.id == video_db_id).first()
+    stored_file_hash = (
+        getattr(video_record, "file_hash", None) if video_record else None
+    )
 
     if stored_file_hash:
         _cb(4, "Checking whole-file hash…")
         import hashlib as _hl
+
         with open(video_path, "rb") as f:
             computed_file_hash = _hl.sha256(f.read()).hexdigest()
         if computed_file_hash != stored_file_hash:
             return {
-                "video_id":        video_db_id,
-                "camera_id":       camera_id,
-                "integrity_ok":    False,
-                "verdict":         "MANIPULADO O INCOMPLETO",
+                "video_id": video_db_id,
+                "camera_id": camera_id,
+                "integrity_ok": False,
+                "verdict": "MANIPULADO O INCOMPLETO",
                 "ecdsa_available": False,
-                "reason":          "file_hash_mismatch",
-                "detail":          "Hash del fichero completo no coincide.",
-                "summary": {"total_segments": len(stored_segments),
-                            "passed": 0, "failed": 1, "missing": 0},
-                "segments":    [],
+                "reason": "file_hash_mismatch",
+                "detail": "Hash del fichero completo no coincide.",
+                "summary": {
+                    "total_segments": len(stored_segments),
+                    "passed": 0,
+                    "failed": 1,
+                    "missing": 0,
+                },
+                "segments": [],
                 "verified_at": datetime.now(timezone.utc).isoformat(),
             }
 
@@ -195,16 +195,18 @@ def verify_video(
         computed_segments = segment_video(video_path, temp_dir)
 
         results = []
-        total   = passed = failed = missing = 0
-        n_segs  = len(computed_segments)
+        total = passed = failed = missing = 0
+        n_segs = len(computed_segments)
 
         for i, computed in enumerate(computed_segments):
-            idx    = computed["segment_index"]
+            idx = computed["segment_index"]
             total += 1
 
-            # Real per-segment progress: maps segment i to range 10..90
             seg_pct = int(10 + 80 * (i + 1) / max(n_segs, 1))
-            _cb(seg_pct, f"Verifying segment {i + 1}/{n_segs} — SHA-256 + Merkle + ECDSA…")
+            _cb(
+                seg_pct,
+                f"Verifying segment {i + 1}/{n_segs} — SHA-256 + Merkle + ECDSA…",
+            )
 
             stored = next(
                 (s for s in stored_segments if s.segment_index == idx), None
@@ -212,31 +214,37 @@ def verify_video(
 
             if not stored:
                 missing += 1
-                failed  += 1
+                failed += 1
                 entry = _make_entry(
-                    idx=idx, computed=computed, stored=None,
-                    hash_match=False, signature_valid=None,
-                    merkle_match=None, second_results=None,
+                    idx=idx,
+                    computed=computed,
+                    stored=None,
+                    hash_match=False,
+                    signature_valid=None,
+                    merkle_match=None,
+                    second_results=None,
                     tampered_frames={},
                     result="fail",
                     detail="Segmento no encontrado en base de datos",
                 )
-                _save_verification(db, None, entry, verified_by_id, ip_address, user_agent)
+                _save_verification(
+                    db, None, entry, verified_by_id, ip_address, user_agent
+                )
                 results.append(entry)
                 continue
 
-            # ── Nivel 1 ─────────────────────────────────────────────
+            # ── Nivel 1 ──────────────────────────────────────────────────
             hash_match = computed["sha256_hash"] == stored.sha256_hash
 
-            # ── Nivel 2 ─────────────────────────────────────────────
+            # ── Nivel 2 ──────────────────────────────────────────────────
             computed_merkle = computed.get("merkle_root")
-            stored_merkle   = stored.merkle_root
-            merkle_match    = None
-            second_results  = None
+            stored_merkle = stored.merkle_root
+            merkle_match = None
+            second_results = None
             tampered_frames: Dict[str, Dict] = {}
 
             if computed_merkle and stored_merkle:
-                merkle_match = (computed_merkle == stored_merkle)
+                merkle_match = computed_merkle == stored_merkle
                 if not merkle_match:
                     second_results = _compare_second_hashes(
                         computed.get("second_hashes", []),
@@ -246,14 +254,14 @@ def verify_video(
                         work_path = computed.get("file_path", video_path)
                         if os.path.exists(work_path):
                             tampered_frames = _extract_tampered_frames(
-                                video_path        = work_path,
-                                second_results    = second_results,
-                                stored_thumbnails = stored.frame_thumbnails,
+                                video_path=work_path,
+                                second_results=second_results,
+                                stored_thumbnails=stored.frame_thumbnails,
                             )
 
-            # ── Nivel 3 ─────────────────────────────────────────────
+            # ── Nivel 3 ──────────────────────────────────────────────────
             signature_valid = None
-            sig_detail      = ""
+            sig_detail = ""
 
             if not stored.ecdsa_signature:
                 sig_detail = "Sin firma ECDSA (segmento sin firmar)."
@@ -263,33 +271,41 @@ def verify_video(
                 sig_detail = f"Clave pública de '{camera_id}' no registrada."
             else:
                 signature_valid = verify_ecdsa_signature(
-                    merkle_root    = stored.merkle_root,
-                    signature_b64  = stored.ecdsa_signature,
-                    public_key_pem = camera_public_key_pem,
+                    merkle_root=stored.merkle_root,
+                    signature_b64=stored.ecdsa_signature,
+                    public_key_pem=camera_public_key_pem,
                 )
                 sig_detail = (
-                    "✓ Firma ECDSA válida" if signature_valid
+                    "✓ Firma ECDSA válida"
+                    if signature_valid
                     else "⚠ Firma ECDSA INVÁLIDA"
                 )
 
-            # ── Resultado final ─────────────────────────────────────────
+            # ── Resultado final ─────────────────────────────────────────────────
             tampered_secs = [
                 s["second_index"] for s in (second_results or []) if s["tampered"]
             ]
 
-            if hash_match and merkle_match is not False and signature_valid is not False:
+            if (
+                hash_match
+                and merkle_match is not False
+                and signature_valid is not False
+            ):
                 passed += 1
-                result  = "pass"
+                result = "pass"
                 stored.status = SegmentStatus.VALID
                 parts = ["✓ Íntegro"]
-                if merkle_match is True:      parts.append("Merkle OK")
-                if signature_valid is True:   parts.append("ECDSA OK")
-                elif signature_valid is None: parts.append(sig_detail)
+                if merkle_match is True:
+                    parts.append("Merkle OK")
+                if signature_valid is True:
+                    parts.append("ECDSA OK")
+                elif signature_valid is None:
+                    parts.append(sig_detail)
                 detail = " — ".join(parts)
 
             elif hash_match and merkle_match is False:
                 failed += 1
-                result  = "fail"
+                result = "fail"
                 stored.status = SegmentStatus.INVALID
                 detail = (
                     f"⚠ SHA-256 correcto pero Merkle root no coincide. "
@@ -298,13 +314,13 @@ def verify_video(
 
             elif signature_valid is False:
                 failed += 1
-                result  = "fail"
+                result = "fail"
                 stored.status = SegmentStatus.INVALID
                 detail = f"⚠ FIRMA ECDSA INVÁLIDA. Hash: {hash_match}. Merkle: {merkle_match}."
 
             else:
                 failed += 1
-                result  = "fail"
+                result = "fail"
                 stored.status = SegmentStatus.INVALID
                 if tampered_secs:
                     detail = (
@@ -320,11 +336,16 @@ def verify_video(
                     )
 
             entry = _make_entry(
-                idx=idx, computed=computed, stored=stored,
-                hash_match=hash_match, signature_valid=signature_valid,
-                merkle_match=merkle_match, second_results=second_results,
+                idx=idx,
+                computed=computed,
+                stored=stored,
+                hash_match=hash_match,
+                signature_valid=signature_valid,
+                merkle_match=merkle_match,
+                second_results=second_results,
                 tampered_frames=tampered_frames,
-                result=result, detail=detail,
+                result=result,
+                detail=detail,
             )
             _save_verification(db, stored, entry, verified_by_id, ip_address, user_agent)
             results.append(entry)
@@ -336,41 +357,43 @@ def verify_video(
         for seg in stored_segments:
             if seg.segment_index not in computed_indices:
                 missing += 1
-                total   += 1
-                results.append({
-                    "segment_index":        seg.segment_index,
-                    "start_time_secs":      None,
-                    "end_time_secs":        None,
-                    "duration_secs":        None,
-                    "complete":             False,
-                    "computed_hash":        None,
-                    "stored_hash":          seg.sha256_hash,
-                    "hash_match":           False,
-                    "signature_valid":      None,
-                    "result":               "fail",
-                    "detail":               "Segmento en BD pero ausente en el vídeo subido",
-                    "computed_merkle_root": None,
-                    "stored_merkle_root":   seg.merkle_root,
-                    "merkle_match":         None,
-                    "second_results":       None,
-                    "tampered_frames":      {},
-                })
+                total += 1
+                results.append(
+                    {
+                        "segment_index": seg.segment_index,
+                        "start_time_secs": None,
+                        "end_time_secs": None,
+                        "duration_secs": None,
+                        "complete": False,
+                        "computed_hash": None,
+                        "stored_hash": seg.sha256_hash,
+                        "hash_match": False,
+                        "signature_valid": None,
+                        "result": "fail",
+                        "detail": "Segmento en BD pero ausente en el vídeo subido",
+                        "computed_merkle_root": None,
+                        "stored_merkle_root": seg.merkle_root,
+                        "merkle_match": None,
+                        "second_results": None,
+                        "tampered_frames": {},
+                    }
+                )
 
         _cb(96, "Building final report…")
-        integrity_ok = (failed == 0 and missing == 0)
+        integrity_ok = failed == 0 and missing == 0
         return {
-            "video_id":        video_db_id,
-            "camera_id":       camera_id,
-            "integrity_ok":    integrity_ok,
-            "verdict":         "ÍNTEGRO" if integrity_ok else "MANIPULADO O INCOMPLETO",
+            "video_id": video_db_id,
+            "camera_id": camera_id,
+            "integrity_ok": integrity_ok,
+            "verdict": "ÍNTEGRO" if integrity_ok else "MANIPULADO O INCOMPLETO",
             "ecdsa_available": camera_public_key_pem is not None,
             "summary": {
                 "total_segments": total,
-                "passed":         passed,
-                "failed":         failed,
-                "missing":        missing,
+                "passed": passed,
+                "failed": failed,
+                "missing": missing,
             },
-            "segments":    results,
+            "segments": results,
             "verified_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -383,61 +406,62 @@ def verify_video(
 
 
 def _make_entry(
-    idx:             int,
-    computed:        Dict,
-    stored:          Optional[object],
-    hash_match:      bool,
+    idx: int,
+    computed: Dict,
+    stored: Optional[object],
+    hash_match: bool,
     signature_valid: Optional[bool],
-    merkle_match:    Optional[bool],
-    second_results:  Optional[List],
+    merkle_match: Optional[bool],
+    second_results: Optional[List],
     tampered_frames: Dict,
-    result:          str,
-    detail:          str,
+    result: str,
+    detail: str,
 ) -> Dict:
     return {
-        "segment_index":        idx,
-        "start_time_secs":      computed.get("start_time_secs"),
-        "end_time_secs":        computed.get("end_time_secs"),
-        "duration_secs":        computed.get("duration_secs"),
-        "complete":             computed.get("complete"),
-        "computed_hash":        computed.get("sha256_hash"),
-        "stored_hash":          stored.sha256_hash if stored else None,
-        "hash_match":           hash_match,
-        "signature_valid":      signature_valid,
-        "result":               result,
-        "detail":               detail,
+        "segment_index": idx,
+        "start_time_secs": computed.get("start_time_secs"),
+        "end_time_secs": computed.get("end_time_secs"),
+        "duration_secs": computed.get("duration_secs"),
+        "complete": computed.get("complete"),
+        "computed_hash": computed.get("sha256_hash"),
+        "stored_hash": stored.sha256_hash if stored else None,
+        "hash_match": hash_match,
+        "signature_valid": signature_valid,
+        "result": result,
+        "detail": detail,
         "computed_merkle_root": computed.get("merkle_root"),
-        "stored_merkle_root":   stored.merkle_root if stored else None,
-        "merkle_match":         merkle_match,
-        "second_results":       second_results,
-        "tampered_frames":      tampered_frames,
+        "stored_merkle_root": stored.merkle_root if stored else None,
+        "merkle_match": merkle_match,
+        "second_results": second_results,
+        "tampered_frames": tampered_frames,
     }
 
 
 def _save_verification(
-    db:             Session,
-    segment:        Optional[object],
-    result:         Dict,
+    db: Session,
+    segment: Optional[object],
+    result: Dict,
     verified_by_id: Optional[str],
-    ip_address:     Optional[str],
-    user_agent:     Optional[str],
+    ip_address: Optional[str],
+    user_agent: Optional[str],
 ) -> None:
     if segment is None:
         return
     verification = Verification(
-        segment_id      = segment.id,
-        result          = (
-            VerificationResult.PASS if result["result"] == "pass"
+        segment_id=segment.id,
+        result=(
+            VerificationResult.PASS
+            if result["result"] == "pass"
             else VerificationResult.FAIL
         ),
-        hash_match      = result["hash_match"],
-        signature_valid = result["signature_valid"],
-        computed_hash   = result["computed_hash"],
-        stored_hash     = result["stored_hash"],
-        error_message   = result.get("detail") if result["result"] != "pass" else None,
-        verified_by_id  = verified_by_id,
-        ip_address      = ip_address,
-        user_agent      = user_agent,
-        verified_at     = datetime.now(timezone.utc),
+        hash_match=result["hash_match"],
+        signature_valid=result["signature_valid"],
+        computed_hash=result["computed_hash"],
+        stored_hash=result["stored_hash"],
+        error_message=result.get("detail") if result["result"] != "pass" else None,
+        verified_by_id=verified_by_id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        verified_at=datetime.now(timezone.utc),
     )
     db.add(verification)
