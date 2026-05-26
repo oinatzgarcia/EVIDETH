@@ -16,7 +16,7 @@ repos:
   # 1. HOOKS BÁSICOS DE CALIDAD
   # -----------------------------------------------------------
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace        # Elimina espacios al final de línea
       - id: end-of-file-fixer          # Asegura salto de línea al final
@@ -36,7 +36,7 @@ repos:
     rev: v8.18.2
     hooks:
       - id: gitleaks
-        name: "🔍 Secret Scan (Gitleaks)"
+        name: "\U0001F50D Secret Scan (Gitleaks)"
         description: "Escanea el diff del commit en busca de secretos y credenciales"
 
   # -----------------------------------------------------------
@@ -46,14 +46,14 @@ repos:
     rev: 24.2.0
     hooks:
       - id: black
-        name: "🎨 Formato Python (Black)"
+        name: "\U0001F3A8 Formato Python (Black)"
         language_version: python3
 
   - repo: https://github.com/PyCQA/isort
     rev: 5.13.2
     hooks:
       - id: isort
-        name: "📦 Orden de imports (isort)"
+        name: "\U0001F4E6 Orden de imports (isort)"
         args: ["--profile", "black"]
 
   # -----------------------------------------------------------
@@ -61,24 +61,26 @@ repos:
   #    Solo tests/unit/ para que el hook sea rápido (< 30s)
   #    Los tests de integración se ejecutan en CI/CD
   #
-  #    NOTA: `language: system` ignora el bloque `env:` en
-  #    pre-commit. Las variables se inyectan directamente
-  #    en el comando `entry` usando el prefijo `env VAR=val`.
-  #    Son valores dummy de CI, no secretos reales.
+  #    IMPORTANTE: Se usa ./venv/bin/python explícitamente para
+  #    que httpx==0.27.0 (pinned en requirements.txt) sea el que
+  #    se use. httpx>=0.28 rompe starlette.testclient (elimina
+  #    el argumento 'app=' en Client.__init__).
+  #
+  #    Las variables de entorno son dummies de CI (no secretos).
   # -----------------------------------------------------------
   - repo: local
     hooks:
       - id: unit-tests
-        name: "🧪 Tests unitarios (pytest)"
+        name: "\U0001F9EA Tests unitarios (pytest)"
         entry: >-
           env
           SECRET_KEY=pre-commit-dummy-not-a-real-secret
-          DATABASE_URL=postgresql://evideth:evideth@localhost:5432/evideth_test
+          DATABASE_URL=sqlite:///./test_precommit.db
           JWT_SECRET_KEY=pre-commit-dummy-not-a-real-secret
           USE_AZURE_KEY_VAULT=false
-          pytest tests/unit/ -v --tb=short -q
+          ./venv/bin/python -m pytest tests/unit/ -v --tb=short -q
         language: system
         pass_filenames: false
         always_run: false
         types: [python]
-        description: "Ejecuta tests unitarios antes del commit. Falla el commit si algún test falla."
+        description: "Ejecuta tests unitarios antes del commit. Usa el venv del proyecto."
