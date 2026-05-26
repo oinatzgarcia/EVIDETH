@@ -24,6 +24,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.db.session import Base, get_db
 from app.db.models import User, UserRole
@@ -31,59 +32,52 @@ from app.core.security import hash_password, create_access_token
 from app.main import app
 
 import secrets
-import re
 
 # ── Fixtures ─────────────────────────────────────────────────
 
 
 @pytest.fixture(scope="class")
-def db_engine():
+def client():
     """
-    Motor SQLite en memoria por clase de test.
-    Cada escenario (clase) arranca con una BD totalmente limpia.
+    TestClient con BD SQLite en memoria aislada por escenario.
+    StaticPool garantiza que todos los hilos/conexiones comparten
+    exactamente el mismo objeto de conexión en memoria.
     """
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
     Base.metadata.create_all(bind=engine)
-    yield engine
-    Base.metadata.drop_all(bind=engine)
-    engine.dispose()
-
-
-@pytest.fixture(scope="class")
-def client(db_engine):
-    """
-    TestClient con BD aislada por escenario.
-    Se sobreescribe get_db para apuntar al motor del escenario.
-    """
-    TestingSessionLocal = sessionmaker(
-        autocommit=False, autoflush=False, bind=db_engine
-    )
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     def override_get_db():
-        db = TestingSessionLocal()
+        db = SessionLocal()
         try:
             yield db
         finally:
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+
     with TestClient(app) as c:
+        # Exponemos la sesión en el cliente para que admin_token pueda usarla
+        c._test_session_local = SessionLocal
         yield c
+
     app.dependency_overrides.pop(get_db, None)
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
 
 
 @pytest.fixture(scope="class")
-def admin_token(db_engine):
+def admin_token(client):
     """
-    Crea un usuario admin en la BD del escenario y devuelve su JWT.
+    Crea un usuario admin usando la misma BD que el client y devuelve su JWT.
+    Depende de `client` para garantizar que el override ya está activo.
     """
-    TestingSessionLocal = sessionmaker(
-        autocommit=False, autoflush=False, bind=db_engine
-    )
-    db = TestingSessionLocal()
+    SessionLocal = client._test_session_local
+    db = SessionLocal()
     try:
         admin = db.query(User).filter(User.email == "admin@evideth.test").first()
         if not admin:
