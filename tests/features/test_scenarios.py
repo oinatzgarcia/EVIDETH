@@ -18,6 +18,10 @@ Referencias de seguridad:
   - OWASP ASVS §4.2 (Least Privilege)
   - NIST SP 800-53 AC-2 (Account Management)
   - NIST SP 800-57 (Key Management)
+
+NOTA: Los tests de cada escenario son secuenciales. No deben ejecutarse
+de forma aislada: si un paso previo falló, los siguientes se omiten
+automáticamente con pytest.skip para evitar AttributeError en cascada.
 """
 
 import pytest
@@ -61,7 +65,6 @@ def client():
     app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(app) as c:
-        # Exponemos la sesión en el cliente para que admin_token pueda usarla
         c._test_session_local = SessionLocal
         yield c
 
@@ -79,10 +82,10 @@ def admin_token(client):
     SessionLocal = client._test_session_local
     db = SessionLocal()
     try:
-        admin = db.query(User).filter(User.email == "admin@evideth.test").first()
+        admin = db.query(User).filter(User.email == "admin@example.com").first()
         if not admin:
             admin = User(
-                email="admin@evideth.test",
+                email="admin@example.com",
                 full_name="Admin Test",
                 password=hash_password("Admin1234!"),
                 role=UserRole.ADMIN,
@@ -106,6 +109,17 @@ def _auth(token: str) -> dict:
 def _valid_sha256() -> str:
     """Genera un SHA-256 hex válido aleatorio."""
     return secrets.token_hex(32)
+
+
+def _require(*attrs):
+    """
+    Salta el test si alguno de los atributos de clase no fue asignado por
+    un paso anterior. Evita AttributeError en cascada cuando se ejecutan
+    tests aislados o cuando un paso previo falló.
+    """
+    for cls, attr in attrs:
+        if not getattr(cls, attr, None):
+            pytest.skip(f"Prerequisito faltante: {cls.__name__}.{attr} — ejecuta el escenario completo")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -151,6 +165,7 @@ class TestScenario1CameraLifecycle:
         TestScenario1CameraLifecycle._api_key = data["api_key"]
 
     def test_step2_camera_appears_in_list(self, client, admin_token):
+        _require((TestScenario1CameraLifecycle, "_api_key"))
         resp = client.get(
             "/api/v1/cameras/",
             params={"is_active": True},
@@ -161,6 +176,7 @@ class TestScenario1CameraLifecycle:
         assert self._camera_id in ids
 
     def test_step3_heartbeat_succeeds(self, client):
+        _require((TestScenario1CameraLifecycle, "_api_key"))
         resp = client.post(
             "/api/v1/cameras/heartbeat",
             headers={"X-API-Key": TestScenario1CameraLifecycle._api_key},
@@ -169,6 +185,7 @@ class TestScenario1CameraLifecycle:
         assert resp.json()["camera_id"] == self._camera_id
 
     def test_step4_deactivate_camera(self, client, admin_token):
+        _require((TestScenario1CameraLifecycle, "_api_key"))
         resp = client.patch(
             f"/api/v1/cameras/{self._camera_id}/deactivate",
             headers=_auth(admin_token),
@@ -177,6 +194,7 @@ class TestScenario1CameraLifecycle:
         assert resp.json()["is_active"] is False
 
     def test_step5_heartbeat_rejected_after_deactivation(self, client):
+        _require((TestScenario1CameraLifecycle, "_api_key"))
         resp = client.post(
             "/api/v1/cameras/heartbeat",
             headers={"X-API-Key": TestScenario1CameraLifecycle._api_key},
@@ -212,6 +230,7 @@ class TestScenario2ForensicCaptureFlow:
         TestScenario2ForensicCaptureFlow._api_key = resp.json()["api_key"]
 
     def test_step2_camera_starts_video(self, client):
+        _require((TestScenario2ForensicCaptureFlow, "_api_key"))
         resp = client.post(
             "/api/v1/cameras/videos",
             json={"filename": "sc2_capture.mp4", "fps": 25.0, "resolution": "1920x1080"},
@@ -223,6 +242,10 @@ class TestScenario2ForensicCaptureFlow:
         TestScenario2ForensicCaptureFlow._video_id = data["id"]
 
     def test_step3_camera_uploads_three_segments(self, client):
+        _require(
+            (TestScenario2ForensicCaptureFlow, "_api_key"),
+            (TestScenario2ForensicCaptureFlow, "_video_id"),
+        )
         video_id = TestScenario2ForensicCaptureFlow._video_id
         api_key = TestScenario2ForensicCaptureFlow._api_key
         hashes = []
@@ -244,6 +267,10 @@ class TestScenario2ForensicCaptureFlow:
         TestScenario2ForensicCaptureFlow._hashes = hashes
 
     def test_step4_analyst_queries_video_segments(self, client, admin_token):
+        _require(
+            (TestScenario2ForensicCaptureFlow, "_video_id"),
+            (TestScenario2ForensicCaptureFlow, "_hashes"),
+        )
         video_id = TestScenario2ForensicCaptureFlow._video_id
         resp = client.get(
             f"/api/v1/cameras/videos/{video_id}/segments",
@@ -267,9 +294,24 @@ class TestScenario2ForensicCaptureFlow:
 class TestScenario3Rbac:
     """
     Escenario: Ciclo de vida completo de un analista forense.
+
+    Pasos:
+      1. Admin crea cuenta de analista
+      2. Analista se autentifica y obtiene JWT
+      3. Analista puede leer cámaras (operación permitida)
+      4. Analista no puede eliminar usuarios (operación prohibida)
+      5. Admin desactiva al analista
+      6. Analista desactivado es rechazado aunque tenga JWT vigente
+
+    Garantías:
+      - Principio de menor privilegio (OWASP ASVS §4.2)
+      - Revocación inmediata: el sistema comprueba is_active en cada
+        petición, no solo en el momento del login (NIST SP 800-53 AC-2)
     """
 
-    analyst_email: str = "analyst.sc3@evideth.test"
+    # Dominio @example.com es válido según RFC 2606 y aceptado por el
+    # validador de email de Pydantic (a diferencia de .test que es reservado).
+    analyst_email: str = "analyst.sc3@example.com"
     analyst_password: str = "Analyst1234!"
 
     def test_step1_admin_creates_analyst(self, client, admin_token):
@@ -290,6 +332,7 @@ class TestScenario3Rbac:
         TestScenario3Rbac._analyst_id = data["id"]
 
     def test_step2_analyst_logs_in(self, client):
+        _require((TestScenario3Rbac, "_analyst_id"))
         resp = client.post(
             "/api/v1/auth/login",
             json={"email": self.analyst_email, "password": self.analyst_password},
@@ -300,6 +343,7 @@ class TestScenario3Rbac:
         TestScenario3Rbac._analyst_token = data["access_token"]
 
     def test_step3_analyst_can_read_cameras(self, client):
+        _require((TestScenario3Rbac, "_analyst_token"))
         resp = client.get(
             "/api/v1/cameras/",
             headers=_auth(TestScenario3Rbac._analyst_token),
@@ -307,6 +351,10 @@ class TestScenario3Rbac:
         assert resp.status_code == 200, resp.text
 
     def test_step4_analyst_cannot_delete_user(self, client):
+        _require(
+            (TestScenario3Rbac, "_analyst_id"),
+            (TestScenario3Rbac, "_analyst_token"),
+        )
         resp = client.delete(
             f"/api/v1/users/{TestScenario3Rbac._analyst_id}",
             headers=_auth(TestScenario3Rbac._analyst_token),
@@ -316,6 +364,10 @@ class TestScenario3Rbac:
         )
 
     def test_step5_admin_deactivates_analyst(self, client, admin_token):
+        _require(
+            (TestScenario3Rbac, "_analyst_id"),
+            (TestScenario3Rbac, "_analyst_token"),
+        )
         resp = client.patch(
             f"/api/v1/users/{TestScenario3Rbac._analyst_id}/deactivate",
             headers=_auth(admin_token),
@@ -324,6 +376,7 @@ class TestScenario3Rbac:
         assert resp.json()["is_active"] is False
 
     def test_step6_deactivated_analyst_cannot_operate(self, client):
+        _require((TestScenario3Rbac, "_analyst_token"))
         resp = client.get(
             "/api/v1/cameras/",
             headers=_auth(TestScenario3Rbac._analyst_token),
@@ -366,6 +419,10 @@ class TestScenario4DataIntegrityGuard:
         TestScenario4DataIntegrityGuard._video_id = resp2.json()["id"]
 
     def test_step2_reject_truncated_hash(self, client):
+        _require(
+            (TestScenario4DataIntegrityGuard, "_api_key"),
+            (TestScenario4DataIntegrityGuard, "_video_id"),
+        )
         resp = client.post(
             "/api/v1/cameras/segments",
             json={
@@ -380,6 +437,10 @@ class TestScenario4DataIntegrityGuard:
         assert resp.status_code == 422, resp.text
 
     def test_step3_reject_non_hex_hash(self, client):
+        _require(
+            (TestScenario4DataIntegrityGuard, "_api_key"),
+            (TestScenario4DataIntegrityGuard, "_video_id"),
+        )
         resp = client.post(
             "/api/v1/cameras/segments",
             json={
@@ -394,6 +455,10 @@ class TestScenario4DataIntegrityGuard:
         assert resp.status_code == 422, resp.text
 
     def test_step4_accept_valid_segment(self, client):
+        _require(
+            (TestScenario4DataIntegrityGuard, "_api_key"),
+            (TestScenario4DataIntegrityGuard, "_video_id"),
+        )
         resp = client.post(
             "/api/v1/cameras/segments",
             json={
@@ -408,6 +473,10 @@ class TestScenario4DataIntegrityGuard:
         assert resp.status_code == 201, resp.text
 
     def test_step5_reject_duplicate_segment(self, client):
+        _require(
+            (TestScenario4DataIntegrityGuard, "_api_key"),
+            (TestScenario4DataIntegrityGuard, "_video_id"),
+        )
         resp = client.post(
             "/api/v1/cameras/segments",
             json={
@@ -422,6 +491,10 @@ class TestScenario4DataIntegrityGuard:
         assert resp.status_code == 409, resp.text
 
     def test_step6_reject_negative_time_range(self, client):
+        _require(
+            (TestScenario4DataIntegrityGuard, "_api_key"),
+            (TestScenario4DataIntegrityGuard, "_video_id"),
+        )
         resp = client.post(
             "/api/v1/cameras/segments",
             json={
@@ -462,6 +535,10 @@ class TestScenario5MultiCamera:
             setattr(TestScenario5MultiCamera, f"_api_key_{suffix}", resp.json()["api_key"])
 
     def test_step2_each_camera_starts_own_video(self, client):
+        _require(
+            (TestScenario5MultiCamera, "_api_key_alpha"),
+            (TestScenario5MultiCamera, "_api_key_beta"),
+        )
         for cam_id in (self.cam_a_id, self.cam_b_id):
             suffix = cam_id.split("-")[-1].lower()
             api_key = getattr(TestScenario5MultiCamera, f"_api_key_{suffix}")
@@ -474,6 +551,12 @@ class TestScenario5MultiCamera:
             setattr(TestScenario5MultiCamera, f"_video_id_{suffix}", resp.json()["id"])
 
     def test_step3_cameras_upload_segments_independently(self, client):
+        _require(
+            (TestScenario5MultiCamera, "_api_key_alpha"),
+            (TestScenario5MultiCamera, "_api_key_beta"),
+            (TestScenario5MultiCamera, "_video_id_alpha"),
+            (TestScenario5MultiCamera, "_video_id_beta"),
+        )
         for cam_id in (self.cam_a_id, self.cam_b_id):
             suffix = cam_id.split("-")[-1].lower()
             api_key = getattr(TestScenario5MultiCamera, f"_api_key_{suffix}")
@@ -495,6 +578,10 @@ class TestScenario5MultiCamera:
                 )
 
     def test_step4_camera_b_cannot_write_to_camera_a_video(self, client):
+        _require(
+            (TestScenario5MultiCamera, "_api_key_beta"),
+            (TestScenario5MultiCamera, "_video_id_alpha"),
+        )
         video_id_a = TestScenario5MultiCamera._video_id_alpha
         api_key_b = TestScenario5MultiCamera._api_key_beta
         resp = client.post(
@@ -513,6 +600,10 @@ class TestScenario5MultiCamera:
         )
 
     def test_step5_verify_segment_counts_are_independent(self, client, admin_token):
+        _require(
+            (TestScenario5MultiCamera, "_video_id_alpha"),
+            (TestScenario5MultiCamera, "_video_id_beta"),
+        )
         for suffix in ("alpha", "beta"):
             video_id = getattr(TestScenario5MultiCamera, f"_video_id_{suffix}")
             resp = client.get(
