@@ -39,22 +39,32 @@ def create_refresh_token(data: dict) -> str:
 
 
 def decode_token(token: str) -> dict:
+    """
+    Decodifica y valida un JWT. Devuelve el payload o None si el token
+    es inválido o ha expirado.
+    """
     try:
         return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
     except JWTError:
         return None
 
 
+# Alias para compatibilidad con dependencies.py
+verify_token = decode_token
+
+
 # ── API Keys para cámaras ─────────────────────────────────────────
 
 
 def generate_api_key() -> str:
-    """Genera una API Key segura de 32 bytes"""
-    return secrets.token_urlsafe(32)
+    """Genera una API Key segura con el formato evideth_cam_<32 chars>."""
+    chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    random_part = "".join(secrets.choice(chars) for _ in range(32))
+    return f"evideth_cam_{random_part}"
 
 
 def hash_api_key(api_key: str) -> str:
-    """Hashea la API Key para almacenarla en BD"""
+    """Hashea la API Key para almacenarla en BD (nunca en claro)."""
     return hashlib.sha256(api_key.encode()).hexdigest()
 
 
