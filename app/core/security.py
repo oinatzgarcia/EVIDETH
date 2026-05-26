@@ -60,3 +60,6 @@ def hash_api_key(api_key: str) -> str:
 
 def verify_api_key(plain: str, hashed: str) -> bool:
     return hash_api_key(plain) == hashed
+
+# Alias para compatibilidad con dependencies.py
+verify_token = decode_token
