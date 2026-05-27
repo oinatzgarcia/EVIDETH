@@ -9,6 +9,7 @@ from app.db import models
 from app.api.v1 import auth, cameras, verification, users, stats, logs
 from app.middleware.logging_middleware import LoggingMiddleware
 from app.core.logger import log
+from app.core.telemetry import setup_telemetry
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,9 @@ logger = logging.getLogger(__name__)
 # ── Lifespan ─────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Application Insights — antes de cualquier log de startup
+    setup_telemetry()
+
     try:
         models.Base.metadata.create_all(bind=engine)
         log.info("DB tables verified/created")

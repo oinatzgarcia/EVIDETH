@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     AZURE_STORAGE_CONNECTION_STRING: str = ""
     AZURE_BLOB_CONTAINER: str = "evideth-videos"
 
+    # Azure Application Insights
+    # Formato: InstrumentationKey=xxx;IngestionEndpoint=https://...;
+    # Dejar vacío en local/test para deshabilitar el exporter.
+    APPLICATIONINSIGHTS_CONNECTION_STRING: str = ""
+
     model_config = ConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
