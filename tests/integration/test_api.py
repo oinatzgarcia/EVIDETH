@@ -180,7 +180,7 @@ class TestAuth:
         assert resp.status_code == 200
         body = resp.json()
         assert "access_token" in body
-        assert "refresh_token" in body
+        assert body["token_type"] == "bearer"
         assert body["user"]["role"] == "admin"
         assert body["user"]["email"] == "admin@evideth.com"
 
