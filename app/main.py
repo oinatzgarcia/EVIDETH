@@ -39,7 +39,7 @@ app = FastAPI(
     title="EVIDETH API",
     description="Forensic Video Integrity Verification System",
     version="2.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # ── Middleware (orden: primero logging, luego CORS) ────────────
@@ -47,15 +47,22 @@ app.add_middleware(LoggingMiddleware)
 
 # ── CORS ────────────────────────────────────────────────
 _raw_origins = getattr(settings, "CORS_ORIGINS", "")
-_extra_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()] if _raw_origins else []
+_extra_origins = (
+    [o.strip() for o in _raw_origins.split(",") if o.strip()] if _raw_origins else []
+)
 
-allow_origins = list(set([
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-    "http://localhost:8080",
-    "http://127.0.0.1:8080",
-    "http://localhost:3000",
-] + _extra_origins))
+allow_origins = list(
+    set(
+        [
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "http://localhost:3000",
+        ]
+        + _extra_origins
+    )
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -66,12 +73,12 @@ app.add_middleware(
 )
 
 # ── Routers ──────────────────────────────────────────────
-app.include_router(auth.router,         prefix="/api/v1")
-app.include_router(users.router,        prefix="/api/v1")
-app.include_router(cameras.router,      prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(users.router, prefix="/api/v1")
+app.include_router(cameras.router, prefix="/api/v1")
 app.include_router(verification.router, prefix="/api/v1")
-app.include_router(stats.router,        prefix="/api/v1")
-app.include_router(logs.router,         prefix="/api/v1")
+app.include_router(stats.router, prefix="/api/v1")
+app.include_router(logs.router, prefix="/api/v1")
 
 
 # ── Health check ──────────────────────────────────────
@@ -79,13 +86,16 @@ app.include_router(logs.router,         prefix="/api/v1")
 def health():
     return {"status": "healthy", "version": "2.0.0"}
 
+
 @app.get("/health", include_in_schema=False)
 def health_root():
     return {"status": "healthy"}
 
+
 @app.get("/", include_in_schema=False)
 def root():
     return RedirectResponse(url="/frontend/pages/login/login.html", status_code=302)
+
 
 # ── Static files — AL FINAL para no enmascarar rutas API ─────
 app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")

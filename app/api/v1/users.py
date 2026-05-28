@@ -187,9 +187,9 @@ def update_user(
         user.full_name = data.full_name
 
     if data.email is not None:
-        conflict = db.query(User).filter(
-            User.email == data.email, User.id != user_id
-        ).first()
+        conflict = (
+            db.query(User).filter(User.email == data.email, User.id != user_id).first()
+        )
         if conflict:
             raise HTTPException(status_code=400, detail="Email ya en uso")
         user.email = data.email

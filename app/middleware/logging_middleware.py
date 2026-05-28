@@ -33,11 +33,11 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
         status = response.status_code
         extra = {
-            "method":      request.method,
-            "path":        request.url.path,
+            "method": request.method,
+            "path": request.url.path,
             "status_code": status,
             "duration_ms": duration_ms,
-            "ip":          request.client.host if request.client else "-",
+            "ip": request.client.host if request.client else "-",
         }
 
         msg = f"{request.method} {request.url.path} → {status} ({duration_ms}ms)"

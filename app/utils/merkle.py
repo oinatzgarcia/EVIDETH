@@ -14,6 +14,7 @@ Referencias:
   - NIST FIPS 180-4  (SHA-256)
   - Nakamoto, S. (2008). Bitcoin: A Peer-to-Peer Electronic Cash System, §7
 """
+
 import hashlib
 from typing import List, Dict
 
@@ -45,10 +46,9 @@ def build_merkle_root(leaf_hashes: List[str]) -> str:
     level = list(leaf_hashes)
     while len(level) > 1:
         if len(level) % 2 == 1:
-            level.append(level[-1])          # Duplicar último si número impar
+            level.append(level[-1])  # Duplicar último si número impar
         level = [
-            _sha256_concat(level[i], level[i + 1])
-            for i in range(0, len(level), 2)
+            _sha256_concat(level[i], level[i + 1]) for i in range(0, len(level), 2)
         ]
     return level[0]
 
@@ -79,17 +79,16 @@ def get_merkle_proof(leaf_hashes: List[str], index: int) -> List[Dict]:
         if len(level) % 2 == 1:
             level.append(level[-1])
 
-        if pos % 2 == 0:                   # Nodo izquierdo → hermano a la derecha
+        if pos % 2 == 0:  # Nodo izquierdo → hermano a la derecha
             sibling = level[pos + 1]
             side = "right"
-        else:                              # Nodo derecho → hermano a la izquierda
+        else:  # Nodo derecho → hermano a la izquierda
             sibling = level[pos - 1]
             side = "left"
 
         proof.append({"hash": sibling, "side": side})
         level = [
-            _sha256_concat(level[i], level[i + 1])
-            for i in range(0, len(level), 2)
+            _sha256_concat(level[i], level[i + 1]) for i in range(0, len(level), 2)
         ]
         pos //= 2
 

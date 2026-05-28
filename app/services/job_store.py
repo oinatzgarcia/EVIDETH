@@ -17,8 +17,8 @@ from datetime import datetime, timezone
 
 @dataclass
 class JobState:
-    status: str = "queued"          # queued | running | done | error
-    progress: int = 0               # 0..100
+    status: str = "queued"  # queued | running | done | error
+    progress: int = 0  # 0..100
     message: str = "Queued"
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None

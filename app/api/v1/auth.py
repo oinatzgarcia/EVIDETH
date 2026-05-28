@@ -44,24 +44,30 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 
     if not user or not verify_password(payload.password, user.password):
         log.warning(
-            "login_failed",
-            extra={"ip": ip, "detail": f"email={payload.email}"}
+            "login_failed", extra={"ip": ip, "detail": f"email={payload.email}"}
         )
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Email o contraseña incorrectos")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email o contraseña incorrectos",
+        )
 
     if not user.is_active:
         log.warning(
             "login_blocked_inactive",
-            extra={"ip": ip, "user_id": str(user.id), "detail": f"email={payload.email}"}
+            extra={
+                "ip": ip,
+                "user_id": str(user.id),
+                "detail": f"email={payload.email}",
+            },
         )
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Cuenta desactivada")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Cuenta desactivada"
+        )
 
     token = create_access_token({"sub": str(user.id), "role": user.role.value})
     log.info(
         "login_ok",
-        extra={"ip": ip, "user_id": str(user.id), "detail": f"role={user.role.value}"}
+        extra={"ip": ip, "user_id": str(user.id), "detail": f"role={user.role.value}"},
     )
     return {"access_token": token, "token_type": "bearer"}
 
@@ -73,11 +79,11 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 )
 def me(current_user: User = Depends(get_current_user)):
     return {
-        "id":         str(current_user.id),
-        "email":      current_user.email,
-        "full_name":  current_user.full_name,
-        "role":       current_user.role.value,
-        "is_active":  current_user.is_active,
+        "id": str(current_user.id),
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "role": current_user.role.value,
+        "is_active": current_user.is_active,
         "created_at": current_user.created_at,
     }
 
@@ -89,6 +95,8 @@ def me(current_user: User = Depends(get_current_user)):
     description="Emite un nuevo JWT para el usuario autenticado sin solicitar contraseña.",
 )
 def refresh(current_user: User = Depends(get_current_user)):
-    token = create_access_token({"sub": str(current_user.id), "role": current_user.role.value})
+    token = create_access_token(
+        {"sub": str(current_user.id), "role": current_user.role.value}
+    )
     log.info("token_refreshed", extra={"user_id": str(current_user.id)})
     return {"access_token": token, "token_type": "bearer"}

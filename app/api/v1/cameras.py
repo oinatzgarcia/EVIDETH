@@ -119,14 +119,18 @@ class SegmentUpload(BaseModel):
     @classmethod
     def validate_sha256(cls, v):
         if not re.match(r"^[a-fA-F0-9]{64}$", v):
-            raise ValueError("sha256_hash debe ser exactamente 64 caracteres hexadecimales")
+            raise ValueError(
+                "sha256_hash debe ser exactamente 64 caracteres hexadecimales"
+            )
         return v.lower()
 
     @field_validator("merkle_root")
     @classmethod
     def validate_merkle_root(cls, v):
         if v is not None and not re.match(r"^[a-fA-F0-9]{64}$", v):
-            raise ValueError("merkle_root debe ser exactamente 64 caracteres hexadecimales")
+            raise ValueError(
+                "merkle_root debe ser exactamente 64 caracteres hexadecimales"
+            )
         return v.lower() if v else v
 
     @field_validator("second_hashes")
@@ -203,7 +207,9 @@ class VideoResponse(BaseModel):
 # ── Helpers ──────────────────────────────────────────────────
 
 
-def _to_camera_response(camera: Camera, api_key: Optional[str] = None) -> CameraResponse:
+def _to_camera_response(
+    camera: Camera, api_key: Optional[str] = None
+) -> CameraResponse:
     return CameraResponse(
         camera_id=camera.camera_id,
         name=camera.name,
@@ -238,7 +244,9 @@ def _is_camera_online(camera: Camera) -> bool:
     last = camera.last_seen
     if last.tzinfo is None:
         last = last.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - last).total_seconds() < CAMERA_ONLINE_THRESHOLD_SECONDS
+    return (
+        datetime.now(timezone.utc) - last
+    ).total_seconds() < CAMERA_ONLINE_THRESHOLD_SECONDS
 
 
 # ── 1. Registrar cámara (Admin) ──────────────────────────────
@@ -325,9 +333,11 @@ def camera_status(
     if current_user.role != UserRole.ADMIN and camera.owner_id != str(current_user.id):
         raise HTTPException(status_code=403, detail="No tienes acceso a esta cámara")
 
-    active_video = db.query(Video).filter(
-        Video.camera_id == camera.id, Video.status == VideoStatus.RECORDING
-    ).first()
+    active_video = (
+        db.query(Video)
+        .filter(Video.camera_id == camera.id, Video.status == VideoStatus.RECORDING)
+        .first()
+    )
 
     total_segments = (
         db.query(Segment).join(Video).filter(Video.camera_id == camera.id).count()
@@ -409,18 +419,24 @@ def upload_segment(
     db: Session = Depends(get_db),
     camera: Camera = Depends(get_current_camera),
 ):
-    video = db.query(Video).filter(
-        Video.id == data.video_id, Video.camera_id == camera.id
-    ).first()
+    video = (
+        db.query(Video)
+        .filter(Video.id == data.video_id, Video.camera_id == camera.id)
+        .first()
+    )
     if not video:
         raise HTTPException(
             status_code=404, detail="Video no encontrado o no pertenece a esta cámara"
         )
 
-    if db.query(Segment).filter(
-        Segment.video_id == data.video_id,
-        Segment.segment_index == data.segment_index,
-    ).first():
+    if (
+        db.query(Segment)
+        .filter(
+            Segment.video_id == data.video_id,
+            Segment.segment_index == data.segment_index,
+        )
+        .first()
+    ):
         raise HTTPException(
             status_code=409, detail=f"Segmento #{data.segment_index} ya registrado"
         )
@@ -465,7 +481,11 @@ def heartbeat(
 ):
     camera.last_seen = datetime.now(timezone.utc)
     db.commit()
-    return {"status": "ok", "camera_id": camera.camera_id, "timestamp": camera.last_seen}
+    return {
+        "status": "ok",
+        "camera_id": camera.camera_id,
+        "timestamp": camera.last_seen,
+    }
 
 
 # ── 7. Finalizar grabación (API Key) ──────────────────────────
@@ -481,13 +501,17 @@ def finish_video(
     db: Session = Depends(get_db),
     camera: Camera = Depends(get_current_camera),
 ):
-    video = db.query(Video).filter(
-        Video.id == video_id, Video.camera_id == camera.id
-    ).first()
+    video = (
+        db.query(Video)
+        .filter(Video.id == video_id, Video.camera_id == camera.id)
+        .first()
+    )
     if not video:
         raise HTTPException(status_code=404, detail="Video no encontrado")
     if video.status != VideoStatus.RECORDING:
-        raise HTTPException(status_code=400, detail="El video no está en estado RECORDING")
+        raise HTTPException(
+            status_code=400, detail="El video no está en estado RECORDING"
+        )
 
     video.status = VideoStatus.COMPLETED
     video.ended_at = datetime.now(timezone.utc)

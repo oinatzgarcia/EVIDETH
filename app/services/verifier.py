@@ -203,9 +203,7 @@ def verify_video(
                 f"Verifying segment {i + 1}/{n_segs} — SHA-256 + Merkle + ECDSA…",
             )
 
-            stored = next(
-                (s for s in stored_segments if s.segment_index == idx), None
-            )
+            stored = next((s for s in stored_segments if s.segment_index == idx), None)
 
             if not stored:
                 missing += 1
@@ -342,7 +340,9 @@ def verify_video(
                 result=result,
                 detail=detail,
             )
-            _save_verification(db, stored, entry, verified_by_id, ip_address, user_agent)
+            _save_verification(
+                db, stored, entry, verified_by_id, ip_address, user_agent
+            )
             results.append(entry)
 
         _cb(92, "Committing results to database…")

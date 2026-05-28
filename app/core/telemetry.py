@@ -28,7 +28,9 @@ def setup_telemetry() -> bool:
     if not conn_str:
         log.info(
             "app_insights_disabled",
-            extra={"detail": "APPLICATIONINSIGHTS_CONNECTION_STRING not set — skipping"}
+            extra={
+                "detail": "APPLICATIONINSIGHTS_CONNECTION_STRING not set — skipping"
+            },
         )
         return False
 
@@ -49,19 +51,20 @@ def setup_telemetry() -> bool:
 
         log.info(
             "app_insights_enabled",
-            extra={"detail": "AzureLogHandler registered — forwarding WARNING+ to App Insights"}
+            extra={
+                "detail": "AzureLogHandler registered — forwarding WARNING+ to App Insights"
+            },
         )
         return True
 
     except ImportError:
         log.warning(
             "app_insights_import_error",
-            extra={"detail": "opencensus-ext-azure not installed — pip install opencensus-ext-azure"}
+            extra={
+                "detail": "opencensus-ext-azure not installed — pip install opencensus-ext-azure"
+            },
         )
         return False
     except Exception as exc:
-        log.warning(
-            "app_insights_setup_failed",
-            extra={"detail": str(exc)}
-        )
+        log.warning("app_insights_setup_failed", extra={"detail": str(exc)})
         return False

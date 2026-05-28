@@ -26,14 +26,22 @@ class _JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         payload = {
-            "ts":      datetime.now(timezone.utc).isoformat(),
-            "level":   record.levelname,
-            "logger":  record.name,
-            "event":   record.getMessage(),
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "event": record.getMessage(),
         }
         # Campos extra pasados con extra={...} en la llamada al logger
-        for key in ("camera_id", "user_id", "ip", "path", "method",
-                    "status_code", "duration_ms", "detail"):
+        for key in (
+            "camera_id",
+            "user_id",
+            "ip",
+            "path",
+            "method",
+            "status_code",
+            "duration_ms",
+            "detail",
+        ):
             if hasattr(record, key):
                 payload[key] = getattr(record, key)
 
