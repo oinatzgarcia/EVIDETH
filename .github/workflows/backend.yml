@@ -55,7 +55,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # ── Lint con Ruff ──────────────────────────────────
+      - name: Install ruff
+        run: pip install ruff
+
+      # ── Lint con Ruff ────────────────────────────────────
       - name: Ruff lint
         run: ruff check app/ --output-format=github
 
@@ -65,7 +68,7 @@ jobs:
       # ── Comprobar que todos los módulos importan OK ────────
       - name: Import check
         run: |
-          python -c "from app.main import app; print('✅ app.main importado OK')"
+          python -c "from app.main import app; print('\u2705 app.main importado OK')"
 
       # ── Migraciones Alembic ───────────────────────────
       - name: Apply Alembic migrations
@@ -81,7 +84,7 @@ jobs:
             echo "✅ Base de datos al día"
           fi
 
-      # ── Tests con pytest ──────────────────────────────
+      # ── Tests con pytest ────────────────────────────
       - name: Run pytest
         run: |
           if [ -d "tests" ]; then

@@ -15,7 +15,7 @@ from pydantic import BaseModel, EmailStr
 
 from app.db.session import get_db
 from app.db.models import User
-from app.core.security import verify_password, create_access_token, decode_access_token
+from app.core.security import verify_password, create_access_token, decode_token
 from app.core.dependencies import get_current_user
 from app.core.logger import log
 
@@ -48,7 +48,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
             extra={"ip": ip, "detail": f"email={payload.email}"}
         )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Credenciales inválidas")
+                            detail="Email o contraseña incorrectos")
 
     if not user.is_active:
         log.warning(
