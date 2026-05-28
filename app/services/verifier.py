@@ -1,13 +1,10 @@
 import hashlib
-import base64
 import json
 from typing import Callable, List, Dict, Optional, Union
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.exceptions import InvalidSignature
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 import os
+import tempfile
 
 from app.db.models import (
     Camera,
@@ -22,9 +19,7 @@ from app.services.video_processor import (
     cleanup_segments,
     extract_frame_thumbnail,
 )
-from app.utils.merkle import build_merkle_root
 from app.utils.crypto import verify_ecdsa_signature  # noqa: F401  (re-export)
-import tempfile
 
 
 def _get_camera_public_key(camera_id: str, db: Session) -> Optional[str]:
