@@ -16,7 +16,6 @@ from datetime import datetime
 import hashlib
 from io import BytesIO
 from pathlib import Path
-import os
 
 
 class ForensicPDFGenerator:
