@@ -15,7 +15,7 @@ from pydantic import BaseModel, EmailStr
 
 from app.db.session import get_db
 from app.db.models import User
-from app.core.security import verify_password, create_access_token, decode_token
+from app.core.security import verify_password, create_access_token
 from app.core.dependencies import get_current_user
 from app.core.logger import log
 

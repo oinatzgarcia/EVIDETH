@@ -3,10 +3,11 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, timezone
-import csv, io
+import csv
+import io
 
 from app.db.session import get_db
-from app.db.models import Verification, Video, Segment, Camera, VerificationResult, UserRole
+from app.db.models import Verification, Video, Segment, Camera, UserRole
 from app.core.dependencies import require_analyst
 
 
@@ -37,12 +38,12 @@ def _collect_events(db, event_type, camera_id, user_id, date_from, date_to, curr
     - Admin: ve eventos de todas las cámaras.
     - Analyst/Viewer: solo ve eventos de sus propias cámaras.
     """
-    is_admin  = current_user is None or current_user.role == UserRole.ADMIN
-    owner_id  = None if is_admin else str(current_user.id)
+    is_admin = current_user is None or current_user.role == UserRole.ADMIN
+    owner_id = None if is_admin else str(current_user.id)
 
     events = []
 
-    # ── Verificaciones ───────────────────────────────────────────
+    # ── Verificaciones ────────────────────────────────────────────
     if event_type in (None, "verification"):
         q = (
             db.query(Verification)
@@ -50,11 +51,16 @@ def _collect_events(db, event_type, camera_id, user_id, date_from, date_to, curr
             .join(Video,    Segment.video_id         == Video.id)
             .join(Camera,   Video.camera_id          == Camera.id)
         )
-        if owner_id:  q = q.filter(Camera.owner_id == owner_id)   # ◄ ownership
-        if camera_id: q = q.filter(Camera.camera_id == camera_id)
-        if user_id:   q = q.filter(Verification.verified_by_id == user_id)
-        if date_from: q = q.filter(Verification.verified_at >= date_from)
-        if date_to:   q = q.filter(Verification.verified_at <= date_to)
+        if owner_id:
+            q = q.filter(Camera.owner_id == owner_id)
+        if camera_id:
+            q = q.filter(Camera.camera_id == camera_id)
+        if user_id:
+            q = q.filter(Verification.verified_by_id == user_id)
+        if date_from:
+            q = q.filter(Verification.verified_at >= date_from)
+        if date_to:
+            q = q.filter(Verification.verified_at <= date_to)
 
         for v in q.all():
             cam = v.segment.video.camera if (v.segment and v.segment.video) else None
@@ -80,13 +86,17 @@ def _collect_events(db, event_type, camera_id, user_id, date_from, date_to, curr
                 "file_size_bytes": None,
             })
 
-    # ── Videos iniciados ──────────────────────────────────────────
+    # ── Videos iniciados ──────────────────────────────────────
     if event_type in (None, "video_started"):
         q = db.query(Video).join(Camera, Video.camera_id == Camera.id)
-        if owner_id:  q = q.filter(Camera.owner_id == owner_id)   # ◄ ownership
-        if camera_id: q = q.filter(Camera.camera_id == camera_id)
-        if date_from: q = q.filter(Video.created_at >= date_from)
-        if date_to:   q = q.filter(Video.created_at <= date_to)
+        if owner_id:
+            q = q.filter(Camera.owner_id == owner_id)
+        if camera_id:
+            q = q.filter(Camera.camera_id == camera_id)
+        if date_from:
+            q = q.filter(Video.created_at >= date_from)
+        if date_to:
+            q = q.filter(Video.created_at <= date_to)
 
         for v in q.all():
             events.append({
@@ -111,17 +121,21 @@ def _collect_events(db, event_type, camera_id, user_id, date_from, date_to, curr
                 "file_size_bytes": None,
             })
 
-    # ── Videos finalizados ───────────────────────────────────────
+    # ── Videos finalizados ─────────────────────────────────
     if event_type in (None, "video_finished"):
         q = (
             db.query(Video)
             .join(Camera, Video.camera_id == Camera.id)
             .filter(Video.ended_at.isnot(None))
         )
-        if owner_id:  q = q.filter(Camera.owner_id == owner_id)   # ◄ ownership
-        if camera_id: q = q.filter(Camera.camera_id == camera_id)
-        if date_from: q = q.filter(Video.ended_at >= date_from)
-        if date_to:   q = q.filter(Video.ended_at <= date_to)
+        if owner_id:
+            q = q.filter(Camera.owner_id == owner_id)
+        if camera_id:
+            q = q.filter(Camera.camera_id == camera_id)
+        if date_from:
+            q = q.filter(Video.ended_at >= date_from)
+        if date_to:
+            q = q.filter(Video.ended_at <= date_to)
 
         for v in q.all():
             events.append({
@@ -146,17 +160,21 @@ def _collect_events(db, event_type, camera_id, user_id, date_from, date_to, curr
                 "file_size_bytes": None,
             })
 
-    # ── Segmentos subidos ──────────────────────────────────────────
+    # ── Segmentos subidos ──────────────────────────────────
     if event_type in (None, "segment_uploaded"):
         q = (
             db.query(Segment)
             .join(Video,  Segment.video_id  == Video.id)
             .join(Camera, Video.camera_id   == Camera.id)
         )
-        if owner_id:  q = q.filter(Camera.owner_id == owner_id)   # ◄ ownership
-        if camera_id: q = q.filter(Camera.camera_id == camera_id)
-        if date_from: q = q.filter(Segment.created_at >= date_from)
-        if date_to:   q = q.filter(Segment.created_at <= date_to)
+        if owner_id:
+            q = q.filter(Camera.owner_id == owner_id)
+        if camera_id:
+            q = q.filter(Camera.camera_id == camera_id)
+        if date_from:
+            q = q.filter(Segment.created_at >= date_from)
+        if date_to:
+            q = q.filter(Segment.created_at <= date_to)
 
         for s in q.all():
             cam = s.video.camera if s.video else None
@@ -199,12 +217,12 @@ def _compute_counts(events: list) -> dict:
     (antes de aplicar filtros de event_type / result).
     """
     verification = sum(1 for e in events if e["event_type"] == "verification")
-    tampered     = sum(
+    tampered = sum(
         1 for e in events
         if e["event_type"] == "verification"
         and _result_str(e.get("result")) in ("fail", "tampered")
     )
-    recording    = sum(1 for e in events if e["event_type"] == "video_started")
+    recording = sum(1 for e in events if e["event_type"] == "video_started")
     return {
         "verification": verification,
         "tampered":     tampered,
@@ -212,7 +230,7 @@ def _compute_counts(events: list) -> dict:
     }
 
 
-# ── 1. Log de actividad paginado ────────────────────────────
+# ── 1. Log de actividad paginado ─────────────────────────────
 
 @router.get(
     "/activity",
@@ -349,7 +367,8 @@ def export_activity_log(
 
         writer.writerow(CSV_COLS)
         yield buf.getvalue()
-        buf.seek(0); buf.truncate(0)
+        buf.seek(0)
+        buf.truncate(0)
 
         for e in events:
             ts = e["timestamp"]
@@ -375,7 +394,8 @@ def export_activity_log(
                 e["file_size_bytes"] if e["file_size_bytes"] is not None else "",
             ])
             yield buf.getvalue()
-            buf.seek(0); buf.truncate(0)
+            buf.seek(0)
+            buf.truncate(0)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"evideth_activity_log_{ts}.csv"
