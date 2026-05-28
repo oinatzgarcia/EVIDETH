@@ -70,9 +70,9 @@ def get_stats(
 
     # ── Cámaras ────────────────────────────────────────────────
     total_cameras  = cam_q.count()
-    active_cameras = cam_q.filter(Camera.is_active == True).count()
+    active_cameras = cam_q.filter(Camera.is_active).count()
     online_cameras = cam_q.filter(
-        Camera.is_active == True,
+        Camera.is_active,
         Camera.last_seen >= online_threshold
     ).count()
 
@@ -120,11 +120,11 @@ def get_stats(
     users_section = None
     if is_admin:
         total_users  = db.query(func.count(User.id)).scalar() or 0
-        active_users = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
+        active_users = db.query(func.count(User.id)).filter(User.is_active).scalar() or 0
         users_by_role = {
             r.value: (
                 db.query(func.count(User.id))
-                .filter(User.role == r, User.is_active == True)
+                .filter(User.role == r, User.is_active)
                 .scalar() or 0
             )
             for r in UserRole
