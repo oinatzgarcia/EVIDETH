@@ -407,7 +407,7 @@ print(f"JWT secret cargado: {'si' if result else 'no'}")
 
 ---
 
-## 10. Decisiones de diseno
+## 10. Decisiones de diseño
 
 ### Por que secretos y no claves criptograficas nativas de Key Vault
 
