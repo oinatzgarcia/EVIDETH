@@ -57,6 +57,10 @@ class User(Base):
     password = Column(String(255), nullable=False)
     role = Column(Enum(UserRole), default=UserRole.VIEWER, nullable=False)
     is_active = Column(Boolean, default=True)
+    # Si True, el frontend debe redirigir a la pantalla de cambio de contraseña
+    # antes de permitir cualquier otra accion. Se pone a True en el admin por defecto
+    # y en cualquier usuario creado por un admin.
+    must_change_password = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -144,19 +148,16 @@ class Segment(Base):
     end_time_secs = Column(Integer, nullable=False)
     file_size_bytes = Column(Integer)
 
-    # ── Criptografía Nivel 1 ───────────────────────────────────
+    # ── Criptografia Nivel 1 ───────────────────────────────────
     sha256_hash = Column(String(64), nullable=False)
     ecdsa_signature = Column(Text)
     public_key_id = Column(String(255))
 
-    # ── Criptografía Nivel 2: árbol Merkle ──────────────────────
+    # ── Criptografia Nivel 2: arbol Merkle ──────────────────────
     merkle_root = Column(String(64))
     second_hashes = Column(Text)  # JSON: ["h0", "h1", ..., "h29"]
 
     # ── Thumbnails por segundo (JPEG base64) ─────────────────────
-    # Un frame JPEG (base64) por cada segundo del segmento.
-    # Permite comparación visual original vs tamperizado al verificar.
-    # ~20-40 KB/frame a 1280x720 JPEG quality 5.
     frame_thumbnails = Column(Text, nullable=True)  # JSON: ["b64_jpg_sec0", ..., null]
 
     blob_url = Column(String(1000))

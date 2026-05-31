@@ -10,9 +10,10 @@ from app.api.v1 import auth, cameras, logs, stats, users, verification
 from app.config import settings
 from app.core.key_vault_bootstrap import bootstrap_secrets_from_key_vault
 from app.core.logger import log
+from app.core.seed import seed_default_admin
 from app.core.telemetry import setup_telemetry
 from app.db import models
-from app.db.session import engine
+from app.db.session import SessionLocal, engine
 from app.middleware.logging_middleware import LoggingMiddleware
 
 logger = logging.getLogger(__name__)
@@ -21,11 +22,10 @@ logger = logging.getLogger(__name__)
 # ── Lifespan ────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Application Insights — antes de cualquier log de startup
+    # 1. Application Insights
     setup_telemetry()
 
-    # 2. Cargar secretos desde Azure Key Vault (no-op si URL vacía)
-    #    Debe ejecutarse antes de que cualquier módulo lea settings.JWT_SECRET_KEY
+    # 2. Cargar secretos desde Azure Key Vault (no-op si URL vacia)
     bootstrap_secrets_from_key_vault()
 
     # 3. Inicializar tablas de BD
@@ -34,6 +34,13 @@ async def lifespan(app: FastAPI):
         log.info("DB tables verified/created")
     except Exception as e:
         logger.warning(f"DB not ready at startup (will retry on first request): {e}")
+
+    # 4. Seed: crear usuario admin por defecto si no existe
+    try:
+        with SessionLocal() as db:
+            seed_default_admin(db)
+    except Exception as e:
+        logger.warning(f"Seed admin omitido (DB no lista aun): {e}")
 
     yield
 
@@ -107,5 +114,5 @@ def root():
     return RedirectResponse(url="/frontend/pages/login/login.html", status_code=302)
 
 
-# ── Static files — AL FINAL para no enmascarar rutas API ───────
+# ── Static files -- AL FINAL para no enmascarar rutas API ───────
 app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
