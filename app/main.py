@@ -1,32 +1,42 @@
+from contextlib import asynccontextmanager
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
-from contextlib import asynccontextmanager
+from fastapi.staticfiles import StaticFiles
+
+from app.api.v1 import auth, cameras, logs, stats, users, verification
 from app.config import settings
-from app.db.session import engine
-from app.db import models
-from app.api.v1 import auth, cameras, verification, users, stats, logs
-from app.middleware.logging_middleware import LoggingMiddleware
+from app.core.key_vault_bootstrap import bootstrap_secrets_from_key_vault
 from app.core.logger import log
 from app.core.telemetry import setup_telemetry
-import logging
+from app.db import models
+from app.db.session import engine
+from app.middleware.logging_middleware import LoggingMiddleware
 
 logger = logging.getLogger(__name__)
 
 
-# ── Lifespan ─────────────────────────────────────────────────
+# ── Lifespan ────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Application Insights — antes de cualquier log de startup
+    # 1. Application Insights — antes de cualquier log de startup
     setup_telemetry()
 
+    # 2. Cargar secretos desde Azure Key Vault (no-op si URL vacía)
+    #    Debe ejecutarse antes de que cualquier módulo lea settings.JWT_SECRET_KEY
+    bootstrap_secrets_from_key_vault()
+
+    # 3. Inicializar tablas de BD
     try:
         models.Base.metadata.create_all(bind=engine)
         log.info("DB tables verified/created")
     except Exception as e:
         logger.warning(f"DB not ready at startup (will retry on first request): {e}")
+
     yield
+
     try:
         engine.dispose()
         log.info("DB engine disposed")
@@ -34,7 +44,7 @@ async def lifespan(app: FastAPI):
         logger.debug(f"engine.dispose() skipped during shutdown: {e}")
 
 
-# ── App ────────────────────────────────────────────────
+# ── App ────────────────────────────────────────────────────
 app = FastAPI(
     title="EVIDETH API",
     description="Forensic Video Integrity Verification System",
@@ -42,10 +52,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ── Middleware (orden: primero logging, luego CORS) ────────────
+# ── Middleware (orden: primero logging, luego CORS) ────────────────
 app.add_middleware(LoggingMiddleware)
 
-# ── CORS ────────────────────────────────────────────────
+# ── CORS ───────────────────────────────────────────────────
 _raw_origins = getattr(settings, "CORS_ORIGINS", "")
 _extra_origins = (
     [o.strip() for o in _raw_origins.split(",") if o.strip()] if _raw_origins else []
@@ -72,7 +82,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Routers ──────────────────────────────────────────────
+# ── Routers ──────────────────────────────────────────────────
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(cameras.router, prefix="/api/v1")
@@ -81,7 +91,7 @@ app.include_router(stats.router, prefix="/api/v1")
 app.include_router(logs.router, prefix="/api/v1")
 
 
-# ── Health check ──────────────────────────────────────
+# ── Health check ────────────────────────────────────────────
 @app.get("/api/v1/health", tags=["Health"])
 def health():
     return {"status": "healthy", "version": "2.0.0"}
@@ -97,5 +107,5 @@ def root():
     return RedirectResponse(url="/frontend/pages/login/login.html", status_code=302)
 
 
-# ── Static files — AL FINAL para no enmascarar rutas API ─────
+# ── Static files — AL FINAL para no enmascarar rutas API ───────
 app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
