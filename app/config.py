@@ -1,3 +1,5 @@
+import os
+
 from pydantic import ConfigDict, field_validator
 from pydantic_settings import BaseSettings
 
@@ -35,22 +37,20 @@ class Settings(BaseSettings):
 
     @field_validator("JWT_SECRET_KEY")
     @classmethod
-    def validate_jwt_secret(cls, v: str, info) -> str:
+    def validate_jwt_secret(cls, v: str) -> str:
         """
         En producción (APP_ENV=production) la clave JWT debe:
         - Tener al menos 32 caracteres (256 bits mínimo NIST SP 800-107)
         - No ser el valor por defecto de desarrollo
         Ref: OWASP ASVS §3.5.2
         """
-        import os
-        env = os.getenv("APP_ENV", "development")
         weak_defaults = {
             "dev-fallback-change-in-production",
             "secret",
             "changeme",
             "password",
         }
-        if env == "production":
+        if os.getenv("APP_ENV", "development") == "production":
             if v in weak_defaults:
                 raise ValueError(
                     "JWT_SECRET_KEY usa un valor por defecto inseguro. "
@@ -71,14 +71,20 @@ class Settings(BaseSettings):
         En producción, la URL no debe contener contraseñas triviales.
         Ref: OWASP ASVS §2.1 (fuerza de credenciales).
         """
-        import os
-        env = os.getenv("APP_ENV", "development")
-        weak_passwords = {":evideth@", ":password@", ":changeme@", ":secret@", ":1234@", ":admin@"}
-        if env == "production":
+        weak_passwords = {
+            ":evideth@",
+            ":password@",
+            ":changeme@",
+            ":secret@",
+            ":1234@",
+            ":admin@",
+        }
+        if os.getenv("APP_ENV", "development") == "production":
             for weak in weak_passwords:
                 if weak in v:
                     raise ValueError(
-                        f"DATABASE_URL contiene una contraseña débil conocida ('{weak.strip(':@')}'). "
+                        f"DATABASE_URL contiene una contraseña débil conocida "
+                        f"('{weak.strip(':@')}'). "
                         "Usa una contraseña robusta en producción."
                     )
         return v
