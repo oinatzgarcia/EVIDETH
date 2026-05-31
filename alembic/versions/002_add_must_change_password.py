@@ -2,7 +2,7 @@
 Migracion: add must_change_password to users
 
 Revision ID: 002_add_must_change_password
-Revises: 001
+Revises: a1b2c3d4e5f6
 Create Date: 2026-05-31
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers
 revision = "002_add_must_change_password"
-down_revision = None  # ajustar al ID de la ultima migracion existente
+down_revision = "a1b2c3d4e5f6"  # <- ultimo head antes de esta migracion
 branch_labels = None
 depends_on = None
 
