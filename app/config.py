@@ -1,4 +1,4 @@
-from pydantic import ConfigDict
+from pydantic import ConfigDict, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -32,6 +32,56 @@ class Settings(BaseSettings):
     # Formato: InstrumentationKey=xxx;IngestionEndpoint=https://...;
     # Dejar vacío en local/test para deshabilitar el exporter.
     APPLICATIONINSIGHTS_CONNECTION_STRING: str = ""
+
+    @field_validator("JWT_SECRET_KEY")
+    @classmethod
+    def validate_jwt_secret(cls, v: str, info) -> str:
+        """
+        En producción (APP_ENV=production) la clave JWT debe:
+        - Tener al menos 32 caracteres (256 bits mínimo NIST SP 800-107)
+        - No ser el valor por defecto de desarrollo
+        Ref: OWASP ASVS §3.5.2
+        """
+        import os
+        env = os.getenv("APP_ENV", "development")
+        weak_defaults = {
+            "dev-fallback-change-in-production",
+            "secret",
+            "changeme",
+            "password",
+        }
+        if env == "production":
+            if v in weak_defaults:
+                raise ValueError(
+                    "JWT_SECRET_KEY usa un valor por defecto inseguro. "
+                    "Configura una clave de al menos 32 caracteres en producción."
+                )
+            if len(v) < 32:
+                raise ValueError(
+                    f"JWT_SECRET_KEY demasiado corta ({len(v)} chars). "
+                    "Mínimo 32 caracteres (NIST SP 800-107)."
+                )
+        return v
+
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def validate_db_url(cls, v: str) -> str:
+        """
+        Detecta credenciales débiles conocidas en la DATABASE_URL.
+        En producción, la URL no debe contener contraseñas triviales.
+        Ref: OWASP ASVS §2.1 (fuerza de credenciales).
+        """
+        import os
+        env = os.getenv("APP_ENV", "development")
+        weak_passwords = {":evideth@", ":password@", ":changeme@", ":secret@", ":1234@", ":admin@"}
+        if env == "production":
+            for weak in weak_passwords:
+                if weak in v:
+                    raise ValueError(
+                        f"DATABASE_URL contiene una contraseña débil conocida ('{weak.strip(':@')}'). "
+                        "Usa una contraseña robusta en producción."
+                    )
+        return v
 
     model_config = ConfigDict(
         env_file=".env",
