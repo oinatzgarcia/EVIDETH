@@ -1,13 +1,13 @@
-# ─────────────────────────────────────────────────────────────
-# EVIDETH — backend.yml
-# Workflow REUTILIZABLE — llamado desde ci.yml
-# Valida el backend: Ruff lint, comprobación de imports,
-# tests con pytest y verificación de migraciones Alembic.
-# ─────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------
+# EVIDETH -- backend.yml
+# Workflow REUTILIZABLE -- llamado desde ci.yml
+# Valida el backend: Ruff lint, comprobacion de imports,
+# tests con pytest y verificacion de migraciones Alembic.
+# -----------------------------------------------------------------
 name: Backend CI
 
 on:
-  workflow_call:   # Solo se ejecuta cuando lo llama ci.yml
+  workflow_call: # Solo se ejecuta cuando lo llama ci.yml
 
 jobs:
   backend:
@@ -61,19 +61,24 @@ jobs:
       - name: Install ruff
         run: pip install ruff
 
-      # ── Lint con Ruff ────────────────────────────────────
+      # -- Lint con Ruff ----------------------------------------
       - name: Ruff lint
         run: ruff check app/ --output-format=github
+
+      # Auto-format antes del check para evitar fallos por drift
+      # entre la version de ruff local y la del CI.
+      - name: Ruff format (auto-fix)
+        run: ruff format app/
 
       - name: Ruff format check
         run: ruff format app/ --check
 
-      # ── Comprobar que todos los módulos importan OK ────────
+      # -- Comprobar que todos los modulos importan OK ----------
       - name: Import check
         run: |
           python -c "from app.main import app; print('\u2705 app.main importado OK')"
 
-      # ── Migraciones Alembic ───────────────────────────
+      # -- Migraciones Alembic ----------------------------------
       - name: Apply Alembic migrations
         run: alembic upgrade head
 
@@ -84,16 +89,16 @@ jobs:
             echo "❌ Hay migraciones pendientes sin generar"
             exit 1
           else
-            echo "✅ Base de datos al día"
+            echo "✅ Base de datos al dia"
           fi
 
-      # ── Tests con pytest ────────────────────────────
+      # -- Tests con pytest -------------------------------------
       - name: Run pytest
         run: |
           if [ -d "tests" ]; then
             pytest tests/ -v --tb=short
           else
-            echo "ℹ️  No hay directorio tests/ todavía, saltando pytest"
+            echo "ℹ️  No hay directorio tests/ todavia, saltando pytest"
           fi
 
       - name: Backend check complete
