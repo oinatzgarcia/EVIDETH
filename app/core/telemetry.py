@@ -12,6 +12,12 @@ Qué hace:
 Uso:
   from app.core.telemetry import setup_telemetry
   setup_telemetry()   # llamar una sola vez en lifespan startup
+
+Nota sobre el formatter:
+  El logger "evideth" usa _JsonFormatter (stdout), que sobreescribe el mensaje
+  con un JSON completo. OpenCensus necesita recibir el texto limpio del mensaje
+  (record.getMessage()), no el JSON serializado. Por eso el AzureLogHandler
+  lleva su propio formatter neutro "%(message)s" — esto no afecta a stdout.
 """
 
 import logging
@@ -41,11 +47,14 @@ def setup_telemetry() -> bool:
         azure_handler = AzureLogHandler(connection_string=conn_str)
         azure_handler.setLevel(logging.WARNING)
 
-        # Adjuntar al logger raíz para capturar también librerías externas
-        root_logger = logging.getLogger()
-        root_logger.addHandler(azure_handler)
+        # Formatter neutro: OpenCensus necesita el mensaje limpio, no el JSON
+        # que emite _JsonFormatter hacia stdout. Cada handler tiene su propio
+        # formatter — esto no modifica la salida por stdout.
+        azure_handler.setFormatter(logging.Formatter("%(message)s"))
 
-        # Adjuntar también al logger propio de EVIDETH
+        # Adjuntar únicamente al logger "evideth".
+        # No se usa el root logger porque evideth tiene propagate=False,
+        # por lo que los handlers del root nunca recibirían sus registros.
         evideth_logger = logging.getLogger("evideth")
         evideth_logger.addHandler(azure_handler)
 
