@@ -4,29 +4,37 @@
 
 EVIDETH implementa un pipeline de integración y despliegue continuo (CI/CD) mediante **GitHub Actions**. El objetivo es que cualquier cambio de código o infraestructura que se suba a la rama `main` quede automáticamente construido y desplegado en Azure sin intervención manual.
 
-El pipeline se compone de **tres workflows** definidos en `.github/workflows/`:
+El pipeline se compone de **cuatro workflows** definidos en `.github/workflows/`:
 
 | Workflow | Fichero | Disparador |
 |---|---|---|
 | Build & Push Backend | `build-push.yml` | Push a `main` con cambios en `app/`, `Dockerfile` o `requirements.txt` |
-| Terraform Apply | `terraform-apply.yml` | Push a `main` con cambios en `terraform/` |
+| Terraform Apply | `terraform-apply.yml` | Push a `main` con cambios en `terraform/` o manual |
 | Terraform Plan | `terraform-plan.yml` | Pull Request contra `main` |
+| Terraform Destroy | `terraform-destroy.yml` | Manual (`workflow_dispatch`) con entorno `destroy` |
 
 ---
 
 ## Autenticación con Azure — OIDC (sin contraseñas)
 
-Todos los workflows se autentican en Azure mediante **OpenID Connect (OIDC) / Workload Identity Federation**. Este mecanismo elimina por completo el uso de contraseñas o client secrets almacenados en GitHub: en su lugar, GitHub genera un token firmado de corta vida que Azure valida directamente.
+Todos los workflows se autentican en Azure mediante **OpenID Connect (OIDC) / Workload Identity Federation** usando una **Managed Identity** (`evideth-github-oidc`) en el Resource Group `rg-evideth`. Este mecanismo elimina por completo el uso de contraseñas o client secrets almacenados en GitHub.
 
 Las únicas variables necesarias son variables de repositorio (no secretos):
 
 ```
-AZURE_CLIENT_ID        → ID de la App Registration en Azure AD
+AZURE_CLIENT_ID        → Client ID de la Managed Identity evideth-github-oidc
 AZURE_TENANT_ID        → ID del tenant de Azure AD
 AZURE_SUBSCRIPTION_ID  → ID de la suscripción de Azure
 ```
 
 El único secreto real almacenado en GitHub es `JWT_SECRET_KEY`, que se inyecta como variable de entorno en Terraform para configurar el backend.
+
+Cada entorno de GitHub Actions tiene su propia **federated credential** registrada en la Managed Identity:
+
+| Entorno GitHub | Subject federado |
+|---|---|
+| `production` (o ninguno) | `repo:oinatzgarcia/EVIDETH:ref:refs/heads/main` |
+| `destroy` | `repo:oinatzgarcia/EVIDETH:environment:destroy` |
 
 Esta aproximación sigue las recomendaciones de seguridad de Microsoft para pipelines CI/CD y evita la rotación periódica de credenciales.
 
@@ -74,34 +82,42 @@ La imagen se etiqueta siempre como `latest`. En un entorno de producción real s
 
 ### Propósito
 
-Aprovisiona o actualiza toda la infraestructura de Azure declarada en los ficheros `.tf` del directorio `terraform/`. Se ejecuta en dos jobs encadenados.
+Aprovisiona o actualiza toda la infraestructura de Azure declarada en los ficheros `.tf` del directorio `terraform/`.
 
 ### Disparadores
 
 - Push a `main` con cambios en `terraform/**` o en los propios workflows
 - Lanzamiento manual (`workflow_dispatch`)
 
-### Jobs
+### Jobs (orden importante)
 
-#### Job 1 — Build & Push Backend Image
+#### Job 1 — Terraform Apply
 
-Antes de aplicar la infraestructura, se garantiza que la imagen Docker existe en el ACR. Para ello reutiliza el workflow `build-push.yml` mediante `workflow_call`. Esto evita que el Container App intente arrancar con una imagen inexistente.
-
-#### Job 2 — Terraform Apply
-
-Depende del Job 1 (`needs: build-push`). Una vez la imagen está disponible:
+Se ejecuta **primero**, garantizando que toda la infraestructura (incluido el ACR) existe antes de intentar subir la imagen.
 
 ```
 1. Checkout del repositorio
 2. Azure Login via OIDC
 3. Setup de Terraform (~1.5)
 4. terraform init    → inicializa backend remoto en Azure Storage
-5. terraform validate → validación sintáctica de los ficheros .tf
-6. terraform plan    → genera el plan de cambios (fichero tfplan)
-7. terraform apply   → aplica el plan sobre la infraestructura real
+5. Force-unlock del estado (elimina locks huérfanos de applies fallidos)
+6. terraform validate → validación sintáctica de los ficheros .tf
+7. terraform plan    → genera el plan de cambios (fichero tfplan)
+8. terraform apply   → aplica el plan sobre la infraestructura real
 ```
 
-El plan y el apply se ejecutan en el **mismo paso** para evitar que un plan generado en un contexto distinto (por ejemplo, con una región incorrecta) sea reutilizado en el apply.
+> **Nota bootstrap**: En el primer despliegue desde cero el Container App arranca con la imagen placeholder `mcr.microsoft.com/azuredocs/containerapps-helloworld:latest` (imagen oficial de Microsoft). El Job 2 posterior actualiza la imagen real. Terraform ignora cambios futuros en `template` gracias a `lifecycle { ignore_changes = [template] }`, por lo que los deploys de código no requieren re-apply de infra.
+
+#### Job 2 — Build & Push Backend Image
+
+Depende del Job 1 (`needs: apply`). Una vez la infraestructura y el ACR existen, construye y sube la imagen real del backend:
+
+```
+build-push.yml (via workflow_call)
+→ Docker build
+→ Docker push → ACR evidethdevacr94f04b
+→ az containerapp update (imagen real en el Container App)
+```
 
 ### Variables de Terraform inyectadas
 
@@ -132,39 +148,90 @@ Ejecuta un `terraform plan` sin aplicar cambios y publica el resultado como come
 PR abierto/actualizado → terraform plan → comentario automático en el PR
 ```
 
-El revisor puede ver exactamente qué recursos se van a crear, modificar o destruir antes de aprobar el merge. Esto aplica el principio de **revisión de infraestructura como código** (IaC review), análogo a la revisión de código fuente.
+El revisor puede ver exactamente qué recursos se van a crear, modificar o destruir antes de aprobar el merge.
+
+---
+
+## Workflow 4 — Terraform Destroy (`terraform-destroy.yml`)
+
+### Propósito
+
+Destruye **toda** la infraestructura de Azure gestionada por Terraform. Pensado para limpiar entornos de desarrollo o resetear el despliegue desde cero.
+
+### Disparadores
+
+- **Solo manual** (`workflow_dispatch`) — nunca se dispara automáticamente.
+- Requiere el entorno de GitHub `destroy`, que tiene su propia federated credential registrada en la Managed Identity de Azure.
+
+### Pasos
+
+```
+1. Checkout del repositorio
+2. Azure Login via OIDC (entorno destroy)
+3. terraform init
+4. terraform destroy -auto-approve
+```
+
+> ⚠️ **Atención**: Este workflow elimina TODOS los recursos de Azure del proyecto, incluidos la base de datos, el Key Vault y el Storage Account con los vídeos. Úsalo únicamente en entornos de desarrollo. El storage account del tfstate (`evidethtfstate` en `rg-evideth`) **no es gestionado por Terraform** y sobrevive al destroy, preservando el estado para el siguiente apply.
+
+### Lanzar el destroy
+
+```
+GitHub → EVIDETH → Actions → "Terraform Destroy" → Run workflow
+```
 
 ---
 
 ## Flujo Completo de Despliegue
 
-El ciclo completo desde un cambio de código hasta el despliegue en producción es:
+### Despliegue normal (cambios de código)
 
 ```
 Developer
     │
-    ├── git push (cambios en app/) ──────────────────────────────────────────┐
-    │                                                                        │
-    │   GitHub Actions                                                       │
-    │   ┌────────────────────────────────────────────────────────────────┐  │
-    │   │  build-push.yml                                                │  │
-    │   │  1. Docker build                                               │  │
-    │   │  2. Docker push → ACR                                          │  │
-    │   └────────────────────────────────────────────────────────────────┘  │
-    │                                                                        │
-    ├── git push (cambios en terraform/) ────────────────────────────────────┤
-    │                                                                        │
-    │   GitHub Actions                                                       │
-    │   ┌────────────────────────────────────────────────────────────────┐  │
-    │   │  terraform-apply.yml                                           │  │
-    │   │  Job 1: build-push (imagen → ACR)                              │  │
-    │   │  Job 2: terraform apply (infraestructura → Azure)              │  │
-    │   └────────────────────────────────────────────────────────────────┘  │
-    │                                                                        │
-    └── Azure                                                                │
-        ├── Container App actualizado con nueva imagen                       │
-        ├── PostgreSQL, Key Vault, Storage sin cambios (idempotente)         │
-        └── Backend EVIDETH accesible via HTTPS                  ←──────────┘
+    ├── git push (cambios en app/)
+    │
+    │   GitHub Actions
+    │   ┌────────────────────────────────────────┐
+    │   │  build-push.yml                        │
+    │   │  1. Docker build                       │
+    │   │  2. Docker push → ACR                  │
+    │   └────────────────────────────────────────┘
+    │
+    └── Container App descarga nueva imagen en el siguiente restart
+```
+
+### Despliegue de infraestructura (cambios en Terraform)
+
+```
+Developer
+    │
+    ├── git push (cambios en terraform/)
+    │
+    │   GitHub Actions
+    │   ┌────────────────────────────────────────┐
+    │   │  terraform-apply.yml                   │
+    │   │  Job 1: terraform apply (infra → Azure)│  ← PRIMERO
+    │   │  Job 2: build-push (imagen → ACR)      │  ← DESPUÉS
+    │   └────────────────────────────────────────┘
+    │
+    └── Azure: infraestructura + imagen actualizadas
+```
+
+### Bootstrap desde cero (tras destroy)
+
+```
+1. GitHub → Actions → "Terraform Apply" → Run workflow
+   └── Job 1: Terraform crea toda la infra
+           └── Container App arranca con imagen placeholder (helloworld)
+   └── Job 2: Build & Push sube la imagen real al ACR
+           └── Container App actualizado con evideth-backend:latest
+
+2. Verificar arranque:
+   az containerapp logs show \
+     --name evideth-dev-backend \
+     --resource-group evideth-dev-rg \
+     --follow
 ```
 
 ---
@@ -178,27 +245,29 @@ Cuando `terraform-apply.yml` se ejecuta, gestiona los siguientes recursos de Azu
 | Resource Group | `evideth-dev-rg` | Contenedor lógico de todos los recursos |
 | Virtual Network + Subnet | `evideth-dev-vnet` | Red privada para comunicación interna |
 | Network Security Group | `evideth-dev-app-nsg` | Reglas de firewall a nivel de subred |
-| PostgreSQL Flexible Server | `evideth-dev-pg-*` | Base de datos principal |
-| Key Vault | `evideth-dev-kv-*` | Almacenamiento de secretos y clave ECDSA P-256 |
-| Container Registry | `evidethdevacr*` | Registro de imágenes Docker |
-| Storage Account | `evidethdevst*` | Almacenamiento de vídeos en Blob Storage |
+| PostgreSQL Flexible Server | `evideth-dev-pgserver` | Base de datos principal |
+| Key Vault | `evideth-dev-kv-94f04b` | Almacenamiento de secretos y clave ECDSA P-256 |
+| Container Registry | `evidethdevacr94f04b` | Registro de imágenes Docker |
+| Storage Account | `evidethdevst94f04b` | Almacenamiento de vídeos en Blob Storage |
 | Log Analytics Workspace | `evideth-dev-logs` | Telemetría y logs centralizados |
 | Container App Environment | `evideth-dev-cae` | Entorno de ejecución de contenedores |
 | Container App | `evideth-dev-backend` | Backend FastAPI en ejecución |
 
-El estado de Terraform se almacena en un **backend remoto** (Azure Blob Storage), lo que permite que cualquier ejecución del workflow parta del estado real de la infraestructura.
+> **No gestionado por Terraform** (sobrevive al destroy):
+> - Resource Group `rg-evideth` — contiene la Managed Identity y el storage del tfstate
+> - Managed Identity `evideth-github-oidc` — identidad OIDC para GitHub Actions
+> - Storage Account `evidethtfstate` — backend remoto del estado de Terraform
 
 ---
 
 ## Seguridad del Pipeline
 
-El diseño del pipeline incorpora varias medidas de seguridad relevantes para un sistema de custodia de evidencias digitales:
-
-- **OIDC en lugar de client secrets**: No existen contraseñas de Azure almacenadas en GitHub. Los tokens OIDC tienen una vida útil de minutos y son específicos para cada ejecución.
-- **Principio de mínimo privilegio**: El Service Principal de GitHub Actions tiene únicamente los permisos de Azure necesarios para crear y gestionar recursos. No tiene permisos `Microsoft.Authorization/roleAssignments/write`.
-- **Secretos aislados**: `JWT_SECRET_KEY` es el único secreto real en GitHub. Las credenciales de base de datos se generan dinámicamente por Terraform y se almacenan directamente en Key Vault, sin pasar por GitHub.
-- **Plan antes de apply**: Los Pull Requests ejecutan `terraform plan` para que los cambios de infraestructura sean revisados antes del merge, evitando modificaciones accidentales en recursos críticos.
-- **Caché de imagen**: El build Docker usa caché de GitHub Actions (`cache-from: type=gha`) para reducir tiempos de build y el número de capas descargadas desde registros externos.
+- **OIDC con Managed Identity**: No existen contraseñas de Azure en GitHub. Los tokens OIDC tienen vida útil de minutos y son específicos para cada ejecución del workflow.
+- **Federated credentials por entorno**: El entorno `destroy` tiene su propia credencial federada, separada del entorno de apply, limitando el blast radius de cada workflow.
+- **Principio de mínimo privilegio**: La Managed Identity tiene únicamente los permisos de Azure necesarios. No tiene `Microsoft.Authorization/roleAssignments/write`.
+- **Secretos aislados**: `JWT_SECRET_KEY` es el único secreto real en GitHub. Las credenciales de base de datos se generan dinámicamente por Terraform y se almacenan en Key Vault.
+- **Plan antes de apply**: Los Pull Requests ejecutan `terraform plan` para revisión antes del merge.
+- **Destroy solo manual**: El workflow de destroy nunca se dispara automáticamente, requiere acción explícita y entorno dedicado.
 
 ---
 
@@ -207,49 +276,50 @@ El diseño del pipeline incorpora varias medidas de seguridad relevantes para un
 ### Actualizar el backend (código Python)
 
 ```bash
-# Editar código en app/
 git add app/
 git commit -m "feat: nuevo endpoint de verificación"
 git push origin main
-# → build-push.yml se dispara automáticamente (~28s)
+# → build-push.yml se dispara automáticamente (~2 min)
 # → La nueva imagen queda disponible en ACR
-# → El Container App descarga la nueva imagen en el siguiente restart
 ```
 
 ### Actualizar la infraestructura (Terraform)
 
 ```bash
-# Editar ficheros .tf en terraform/
 git add terraform/
 git commit -m "feat: aumentar réplicas máximas del Container App"
 git push origin main
-# → terraform-apply.yml se dispara (~2m)
-# → Job 1: imagen actualizada en ACR
-# → Job 2: infraestructura actualizada en Azure
+# → terraform-apply.yml se dispara
+# → Job 1: infraestructura actualizada en Azure
+# → Job 2: imagen actualizada en ACR
+```
+
+### Destruir la infraestructura
+
+```
+GitHub → Actions → "Terraform Destroy" → Run workflow
+```
+
+### Redesplegar desde cero (tras destroy)
+
+```
+GitHub → Actions → "Terraform Apply" → Run workflow
 ```
 
 ### Revisar cambios de infraestructura antes de aplicar
 
 ```bash
-# Crear rama y Pull Request
 git checkout -b infra/nueva-config
 git add terraform/
 git commit -m "infra: nueva configuración"
 git push origin infra/nueva-config
 # → Abrir PR en GitHub
 # → terraform-plan.yml añade comentario con el plan en el PR
-# → Revisar y aprobar antes de mergear
 ```
-
-### Lanzar el pipeline manualmente
-
-Desde GitHub → Actions → seleccionar el workflow → **Run workflow**. Útil para forzar un redespliegue sin cambios de código.
 
 ---
 
 ## Añadir Nuevas Variables de Entorno o Secretos
-
-Si se necesita exponer una nueva variable al backend:
 
 1. Si es sensible (contraseña, clave API): añadirla como **Secret** en `GitHub → Settings → Secrets and variables → Actions`.
 2. Si es pública (URL, nombre de recurso): añadirla como **Variable** en la misma sección.
@@ -261,7 +331,7 @@ Si se necesita exponer una nueva variable al backend:
 
 ## Pre-commit Hooks — Calidad y Seguridad Local
 
-Además de los workflows remotos de GitHub Actions, EVIDETH incorpora **hooks de pre-commit** que se ejecutan automáticamente en la máquina del desarrollador **antes de cada `git commit`**. Esto forma una primera línea de defensa que impide que secretos o código roto lleguen siquiera al repositorio remoto.
+Además de los workflows remotos, EVIDETH incorpora **hooks de pre-commit** que se ejecutan en la máquina del desarrollador antes de cada `git commit`.
 
 ### Filosofía: dos capas de protección
 
@@ -279,11 +349,7 @@ Además de los workflows remotos de GitHub Actions, EVIDETH incorpora **hooks de
 └─────────────────────────────────────────────────────────────┘
 ```
 
-La combinación de ambas capas garantiza que **ningún secreto ni código roto llegue jamás al repositorio**.
-
 ### Hooks configurados
-
-Definidos en `.pre-commit-config.yaml` en la raíz del proyecto:
 
 | Hook | Herramienta | Qué hace |
 |---|---|---|
@@ -298,56 +364,20 @@ Definidos en `.pre-commit-config.yaml` en la raíz del proyecto:
 | `isort` | isort 5.13 | Ordena los imports según PEP8 |
 | **`pytest tests/unit/`** | pytest | **Ejecuta tests unitarios — bloquea el commit si fallan** |
 
-### Secret Scan con Gitleaks
-
-[Gitleaks](https://github.com/gitleaks/gitleaks) es una herramienta de detección de secretos que analiza el **diff del commit** (no el histórico completo) en busca de:
-
-- Claves de API (Azure, AWS, GitHub tokens)
-- Credenciales JWT hardcodeadas
-- Contraseñas en variables de entorno
-- Claves privadas ECDSA/RSA
-- API Keys específicas de EVIDETH (`EVIDETH_[A-Za-z0-9]{32,}`)
-
-Las reglas personalizadas y las rutas a ignorar (tests, documentación, `.env.example`) se configuran en `.gitleaks.toml`.
-
-**Si Gitleaks detecta un secreto, el commit es bloqueado:**
-
-```
-🔍 Secret Scan (Gitleaks)................................................Failed
-- hook id: gitleaks
-- exit code: 1
-
-Finding: JWT_SECRET_KEY = "mi-clave-super-secreta"
-File: app/config.py
-Line: 12
-
-Solución: mover el valor a una variable de entorno (.env) y añadir .env al .gitignore
-```
-
 ### Instalación (una sola vez por desarrollador)
 
 ```bash
-# 1. Sincronizar los nuevos ficheros
 git pull origin main
-
-# 2. Registrar los hooks en el repositorio local
-#    (pre-commit ya está incluido en requirements.txt)
 pre-commit install
-
-# 3. Opcional: ejecutar sobre todos los ficheros ahora mismo
+# Opcional: ejecutar sobre todos los ficheros ahora
 pre-commit run --all-files
 ```
-
-A partir de ese momento, cada `git commit` ejecuta los hooks automáticamente. Si alguno falla, el commit queda bloqueado y se muestra el motivo.
 
 ### Saltar un hook puntualmente
 
 ```bash
 # Saltar todos los hooks (solo en casos excepcionales justificados)
 git commit --no-verify -m "mensaje"
-
-# Ver el detalle de lo que falló
-pre-commit run --verbose
 
 # Ejecutar solo el secret scan
 pre-commit run gitleaks
@@ -356,7 +386,7 @@ pre-commit run gitleaks
 pre-commit run unit-tests
 ```
 
-> ⚠️ El uso de `--no-verify` debe quedar justificado en el mensaje del commit. En un entorno de producción real, los commits sin verificación deberían requerir aprobación del equipo.
+> ⚠️ El uso de `--no-verify` debe quedar justificado en el mensaje del commit.
 
 ### Diferencia entre pre-commit y GitHub Actions
 
@@ -364,7 +394,7 @@ pre-commit run unit-tests
 |---|---|---|
 | **Cuándo se ejecuta** | Antes del `git commit` | Después del `git push` |
 | **Quién lo ve** | Solo el desarrollador | Todo el equipo y el historial de CI |
-| **Tests ejecutados** | Solo unitarios (rápidos, < 30s) | Unitarios + integración + características |
+| **Tests ejecutados** | Solo unitarios (rápidos) | Unitarios + integración + características |
 | **Secret scan** | ✅ Gitleaks (diff del commit) | ✅ En `ci.yml` (histórico completo) |
 | **Formato de código** | ✅ Black + isort (auto-fix) | ✅ Verificación (sin auto-fix) |
 | **Requisito** | Instalación manual por desarrollador | Automático en cada push |
