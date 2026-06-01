@@ -13,17 +13,9 @@ permissions:
   contents: read
 
 jobs:
-  build-push:
-    name: Build & Push Backend Image
-    uses: ./.github/workflows/build-push.yml
-    permissions:
-      id-token: write
-      contents: read
-
   apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
-    needs: build-push
 
     env:
       ARM_USE_OIDC: "true"
@@ -55,7 +47,6 @@ jobs:
         run: terraform init
 
       # ── Force-unlock stale lock (idempotente) ────────────────────────
-      # Si un apply anterior falló a mitad, el blob de lock queda huérfano.
       - name: Force-unlock stale Terraform state lock
         run: |
           ACCOUNT="evidethtfstate"
@@ -66,14 +57,16 @@ jobs:
             --resource-group evideth-dev-rg \
             --account-name "$ACCOUNT" \
             --query "[0].value" \
-            --output tsv)
+            --output tsv 2>/dev/null) || true
 
-          az storage blob delete \
-            --account-name "$ACCOUNT" \
-            --account-key  "$STORAGE_KEY" \
-            --container-name "$CONTAINER" \
-            --name "$LOCK_BLOB" 2>/dev/null \
-            && echo "🔓 Stale lock removed" || echo "✅ No stale lock found"
+          if [ -n "$STORAGE_KEY" ]; then
+            az storage blob delete \
+              --account-name "$ACCOUNT" \
+              --account-key  "$STORAGE_KEY" \
+              --container-name "$CONTAINER" \
+              --name "$LOCK_BLOB" 2>/dev/null \
+              && echo "🔓 Stale lock removed" || echo "✅ No stale lock found"
+          fi
 
       - name: Terraform Validate
         working-directory: terraform/
@@ -84,3 +77,11 @@ jobs:
         run: |
           terraform plan -no-color -out=tfplan
           terraform apply -auto-approve tfplan
+
+  build-push:
+    name: Build & Push Backend Image
+    uses: ./.github/workflows/build-push.yml
+    needs: apply          # ← espera a que la infra (ACR) exista
+    permissions:
+      id-token: write
+      contents: read
