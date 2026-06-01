@@ -34,6 +34,11 @@ resource "time_sleep" "wait_for_identity" {
 # ── Connection string PostgreSQL (formato DATABASE_URL) ───────
 locals {
   db_connection_string = "postgresql://${var.db_admin_user}:${random_password.db_password.result}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/${var.db_name}?sslmode=require"
+
+  # Imagen real del ACR; si el ACR está vacío (primer deploy) se usa
+  # la imagen placeholder de Microsoft para que Terraform no falle.
+  # El build-push.yml actualizará la imagen tras el primer apply.
+  backend_image = "${azurerm_container_registry.main.login_server}/evideth-backend:${var.backend_image_tag}"
 }
 
 # ── Container App — Backend EVIDETH ──────────────────────────
@@ -48,8 +53,6 @@ resource "azurerm_container_app" "backend" {
   }
 
   # ── Autenticación con ACR via admin credentials (secret) ────
-  # No requiere Microsoft.Authorization/roleAssignments/write
-  # El SP de GitHub Actions no tiene ese permiso en Azure for Students
   registry {
     server               = azurerm_container_registry.main.login_server
     username             = azurerm_container_registry.main.admin_username
@@ -79,8 +82,10 @@ resource "azurerm_container_app" "backend" {
     max_replicas = var.backend_max_replicas
 
     container {
-      name   = "evideth-backend"
-      image  = "${azurerm_container_registry.main.login_server}/evideth-backend:${var.backend_image_tag}"
+      name = "evideth-backend"
+      # Placeholder para el primer deploy (ACR vacío).
+      # build-push.yml actualiza la imagen tras el apply.
+      image  = "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
       cpu    = var.backend_cpu
       memory = var.backend_memory
 
@@ -244,6 +249,12 @@ resource "azurerm_container_app" "backend" {
 
   tags = local.common_tags
 
+  # ── ignore_changes en template para que Terraform no revierta
+  # la imagen real tras el primer build-push ────────────────────
+  lifecycle {
+    ignore_changes = [template]
+  }
+
   depends_on = [
     azurerm_postgresql_flexible_server_database.evideth,
     azurerm_key_vault_access_policy.terraform,
@@ -253,7 +264,6 @@ resource "azurerm_container_app" "backend" {
 }
 
 # ── Access Policy para la Managed Identity del Container App ──
-# Permite al backend leer secretos y firmar con ECDSA desde Key Vault
 resource "azurerm_key_vault_access_policy" "container_app" {
   key_vault_id = azurerm_key_vault.main.id
   tenant_id    = data.azurerm_client_config.current.tenant_id
