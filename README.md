@@ -36,6 +36,40 @@ EVIDETH es un sistema de verificación de integridad de vídeo de grado forense 
 
 ---
 
+## 📚 Documentación
+
+### 🏗️ Infraestructura y Despliegue
+
+| Documento | Descripción |
+|---|---|
+| [Pipeline CI/CD](Docs/ci_cd_evideth.md) | Workflows de GitHub Actions: build, deploy, destroy y plan. Autenticación OIDC con Azure. |
+| [Azure Key Vault](Docs/azure_key_vault.md) | Gestión de la clave ECDSA P-256 y secretos desde Key Vault. Managed Identity. |
+| [Application Insights](Docs/application_insights.md) | Telemetría, trazas y métricas del backend en Azure Monitor. |
+| [Logging y Observabilidad](Docs/logging_y_observabilidad.md) | Estructura de logs, niveles, correlación de trazas y Log Analytics Workspace. |
+
+### 🔐 Seguridad e Identidades
+
+| Documento | Descripción |
+|---|---|
+| [Gestión de Identidades](Docs/gestion_identidades.md) | JWT para usuarios, API Keys para cámaras, roles y control de acceso. |
+| [Seguridad de Datos y Credenciales](Docs/seguridad_datos_y_credenciales.md) | Cifrado en tránsito y en reposo, gestión de secretos y modelo de amenazas. |
+
+### 🧪 Testing
+
+| Documento | Descripción |
+|---|---|
+| [Tests Unitarios y Escenarios](Docs/tests_unitarios_y_escenarios.md) | Cobertura de tests unitarios, fixtures y escenarios de prueba por módulo. |
+| [Tests de Integración](Docs/tests_integracion.md) | Tests end-to-end contra la API real, base de datos y servicios Azure. |
+
+### 🎨 Diseños
+
+| Recurso | Descripción |
+|---|---|
+| [Diagrama de Arquitectura (PDF)](Docs/Designs/Schemes/InfraestructuraAzure.pdf) | Arquitectura completa de infraestructura Azure. |
+| [Carpeta Designs](Docs/Designs/) | Diagramas, esquemas y mockups del sistema. |
+
+---
+
 ## ☁️ Infraestructura Azure
 
 EVIDETH está desplegado en **Microsoft Azure** (Spain Central) con una arquitectura privada y orientada a la seguridad. Todos los recursos se encuentran en el grupo de recursos `evideth-dev-rg`.
@@ -66,8 +100,8 @@ EVIDETH está desplegado en **Microsoft Azure** (Spain Central) con una arquitec
 ### Flujo CI/CD
 
 ```
-GitHub Push → GitHub Actions (OIDC) → Construcción imagen Docker
-  → Push al ACR (evidethdevacr94f04b) → Actualización Container App
+GitHub Push → GitHub Actions (OIDC) → Terraform Apply (infra)
+  → Build imagen Docker → Push al ACR → Container App actualizado
 ```
 
 ### Flujo de Petición
