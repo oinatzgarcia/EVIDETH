@@ -2,7 +2,7 @@
 🔐 EVIDETH - Sistema Forense de Verificación de Integridad de Vídeo mediante hashing criptográfico (SHA-256) y firmas ECDSA.
 
 <div align="center">
-  <img src="Docs/Images/Logo.png" alt="Logo EVIDETH" width="360"/>
+  <img src="docs/Images/Logo.png" alt="Logo EVIDETH" width="360"/>
   
   # EVIDETH
   ### Sistema Forense de Verificación de Integridad de Vídeo
@@ -11,7 +11,7 @@
   
   <br/>
   
-  <img src="Docs/Images/Dashboard.png" alt="Dashboard EVIDETH" width="85%"/>
+  <img src="docs/Images/Dashboard.png" alt="Dashboard EVIDETH" width="85%"/>
   
   <br/>
   
@@ -42,31 +42,31 @@ EVIDETH es un sistema de verificación de integridad de vídeo de grado forense 
 
 | Documento | Descripción |
 |---|---|
-| [Pipeline CI/CD](Docs/ci_cd_evideth.md) | Workflows de GitHub Actions: build, deploy, destroy y plan. Autenticación OIDC con Azure. |
-| [Azure Key Vault](Docs/azure_key_vault.md) | Gestión de la clave ECDSA P-256 y secretos desde Key Vault. Managed Identity. |
-| [Application Insights](Docs/application_insights.md) | Telemetría, trazas y métricas del backend en Azure Monitor. |
-| [Logging y Observabilidad](Docs/logging_y_observabilidad.md) | Estructura de logs, niveles, correlación de trazas y Log Analytics Workspace. |
+| [Pipeline CI/CD](docs/ci_cd_evideth.md) | Workflows de GitHub Actions: build, deploy, destroy y plan. Autenticación OIDC con Azure. |
+| [Azure Key Vault](docs/azure_key_vault.md) | Gestión de la clave ECDSA P-256 y secretos desde Key Vault. Managed Identity. |
+| [Application Insights](docs/application_insights.md) | Telemetría, trazas y métricas del backend en Azure Monitor. |
+| [Logging y Observabilidad](docs/logging_y_observabilidad.md) | Estructura de logs, niveles, correlación de trazas y Log Analytics Workspace. |
 
 ### 🔐 Seguridad e Identidades
 
 | Documento | Descripción |
 |---|---|
-| [Gestión de Identidades](Docs/gestion_identidades.md) | JWT para usuarios, API Keys para cámaras, roles y control de acceso. |
-| [Seguridad de Datos y Credenciales](Docs/seguridad_datos_y_credenciales.md) | Cifrado en tránsito y en reposo, gestión de secretos y modelo de amenazas. |
+| [Gestión de Identidades](docs/gestion_identidades.md) | JWT para usuarios, API Keys para cámaras, roles y control de acceso. |
+| [Seguridad de Datos y Credenciales](docs/seguridad_datos_y_credenciales.md) | Cifrado en tránsito y en reposo, gestión de secretos y modelo de amenazas. |
 
 ### 🧪 Testing
 
 | Documento | Descripción |
 |---|---|
-| [Tests Unitarios y Escenarios](Docs/tests_unitarios_y_escenarios.md) | Cobertura de tests unitarios, fixtures y escenarios de prueba por módulo. |
-| [Tests de Integración](Docs/tests_integracion.md) | Tests end-to-end contra la API real, base de datos y servicios Azure. |
+| [Tests Unitarios y Escenarios](docs/tests_unitarios_y_escenarios.md) | Cobertura de tests unitarios, fixtures y escenarios de prueba por módulo. |
+| [Tests de Integración](docs/tests_integracion.md) | Tests end-to-end contra la API real, base de datos y servicios Azure. |
 
 ### 🎨 Diseños
 
 | Recurso | Descripción |
 |---|---|
-| [Diagrama de Arquitectura (PDF)](Docs/Designs/Schemes/InfraestructuraAzure.pdf) | Arquitectura completa de infraestructura Azure. |
-| [Carpeta Designs](Docs/Designs/) | Diagramas, esquemas y mockups del sistema. |
+| [Diagrama de Arquitectura (PDF)](docs/Designs/Schemes/InfraestructuraAzure.pdf) | Arquitectura completa de infraestructura Azure. |
+| [Carpeta Designs](docs/Designs/) | Diagramas, esquemas y mockups del sistema. |
 
 ---
 
@@ -115,4 +115,4 @@ Cámara (API Key) ──► Balanceador de carga ──► Container App
                         (clave ECDSA)     (hashes + firmas)         (vídeos)
 ```
 
-📄 **[Diagrama de Arquitectura Completo (PDF)](Docs/Designs/Schemes/InfraestructuraAzure.pdf)**
+📄 **[Diagrama de Arquitectura Completo (PDF)](docs/Designs/Schemes/InfraestructuraAzure.pdf)**
