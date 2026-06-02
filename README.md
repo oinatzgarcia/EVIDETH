@@ -121,12 +121,12 @@ Cámara (API Key) ──► Balanceador de carga ──► Container App
 
 ## 📷 Despliegue del Cliente (Live Viewer)
 
-El cliente EVIDETH es un **simulador de cámara forense** que renderiza vídeo sintético en el navegador (via `<canvas>`), genera hashes SHA-256 por cada segmento temporal y los envía al backend para su registro criptográfico.
+El cliente EVIDETH es un **simulador de cámara forense** que renderiza vídeo sintético en el navegador (via `<canvas>`), genera hashes SHA-256 reales del blob WebM de cada segmento y los envía al backend para su registro criptográfico. El servidor Python transcodifica cada segmento de WebM a MP4 (H.264) con ffmpeg y lo guarda localmente en `./VIDEOS/`.
 
-> 🚨 **Importante — Arquitectura de datos:**
-> El cliente **NO graba ningún fichero de vídeo** (.mp4 ni similar). Solo genera y transmite **hashes + metadatos** de cada segmento.
-> El backend **tampoco almacena el vídeo** procedente del cliente — únicamente persiste en PostgreSQL los hashes SHA-256, firmas ECDSA y metadatos temporales de cada segmento.
-> Los ficheros MP4 reales solo llegan al sistema cuando un **analista los sube manualmente** desde el panel de verificación del dashboard, y se guardan temporalmente para procesarlos (generación de hashes y verificación) antes de eliminarse.
+> 🔐 **Cadena de integridad forense:**
+> El SHA-256 se calcula en el navegador sobre el **blob WebM original** (usando `crypto.subtle`, NIST FIPS 180-4) antes de enviarlo al servidor.
+> El fichero `.mp4` de disco es la copia de archivo; el hash que se registra en el backend identifica el contenido tal como fue grabado.
+> El backend **no almacena el vídeo** — solo persiste en PostgreSQL los hashes SHA-256, firmas ECDSA y metadatos de cada segmento.
 
 ### Prerrequisitos
 
@@ -167,26 +167,26 @@ Desde la raíz del repositorio:
 
 ```bash
 git pull
-docker compose -f docker-compose.client.yml up
+docker compose -f docker-compose.client.yml up --build
 ```
 
 > Si ya existe un contenedor previo con el mismo nombre:
 > ```bash
 > docker rm -f evideth-client
-> docker compose -f docker-compose.client.yml up
+> docker compose -f docker-compose.client.yml up --build
 > ```
 
 ---
 
 ### 🎬 Paso 3 — Abrir el Live Viewer
 
-Una vez el contenedor esté en marcha, abre el navegador y accede directamente a:
+Una vez el contenedor esté en marcha, abre el navegador en:
 
 ```
-http://localhost:8080/pages/viewer/viewer.html
+http://localhost:8080/
 ```
 
-> ⚠️ La raíz `http://localhost:8080` no redirige automáticamente. Usa siempre la ruta completa indicada arriba.
+> La raíz redirige automáticamente al Live Viewer.
 
 ---
 
@@ -200,7 +200,8 @@ http://localhost:8080/pages/viewer/viewer.html
    - *Simulate Tampering*: activa para que algunos segmentos se envíen con un hash alterado (modo demo/testing de detección de manipulación)
 3. **Pulsa START STREAMING** — el cliente:
    - Crea un registro de video en el backend (`POST /api/v1/cameras/videos`) — solo metadatos, sin fichero
-   - Cada N segundos genera un hash SHA-256 del frame simulado y lo envía (`POST /api/v1/cameras/segments`)
+   - Cada N segundos calcula el SHA-256 real del blob WebM grabado y lo envía (`POST /api/v1/cameras/segments`)
+   - El servidor guarda el segmento como `.mp4` en `./VIDEOS/<CAMERA_ID>/<VIDEO_ID>/`
    - Para automáticamente si se alcanza el límite de segmentos
    - Cierra el registro de video en el backend al parar (`PATCH /api/v1/cameras/videos/{id}/finish`)
 4. **Consulta el Forensic Log** — panel derecho con todos los eventos timestampeados.
@@ -220,8 +221,12 @@ http://localhost:8080/pages/viewer/viewer.html
     │   (cada N segundos)
     ├─► POST /api/v1/cameras/segments
     │       { video_id, segment_index, start_time_secs,
-    │         end_time_secs, sha256_hash }                  ← solo hash, sin vídeo
+    │         end_time_secs, sha256_hash }                  ← hash real del blob WebM
     │   ◄── { id, status: "PENDING" | "VALID" }
+    │
+    ├─► POST /save-segment  (servidor local Docker)
+    │       multipart: blob WebM → ffmpeg → seg_NNN.mp4
+    │       guardado en ./VIDEOS/<CAM_ID>/<VIDEO_ID>/
     │
     ├─► POST /api/v1/cameras/heartbeat   (al iniciar)
     │
@@ -230,7 +235,7 @@ http://localhost:8080/pages/viewer/viewer.html
     └─► PATCH /api/v1/cameras/videos/{video_id}/finish
 ```
 
-Todas las peticiones incluyen la cabecera `X-API-Key: <tu_api_key>` para autenticar la cámara. **Ningún fichero de vídeo se transmite en ningún punto de este flujo.**
+Todas las peticiones al backend incluyen la cabecera `X-API-Key: <tu_api_key>` para autenticar la cámara.
 
 ---
 
@@ -250,11 +255,12 @@ BACKEND_URL: 'http://host.docker.internal:8000',
 
 | Síntoma | Causa | Solución |
 |---|---|---|
-| Pantalla en blanco en `http://localhost:8080` | No hay redirección automática | Acceder directamente a `http://localhost:8080/pages/viewer/viewer.html` |
+| Pantalla en blanco en `http://localhost:8080/` | Nginx no arrancó | `docker logs evideth-client` para ver el error |
 | `Config loaded but CAMERA_ID is empty` | `client.config.js` sin rellenar | Editar el fichero y refrescar el navegador |
 | `Video creation failed: HTTP 401` | API Key incorrecta o caducada | Verificar la API Key en el panel de administración |
 | `Video creation failed: HTTP 403` | Cámara inactiva | Activar la cámara desde el panel Admin |
 | `Seg #N · Backend: 404` | `video_id` no válido o cámara no encontrada | Comprobar que la cámara existe y el `CAMERA_ID` es correcto |
 | `Seg #N · Backend: 409` | Segmento duplicado (mismo índice ya registrado) | Pulsar **Reset** antes de iniciar una nueva sesión |
 | `Heartbeat failed` | Backend no accesible desde Docker | Verificar `BACKEND_URL` y conectividad de red |
+| `ffmpeg: false` en `/health` | Imagen antigua sin ffmpeg | `docker compose -f docker-compose.client.yml up --build` |
 | Error de nombre de contenedor en uso | Contenedor previo sin eliminar | `docker rm -f evideth-client` |
