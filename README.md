@@ -87,7 +87,7 @@ EVIDETH está desplegado en **Microsoft Azure** (Spain Central) con una arquitec
 | **Base de datos** | `evideth-dev-pgserver` | PostgreSQL Flexible Server — **solo acceso privado por VNet** |
 | **Base de datos** | `evideth.postgres.database.azure.com` | Zona DNS privada para PostgreSQL |
 | **Seguridad** | `evideth-dev-kv-94f04b` | Key Vault — clave ECDSA P-256 + secreto JWT |
-| **Almacenamiento** | `evidethdevst94f04b` | Blob Storage — vídeos subidos |
+| **Almacenamiento** | `evidethdevst94f04b` | Blob Storage — vídeos subidos por analistas para verificación |
 | **Observabilidad** | `evideth-dev-logs` | Área de trabajo de Log Analytics |
 
 ### Decisiones de Seguridad Clave
@@ -112,7 +112,7 @@ Cámara (API Key) ──► Balanceador de carga ──► Container App
                                ┌────────────────────┼────────────────────┐
                                ▼                    ▼                    ▼
                           Key Vault           PostgreSQL           Blob Storage
-                        (clave ECDSA)     (hashes + firmas)         (vídeos)
+                        (clave ECDSA)     (hashes + firmas)    (MP4 de analistas)
 ```
 
 📄 **[Diagrama de Arquitectura Completo (PDF)](docs/Designs/Schemes/InfraestructuraAzure.pdf)**
@@ -121,7 +121,12 @@ Cámara (API Key) ──► Balanceador de carga ──► Container App
 
 ## 📷 Despliegue del Cliente (Live Viewer)
 
-El cliente EVIDETH es un simulador de cámara forense que captura vídeo, computa hashes SHA-256 por segmentos y los envía al backend para su registro y verificación. Se despliega con un único comando Docker.
+El cliente EVIDETH es un **simulador de cámara forense** que renderiza vídeo sintético en el navegador (via `<canvas>`), genera hashes SHA-256 por cada segmento temporal y los envía al backend para su registro criptográfico.
+
+> 🚨 **Importante — Arquitectura de datos:**
+> El cliente **NO graba ningún fichero de vídeo** (.mp4 ni similar). Solo genera y transmite **hashes + metadatos** de cada segmento.
+> El backend **tampoco almacena el vídeo** procedente del cliente — únicamente persiste en PostgreSQL los hashes SHA-256, firmas ECDSA y metadatos temporales de cada segmento.
+> Los ficheros MP4 reales solo llegan al sistema cuando un **analista los sube manualmente** desde el panel de verificación del dashboard, y se guardan temporalmente para procesarlos (generación de hashes y verificación) antes de eliminarse.
 
 ### Prerrequisitos
 
@@ -191,16 +196,15 @@ http://localhost:8080/pages/viewer/viewer.html
 2. **Ajusta los parámetros** si necesitas cambiarlos en tiempo real (sin reiniciar Docker):
    - *Camera ID* y *API Key*
    - *Segment Duration*: 10s, 30s o 60s
-   - *Nº Segments*: número de segmentos a grabar (vacío = sin límite)
-   - *Simulate Tampering*: activa para simular manipulación de datos (modo demo/testing)
-3. **Pulsa START STREAMING** — el sistema:
-   - Crea un video en el backend (`POST /api/v1/cameras/videos`)
-   - Graba segmentos cada N segundos calculando el SHA-256
-   - Envía cada segmento al backend (`POST /api/v1/cameras/segments`)
+   - *Nº Segments*: número de segmentos a registrar (vacío = sin límite)
+   - *Simulate Tampering*: activa para que algunos segmentos se envíen con un hash alterado (modo demo/testing de detección de manipulación)
+3. **Pulsa START STREAMING** — el cliente:
+   - Crea un registro de video en el backend (`POST /api/v1/cameras/videos`) — solo metadatos, sin fichero
+   - Cada N segundos genera un hash SHA-256 del frame simulado y lo envía (`POST /api/v1/cameras/segments`)
    - Para automáticamente si se alcanza el límite de segmentos
-   - Cierra el video en el backend al parar (`PATCH /api/v1/cameras/videos/{id}/finish`)
+   - Cierra el registro de video en el backend al parar (`PATCH /api/v1/cameras/videos/{id}/finish`)
 4. **Consulta el Forensic Log** — panel derecho con todos los eventos timestampeados.
-5. **Pulsa VERIFY ALL** (tras parar) para re-verificar la integridad de todos los segmentos contra el backend.
+5. **Pulsa VERIFY ALL** (tras parar) para re-verificar los hashes almacenados contra los del backend.
 
 ---
 
@@ -210,13 +214,13 @@ http://localhost:8080/pages/viewer/viewer.html
 [CLIENTE] START STREAMING
     │
     ├─► POST /api/v1/cameras/videos
-    │       { filename: "camera_CAM1_2026-06-02T...mp4" }
+    │       { filename: "camera_CAM1_2026-06-02T...mp4" }   ← solo nombre, sin fichero
     │   ◄── { id: "3f7a1c2d-..." }  ← video_id
     │
     │   (cada N segundos)
     ├─► POST /api/v1/cameras/segments
     │       { video_id, segment_index, start_time_secs,
-    │         end_time_secs, sha256_hash }
+    │         end_time_secs, sha256_hash }                  ← solo hash, sin vídeo
     │   ◄── { id, status: "PENDING" | "VALID" }
     │
     ├─► POST /api/v1/cameras/heartbeat   (al iniciar)
@@ -226,7 +230,7 @@ http://localhost:8080/pages/viewer/viewer.html
     └─► PATCH /api/v1/cameras/videos/{video_id}/finish
 ```
 
-Todas las peticiones incluyen la cabecera `X-API-Key: <tu_api_key>` para autenticar la cámara.
+Todas las peticiones incluyen la cabecera `X-API-Key: <tu_api_key>` para autenticar la cámara. **Ningún fichero de vídeo se transmite en ningún punto de este flujo.**
 
 ---
 
