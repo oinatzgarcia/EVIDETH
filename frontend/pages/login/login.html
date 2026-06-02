@@ -5,25 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EVIDETH — Secure Access</title>
 
-    <!-- Favicon -->
     <link rel="icon" type="image/png" href="../../assets/images/Buho.png" sizes="59x59">
-
-    <!--
-        auth.js — DEBE cargarse ANTES que Alpine.js.
-        Login lo necesita para:
-          1. Auth.isLoggedIn() en init()      → redirige si ya hay sesión
-          2. Auth.setTokens()  en submitLogin → guarda tokens con el mismo
-             mecanismo que usa auth.requireAuth() en el dashboard
-    -->
     <script src="../../assets/js/auth.js"></script>
-
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-
-    <!-- Alpine.js -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-
-    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -387,7 +372,6 @@
                 globalError: null,
                 fe:          {},
 
-                // ── Init ──────────────────────────────────────────────────
                 init() {
                     if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) {
                         window.location.href = '../dashboard/dashboard.html';
@@ -399,7 +383,6 @@
                     }
                 },
 
-                // ── Validación client-side ────────────────────────────────
                 validate() {
                     this.fe = {};
                     const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -420,7 +403,6 @@
                     this.globalError = null;
                 },
 
-                // ── Submit ────────────────────────────────────────────────
                 async submitLogin() {
                     this.globalError = null;
                     if (!this.validate()) return;
@@ -451,23 +433,24 @@
                             return;
                         }
 
-                        // 2️⃣ Guardar token primero (necesario para llamar a /me)
-                        Auth.setTokens(data, false);
-
-                        // 3️⃣ Obtener perfil completo del usuario (incluye role, full_name, email)
-                        //    y enriquecerlo en storage para que profile-menu.js lo lea correctamente
+                        // 2️⃣ Obtener perfil ANTES de guardar nada en storage.
+                        //    Se usa el token directamente del response (aún no está en Auth).
+                        let userProfile = null;
                         try {
                             const meRes = await fetch('/api/v1/auth/me', {
-                                headers: { ...Auth.authHeader() },
+                                headers: {
+                                    'Authorization': `${data.token_type || 'bearer'} ${data.access_token}`,
+                                },
                             });
                             if (meRes.ok) {
-                                const userProfile = await meRes.json();
-                                // Reescribir tokens incluyendo el perfil del usuario
-                                Auth.setTokens({ ...data, user: userProfile }, false);
+                                userProfile = await meRes.json();
                             }
                         } catch (_) {
-                            // Si /me falla, continuamos igualmente (el JWT ya está guardado)
+                            // /me falló — se guarda sin perfil; el rol fallback será 'viewer'
                         }
+
+                        // 3️⃣ UNA SOLA llamada a setTokens, ya con el perfil incluido
+                        Auth.setTokens({ ...data, user: userProfile }, false);
 
                         // 4️⃣ Redirigir
                         this.success = true;
