@@ -389,20 +389,17 @@
 
                 // ── Init ──────────────────────────────────────────────────
                 init() {
-                    // FIX: usar Auth.isLoggedIn() para que la comprobación
-                    // use el mismo storage que usa auth.requireAuth()
                     if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) {
                         window.location.href = '../dashboard/dashboard.html';
                         return;
                     }
-                    // Mostrar mensaje de sesión expirada si viene del logout
                     if (typeof Auth !== 'undefined') {
                         const msg = Auth.consumeAuthMessage();
                         if (msg) this.globalError = msg;
                     }
                 },
 
-                // ── Validación client-side ──────────────────────────────
+                // ── Validación client-side ────────────────────────────────
                 validate() {
                     this.fe = {};
                     const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -423,13 +420,14 @@
                     this.globalError = null;
                 },
 
-                // ── Submit ───────────────────────────────────────────────
+                // ── Submit ────────────────────────────────────────────────
                 async submitLogin() {
                     this.globalError = null;
                     if (!this.validate()) return;
 
                     this.loading = true;
                     try {
+                        // 1️⃣ Obtener el JWT
                         const response = await fetch('/api/v1/auth/login', {
                             method:  'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -453,20 +451,33 @@
                             return;
                         }
 
-                        /*
-                         * FIX: usar Auth.setTokens() en lugar de localStorage.setItem() directo.
-                         * Esto asegura que auth.js._store() encuentre los tokens
-                         * en el storage correcto cuando el dashboard llame Auth.requireAuth().
-                         *
-                         * rememberMe = false → sessionStorage (se borra al cerrar la pestaña)
-                         * Si en el futuro se añade un checkbox "Recordar sesión",
-                         * pasar el valor del checkbox aquí.
-                         */
+                        // 2️⃣ Guardar token primero (necesario para llamar a /me)
                         Auth.setTokens(data, false);
 
+                        // 3️⃣ Obtener perfil completo del usuario (incluye role, full_name, email)
+                        //    y enriquecerlo en storage para que profile-menu.js lo lea correctamente
+                        try {
+                            const meRes = await fetch('/api/v1/auth/me', {
+                                headers: { ...Auth.authHeader() },
+                            });
+                            if (meRes.ok) {
+                                const userProfile = await meRes.json();
+                                // Reescribir tokens incluyendo el perfil del usuario
+                                Auth.setTokens({ ...data, user: userProfile }, false);
+                            }
+                        } catch (_) {
+                            // Si /me falla, continuamos igualmente (el JWT ya está guardado)
+                        }
+
+                        // 4️⃣ Redirigir
                         this.success = true;
                         await new Promise(r => setTimeout(r, 900));
-                        window.location.href = '../dashboard/dashboard.html';
+
+                        if (data.must_change_password) {
+                            window.location.href = '../settings/settings.html';
+                        } else {
+                            window.location.href = '../dashboard/dashboard.html';
+                        }
 
                     } catch (_err) {
                         this.globalError = 'Connection error. Please try again.';
