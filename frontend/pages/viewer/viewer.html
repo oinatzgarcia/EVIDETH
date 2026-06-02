@@ -54,6 +54,7 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
 .log-line-err{color:#ef4444}
 .log-line-info{color:#9ca3af}
 .log-line-success{color:#3fb950}
+.log-line-save{color:#f59e0b}
 .seg-dot{width:14px;height:14px;border-radius:2px;flex-shrink:0;transition:all .2s}
 .seg-dot.valid{background:rgba(74,144,226,.35);border:1px solid rgba(74,144,226,.5)}
 .seg-dot.invalid{background:rgba(239,68,68,.35);border:1px solid rgba(239,68,68,.5)}
@@ -353,6 +354,10 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
                 <p class="font-mono text-xs" style="color:#9ca3af" x-text="selectedSeg.timestamp"></p>
               </div>
               <div>
+                <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280">Local File</p>
+                <p class="font-mono text-xs break-all" style="color:#f59e0b" x-text="selectedSeg.localFile || '—'"></p>
+              </div>
+              <div>
                 <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280">Status</p>
                 <p class="font-mono text-sm font-bold" :style="selectedSeg.valid ? 'color:#4a90e2' : 'color:#ef4444'" x-text="selectedSeg.valid ? '✓ VALID' : '✗ TAMPERED'"></p>
               </div>
@@ -403,6 +408,8 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
           <p class="font-mono text-[10px] break-all" style="color:#5ba3f5" x-text="segments.length > 0 ? segments[segments.length-1].hash : '—'"></p>
           <p class="font-mono text-[10px] mt-2" style="color:#6b7280">ECDSA Sig</p>
           <p class="font-mono text-[10px] break-all" style="color:#d2a8ff" x-text="segments.length > 0 ? (segments[segments.length-1].signature || 'pending...') : '—'"></p>
+          <p class="font-mono text-[10px] mt-2" style="color:#6b7280">Local File</p>
+          <p class="font-mono text-[10px] break-all" style="color:#f59e0b" x-text="segments.length > 0 ? (segments[segments.length-1].localFile || '—') : '—'"></p>
         </div>
       </div>
 
@@ -447,6 +454,13 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
 const AZURE_BACKEND = 'https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io';
 const _cfg = (typeof window.EVIDETH_CONFIG !== 'undefined') ? window.EVIDETH_CONFIG : {};
 
+// ─── MediaRecorder helpers ───────────────────────────────────────────────────
+// Elige el mime type WebM más compatible con el navegador
+function bestMime() {
+  const candidates = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  return candidates.find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
+}
+
 function viewerApp() {
   return {
     configLoaded: typeof window.EVIDETH_CONFIG !== 'undefined',
@@ -454,11 +468,11 @@ function viewerApp() {
       cameraId:    _cfg.CAMERA_ID      || '',
       apiKey:      _cfg.CAMERA_API_KEY || '',
       segmentSec:  30,
-      maxSegments: _cfg.MAX_SEGMENTS   || 0,   // 0 = sin límite
+      maxSegments: _cfg.MAX_SEGMENTS   || 0,
       backendUrl:  _cfg.BACKEND_URL    || AZURE_BACKEND,
       tamper:      false,
       source:      'simulated',
-      videoId:     '',   // UUID del video activo en el backend
+      videoId:     '',
     },
     streaming:      false,
     verifying:      false,
@@ -475,6 +489,11 @@ function viewerApp() {
     _clockTimer:    null,
     _segTimer:      null,
     _canvasTimer:   null,
+
+    // ── MediaRecorder state ──────────────────────────────────────────────────
+    _recorder:      null,   // MediaRecorder activo
+    _recChunks:     [],     // chunks del segmento actual
+    _canvasStream:  null,   // captureStream() del canvas
 
     init() {
       this._clockTimer = setInterval(() => {
@@ -568,6 +587,67 @@ function viewerApp() {
     _fakeHash() { const a = new Uint8Array(32); crypto.getRandomValues(a); return Array.from(a).map(b=>b.toString(16).padStart(2,'0')).join(''); },
     _fakeSignature() { const a = new Uint8Array(64); crypto.getRandomValues(a); return Array.from(a).map(b=>b.toString(16).padStart(2,'0')).join(''); },
 
+    // ── MediaRecorder: inicia grabación de un nuevo segmento ─────────────────
+    _startRecorder() {
+      const canvas = document.getElementById('videoCanvas');
+      if (!canvas) return;
+      // captureStream solo se crea una vez por sesión; se reutiliza entre segmentos
+      if (!this._canvasStream) {
+        this._canvasStream = canvas.captureStream(30); // 30 fps
+      }
+      this._recChunks = [];
+      const mime = bestMime();
+      try {
+        this._recorder = new MediaRecorder(this._canvasStream, { mimeType: mime, videoBitsPerSecond: 1_500_000 });
+        this._recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) this._recChunks.push(e.data); };
+        this._recorder.start();
+      } catch (err) {
+        this.log(`MediaRecorder init failed: ${err.message}`, 'err');
+        this._recorder = null;
+      }
+    },
+
+    // ── MediaRecorder: detiene y devuelve un Promise<Blob> ───────────────────
+    _stopRecorder() {
+      return new Promise((resolve) => {
+        if (!this._recorder || this._recorder.state === 'inactive') {
+          resolve(null);
+          return;
+        }
+        this._recorder.onstop = () => {
+          const blob = new Blob(this._recChunks, { type: this._recorder.mimeType || 'video/webm' });
+          this._recChunks = [];
+          resolve(blob);
+        };
+        this._recorder.stop();
+      });
+    },
+
+    // ── Sube el blob WebM al servidor local (Nginx → Python saver) ───────────
+    async _saveSegmentLocally(blob, segIndex) {
+      if (!blob || blob.size === 0) return null;
+      const videoId = this.config.videoId || 'local';
+      const fd = new FormData();
+      fd.append('camera_id', this.config.cameraId);
+      fd.append('video_id',  videoId);
+      fd.append('seg_index', String(segIndex));
+      fd.append('file', blob, `seg_${String(segIndex).padStart(3,'0')}.webm`);
+      try {
+        const resp = await fetch('/save-segment', { method: 'POST', body: fd });
+        if (resp.ok) {
+          const data = await resp.json();
+          this.log(`💾 Seg #${segIndex + 1} saved → VIDEOS/${data.path} (${data.size_kb} KB)`, 'save');
+          return `VIDEOS/${data.path}`;
+        } else {
+          this.log(`💾 Save failed HTTP ${resp.status} — video saver running?`, 'err');
+          return null;
+        }
+      } catch (e) {
+        this.log(`💾 Save failed (${e.message}) — running outside Docker?`, 'err');
+        return null;
+      }
+    },
+
     async startStreaming() {
       if (!this.config.cameraId || !this.config.apiKey) return;
       this.streaming    = true;
@@ -575,6 +655,7 @@ function viewerApp() {
       this.segElapsed   = 0;
       this.selectedSeg  = null;
       this.config.videoId = '';
+      this._canvasStream  = null;
       const limit = parseInt(this.config.maxSegments) || 0;
       this.log(`Session started · Camera ${this.config.cameraId}`, 'ok');
       this.log(`Backend: ${this.config.backendUrl}`, 'info');
@@ -609,8 +690,13 @@ function viewerApp() {
       }
 
       this._sendHeartbeat();
+
       let frame = 0;
       this._canvasTimer = setInterval(() => { if (this.streaming) this._drawFrame(frame++); }, 33);
+
+      // Iniciar grabación del primer segmento
+      this._startRecorder();
+
       this._segTimer = setInterval(() => {
         if (!this.streaming) return;
         this.segElapsed++;
@@ -641,6 +727,13 @@ function viewerApp() {
         this.config.videoId = '';
       }
 
+      // Detener MediaRecorder sin guardar el segmento parcial al hacer stop manual
+      if (this._recorder && this._recorder.state !== 'inactive') {
+        this._recorder.stop();
+        this._recorder = null;
+      }
+      this._canvasStream = null;
+
       this.log('Stream stopped by operator', 'info');
       this.log(`Session ended · ${this.segments.length} segments · Integrity ${this.integrityPct}%`, this.integrityPct === 100 ? 'success' : 'err');
       this._drawIdle();
@@ -649,21 +742,30 @@ function viewerApp() {
     async _closeSegment() {
       const limit  = parseInt(this.config.maxSegments) || 0;
       const segNum = this.segments.length + 1;
+      const segIdx = segNum - 1;
       const hash   = this._fakeHash();
       const isTampered = this.config.tamper && Math.random() < 0.35;
 
       this.log(`Seg #${segNum} · Computing SHA-256...`, 'info');
       this.log(`SHA-256: ${hash.substring(0,16)}...`, 'hash');
 
+      // 1. Detener grabación del segmento actual y empezar el siguiente
+      const blob = await this._stopRecorder();
+      this._startRecorder(); // inicia inmediatamente el siguiente segmento
+
+      // 2. Guardar WebM localmente
+      const localFile = await this._saveSegmentLocally(blob, segIdx);
+
       let signature = null;
       let valid = !isTampered;
 
+      // 3. Enviar hash al backend
       try {
         if (!this.config.videoId) throw new Error('no videoId — backend skipped');
         const payload = {
           video_id:        this.config.videoId,
-          segment_index:   segNum - 1,
-          start_time_secs: (segNum - 1) * parseInt(this.config.segmentSec),
+          segment_index:   segIdx,
+          start_time_secs: segIdx * parseInt(this.config.segmentSec),
           end_time_secs:   segNum * parseInt(this.config.segmentSec),
           sha256_hash:     isTampered ? this._fakeHash() : hash,
         };
@@ -685,11 +787,10 @@ function viewerApp() {
         signature = this._fakeSignature();
       }
 
-      this.segments.push({ index: segNum, hash, signature, timestamp: new Date().toLocaleString('es-ES'), valid, tampered: isTampered });
+      this.segments.push({ index: segNum, hash, signature, timestamp: new Date().toLocaleString('es-ES'), valid, tampered: isTampered, localFile });
       if (!valid) this.log(`⚠ Seg #${segNum} INTEGRITY VIOLATION DETECTED`, 'err');
       else        this.log(`Seg #${segNum} · VALID ✓`, 'success');
 
-      // Auto-stop cuando se alcanza el límite
       if (limit > 0 && this.segments.length >= limit) {
         this.log(`✓ Reached limit of ${limit} segment(s) — stopping automatically`, 'success');
         await this.stopStreaming();
@@ -733,6 +834,7 @@ function viewerApp() {
       this.segments = []; this.selectedSeg = null; this.logs = [];
       this.sessionStart = null; this.sessionTime = '00:00'; this.segElapsed = 0;
       this.config.videoId = '';
+      this._canvasStream = null;
       this._drawIdle();
     },
   };
