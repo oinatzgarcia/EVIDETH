@@ -5,10 +5,13 @@
 FROM python:3.11-alpine
 
 # ffmpeg + nginx + supervisor
-RUN apk add --no-cache \
+# apk update forzado para evitar caché obsoleta en rebuilds
+RUN apk update && apk add --no-cache \
     nginx \
     supervisor \
-    ffmpeg
+    ffmpeg \
+  && ffmpeg -version \
+  && echo "ffmpeg OK"
 
 # Dependencias Python
 COPY client-server/requirements.txt /tmp/requirements.txt
