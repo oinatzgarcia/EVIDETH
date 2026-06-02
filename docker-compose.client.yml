@@ -7,7 +7,9 @@
 #   2. docker compose -f docker-compose.client.yml up --build
 #   3. Abre http://localhost:8080/pages/viewer/viewer.html
 #
-# Los segmentos WebM grabados se guardan en ./VIDEOS/<CAMERA_ID>/<VIDEO_ID>/
+# El navegador graba el canvas en WebM (MediaRecorder).
+# El servidor Python transcodifica WebM → MP4 (H.264) con ffmpeg.
+# Los segmentos MP4 se guardan en ./VIDEOS/<CAMERA_ID>/<VIDEO_ID>/seg_NNN.mp4
 # ─────────────────────────────────────────────────────────────
 name: evideth-client
 
