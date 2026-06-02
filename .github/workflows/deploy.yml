@@ -11,6 +11,7 @@ on:
     branches: [main]
     paths:
       - 'app/**'
+      - 'frontend/**'
       - 'Dockerfile'
       - 'requirements.txt'
       - 'alembic/**'
