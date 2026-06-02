@@ -116,3 +116,132 @@ Cámara (API Key) ──► Balanceador de carga ──► Container App
 ```
 
 📄 **[Diagrama de Arquitectura Completo (PDF)](docs/Designs/Schemes/InfraestructuraAzure.pdf)**
+
+---
+
+## 📷 Despliegue del Cliente (Live Viewer)
+
+El cliente EVIDETH es un simulador de cámara forense que captura vídeo, computa hashes SHA-256 por segmentos y los envía al backend para su registro y verificación. Se despliega con un único comando Docker.
+
+### Prerrequisitos
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado y en ejecución
+- Acceso al backend EVIDETH (Azure o local)
+- **Camera ID** y **API Key** de una cámara registrada en el sistema
+
+> 💡 Si no tienes una cámara registrada, un administrador debe crearla primero en el panel de administración o mediante `POST /api/v1/cameras/` con rol Admin.
+
+---
+
+### ⚙️ Paso 1 — Configurar credenciales
+
+Edita el fichero `frontend/client.config.js` con los datos de tu cámara:
+
+```js
+// frontend/client.config.js
+window.EVIDETH_CONFIG = {
+  CAMERA_ID:      'CAM1',                          // ID de la cámara registrada
+  CAMERA_API_KEY: 'evideth_cam_XXXXXXXXXXXX',       // API Key obtenida al registrar la cámara
+  BACKEND_URL:    'https://evideth-dev-backend.icymushroom-b7fd3b26.spaincentral.azurecontainerapps.io',
+  MAX_SEGMENTS:   0,                               // 0 = sin límite · N = para automáticamente al llegar a N
+};
+```
+
+| Parámetro | Descripción | Ejemplo |
+|---|---|---|
+| `CAMERA_ID` | Identificador único de la cámara | `CAM1`, `CAM-LOBBY-01` |
+| `CAMERA_API_KEY` | API Key generada al registrar la cámara | `evideth_cam_abc123...` |
+| `BACKEND_URL` | URL base del backend (sin barra final) | URL de Azure o `http://localhost:8000` |
+| `MAX_SEGMENTS` | Nº de segmentos a grabar antes de parar | `0` = infinito, `5` = para tras 5 segmentos |
+
+---
+
+### 🚀 Paso 2 — Levantar el cliente
+
+Desde la raíz del repositorio:
+
+```bash
+git pull
+docker compose -f docker-compose.client.yml up
+```
+
+El cliente arranca en **http://localhost:8080** y te redirige automáticamente al Live Viewer.
+
+> Si ya existe un contenedor previo con el mismo nombre:
+> ```bash
+> docker rm -f evideth-client
+> docker compose -f docker-compose.client.yml up
+> ```
+
+---
+
+### 🎬 Paso 3 — Usar el Live Viewer
+
+Abre el navegador en `http://localhost:8080` y verás el panel de control:
+
+1. **Verifica la configuración** — la barra superior mostrará ✅ `Config loaded from client.config.js` si las credenciales están correctamente cargadas.
+2. **Ajusta los parámetros** si necesitas cambiarlos en tiempo real (sin reiniciar Docker):
+   - *Camera ID* y *API Key*
+   - *Segment Duration*: 10s, 30s o 60s
+   - *Nº Segments*: número de segmentos a grabar (vacío = sin límite)
+   - *Simulate Tampering*: activa para simular manipulación de datos (modo demo/testing)
+3. **Pulsa START STREAMING** — el sistema:
+   - Crea un video en el backend (`POST /api/v1/cameras/videos`)
+   - Graba segmentos cada N segundos calculando el SHA-256
+   - Envía cada segmento al backend (`POST /api/v1/cameras/segments`)
+   - Para automáticamente si se alcanza el límite de segmentos
+   - Cierra el video en el backend al parar (`PATCH /api/v1/cameras/videos/{id}/finish`)
+4. **Consulta el Forensic Log** — panel derecho con todos los eventos timestampeados.
+5. **Pulsa VERIFY ALL** (tras parar) para re-verificar la integridad de todos los segmentos contra el backend.
+
+---
+
+### 🔗 Flujo de Comunicación con el Backend
+
+```
+[CLIENTE] START STREAMING
+    │
+    ├─► POST /api/v1/cameras/videos
+    │       { filename: "camera_CAM1_2026-06-02T...mp4" }
+    │   ◄── { id: "3f7a1c2d-..." }  ← video_id
+    │
+    │   (cada N segundos)
+    ├─► POST /api/v1/cameras/segments
+    │       { video_id, segment_index, start_time_secs,
+    │         end_time_secs, sha256_hash }
+    │   ◄── { id, status: "PENDING" | "VALID" }
+    │
+    ├─► POST /api/v1/cameras/heartbeat   (al iniciar)
+    │
+[CLIENTE] STOP / límite alcanzado
+    │
+    └─► PATCH /api/v1/cameras/videos/{video_id}/finish
+```
+
+Todas las peticiones incluyen la cabecera `X-API-Key: <tu_api_key>` para autenticar la cámara.
+
+---
+
+### 🛠️ Conectar contra backend local (desarrollo)
+
+Si tienes el backend corriendo en local (puerto 8000), cambia `BACKEND_URL` en `client.config.js`:
+
+```js
+BACKEND_URL: 'http://host.docker.internal:8000',
+```
+
+> En Linux usa `http://172.17.0.1:8000` si `host.docker.internal` no resuelve.
+
+---
+
+### ❗ Solución de Problemas Frecuentes
+
+| Síntoma | Causa | Solución |
+|---|---|---|
+| `Config loaded but CAMERA_ID is empty` | `client.config.js` sin rellenar | Editar el fichero y refrescar el navegador |
+| `Video creation failed: HTTP 401` | API Key incorrecta o caducada | Verificar la API Key en el panel de administración |
+| `Video creation failed: HTTP 403` | Cámara inactiva | Activar la cámara desde el panel Admin |
+| `Seg #N · Backend: 404` | `video_id` no válido o cámara no encontrada | Comprobar que la cámara existe y el `CAMERA_ID` es correcto |
+| `Seg #N · Backend: 409` | Segmento duplicado (mismo índice ya registrado) | Pulsar **Reset** antes de iniciar una nueva sesión |
+| `Heartbeat failed` | Backend no accesible desde Docker | Verificar `BACKEND_URL` y conectividad de red |
+| Error de nombre de contenedor en uso | Contenedor previo sin eliminar | `docker rm -f evideth-client` |
