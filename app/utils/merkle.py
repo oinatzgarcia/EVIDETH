@@ -3,7 +3,7 @@ Merkle Tree para verificación EVIDETH a nivel de segundo.
 
 Basado en el árbol Merkle binario de Bitcoin:
 - Hojas    = SHA-256 de chunks de 1 segundo del segmento
-- Padre    = SHA-256(hijo_izq ‖ hijo_der)
+- Padre    = SHA-256(hijo_izq ‡ hijo_der)
 - Impar    = se duplica el último nodo (convención Bitcoin)
 
 El Merkle Root identifica unívocamente el contenido de un segmento de 30 s.
@@ -18,9 +18,12 @@ Referencias:
 import hashlib
 from typing import List, Dict
 
+# Hash sentinel para listas vacías (SHA-256 de bytes vacíos)
+_EMPTY_HASH = hashlib.sha256(b"").hexdigest()
+
 
 def _sha256_concat(left: str, right: str) -> str:
-    """SHA-256(left_bytes ‖ right_bytes) donde left/right son strings hex de 64 chars."""
+    """SHA-256(left_bytes ‡ right_bytes) donde left/right son strings hex de 64 chars."""
     data = bytes.fromhex(left) + bytes.fromhex(right)
     return hashlib.sha256(data).hexdigest()
 
@@ -31,15 +34,18 @@ def build_merkle_root(leaf_hashes: List[str]) -> str:
 
     Args:
         leaf_hashes: Lista de hashes SHA-256 en hex (uno por segundo del segmento).
+                     Si la lista está vacía, devuelve el hash de bytes vacíos
+                     como sentinel (no lanza excepción).
 
     Returns:
         Merkle root como string hex de 64 caracteres.
-
-    Raises:
-        ValueError: Si la lista está vacía.
     """
     if not leaf_hashes:
-        raise ValueError("No se puede construir un árbol Merkle vacío")
+        # Segmento de duración < 1 s o sin frames decodificables.
+        # Devolvemos el hash de bytes vacíos como sentinel en lugar de
+        # lanzar una excepción que bloquearía la verificación completa.
+        return _EMPTY_HASH
+
     if len(leaf_hashes) == 1:
         return leaf_hashes[0]
 

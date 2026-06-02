@@ -47,10 +47,15 @@ def extract_second_hashes(segment_path: str, duration_secs: int) -> List[str]:
 
     Usa ffmpeg -f rawvideo -pix_fmt rgb24 para obtener los pixels puros,
     eliminando diferencias de contenedor entre plataformas/versiones ffmpeg.
+
+    Si duration_secs es 0 (segmento muy corto o duración mal reportada
+    por ffprobe), forzamos al menos 1 segundo para no devolver lista vacía
+    y evitar un árbol Merkle sin hojas.
     """
     hashes: List[str] = []
+    effective_duration = max(duration_secs, 1)
 
-    for sec in range(duration_secs):
+    for sec in range(effective_duration):
         cmd = [
             "ffmpeg",
             "-i",
@@ -160,7 +165,8 @@ def segment_video(video_path: str, output_dir: str) -> List[Dict]:
             sha256_hash = calculate_sha256(work_path)
             file_size = os.path.getsize(work_path)
 
-        second_hashes = extract_second_hashes(work_path, int(seg_duration))
+        # max(1) garantiza al menos 1 hash aunque ffprobe reporte < 1 s
+        second_hashes = extract_second_hashes(work_path, max(int(seg_duration), 1))
         merkle_root = build_merkle_root(second_hashes)
 
         segments.append(
