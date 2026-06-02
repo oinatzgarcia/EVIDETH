@@ -1,0 +1,37 @@
+{
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY"
+  },
+  "mimeTypes": {
+    ".json": "application/json"
+  },
+  "routes": [
+    {
+      "route": "/*.html",
+      "headers": {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+      }
+    },
+    {
+      "route": "/assets/js/*.js",
+      "headers": {
+        "Cache-Control": "no-store, no-cache, must-revalidate"
+      }
+    },
+    {
+      "route": "/assets/css/*.css",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable"
+      }
+    },
+    {
+      "route": "/assets/images/*",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable"
+      }
+    }
+  ]
+}
