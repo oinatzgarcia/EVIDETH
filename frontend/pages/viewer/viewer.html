@@ -454,8 +454,6 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
 const AZURE_BACKEND = 'https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io';
 const _cfg = (typeof window.EVIDETH_CONFIG !== 'undefined') ? window.EVIDETH_CONFIG : {};
 
-// ─── MediaRecorder helpers ───────────────────────────────────────────────────
-// Elige el mime type WebM más compatible con el navegador
 function bestMime() {
   const candidates = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
   return candidates.find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
@@ -489,11 +487,9 @@ function viewerApp() {
     _clockTimer:    null,
     _segTimer:      null,
     _canvasTimer:   null,
-
-    // ── MediaRecorder state ──────────────────────────────────────────────────
-    _recorder:      null,   // MediaRecorder activo
-    _recChunks:     [],     // chunks del segmento actual
-    _canvasStream:  null,   // captureStream() del canvas
+    _recorder:      null,
+    _recChunks:     [],
+    _canvasStream:  null,
 
     init() {
       this._clockTimer = setInterval(() => {
@@ -528,6 +524,20 @@ function viewerApp() {
         const el = document.getElementById('logConsole');
         if (el) el.scrollTop = el.scrollHeight;
       });
+    },
+
+    // ── SHA-256 real del blob WebM (Web Crypto API — NIST FIPS 180-4) ────────
+    async _hashBlob(blob) {
+      const buffer = await blob.arrayBuffer();
+      const digest = await crypto.subtle.digest('SHA-256', buffer);
+      return Array.from(new Uint8Array(digest))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+    },
+
+    _fakeSignature() {
+      const a = new Uint8Array(64);
+      crypto.getRandomValues(a);
+      return Array.from(a).map(b => b.toString(16).padStart(2,'0')).join('');
     },
 
     _drawIdle() {
@@ -584,16 +594,11 @@ function viewerApp() {
       }
     },
 
-    _fakeHash() { const a = new Uint8Array(32); crypto.getRandomValues(a); return Array.from(a).map(b=>b.toString(16).padStart(2,'0')).join(''); },
-    _fakeSignature() { const a = new Uint8Array(64); crypto.getRandomValues(a); return Array.from(a).map(b=>b.toString(16).padStart(2,'0')).join(''); },
-
-    // ── MediaRecorder: inicia grabación de un nuevo segmento ─────────────────
     _startRecorder() {
       const canvas = document.getElementById('videoCanvas');
       if (!canvas) return;
-      // captureStream solo se crea una vez por sesión; se reutiliza entre segmentos
       if (!this._canvasStream) {
-        this._canvasStream = canvas.captureStream(30); // 30 fps
+        this._canvasStream = canvas.captureStream(30);
       }
       this._recChunks = [];
       const mime = bestMime();
@@ -607,13 +612,9 @@ function viewerApp() {
       }
     },
 
-    // ── MediaRecorder: detiene y devuelve un Promise<Blob> ───────────────────
     _stopRecorder() {
       return new Promise((resolve) => {
-        if (!this._recorder || this._recorder.state === 'inactive') {
-          resolve(null);
-          return;
-        }
+        if (!this._recorder || this._recorder.state === 'inactive') { resolve(null); return; }
         this._recorder.onstop = () => {
           const blob = new Blob(this._recChunks, { type: this._recorder.mimeType || 'video/webm' });
           this._recChunks = [];
@@ -623,7 +624,6 @@ function viewerApp() {
       });
     },
 
-    // ── Sube el blob WebM al servidor local (Nginx → Python saver) ───────────
     async _saveSegmentLocally(blob, segIndex) {
       if (!blob || blob.size === 0) return null;
       const videoId = this.config.videoId || 'local';
@@ -662,7 +662,6 @@ function viewerApp() {
       this.log(`Segment duration: ${this.config.segmentSec}s · Limit: ${limit > 0 ? limit + ' segments' : '∞ (no limit)'}`, 'info');
       if (this.config.tamper) this.log('⚠ Tamper simulation ENABLED', 'err');
 
-      // 1. Crear video en el backend
       try {
         const filename = `camera_${this.config.cameraId}_${new Date().toISOString().replace(/[:.]/g, '-')}.mp4`;
         const resp = await fetch(`${this.config.backendUrl}/api/v1/cameras/videos`, {
@@ -694,7 +693,6 @@ function viewerApp() {
       let frame = 0;
       this._canvasTimer = setInterval(() => { if (this.streaming) this._drawFrame(frame++); }, 33);
 
-      // Iniciar grabación del primer segmento
       this._startRecorder();
 
       this._segTimer = setInterval(() => {
@@ -713,7 +711,6 @@ function viewerApp() {
       clearInterval(this._segTimer);
       if (this.mediaStream) { this.mediaStream.getTracks().forEach(t => t.stop()); this.mediaStream = null; }
 
-      // Finalizar video en el backend
       if (this.config.videoId) {
         try {
           await fetch(`${this.config.backendUrl}/api/v1/cameras/videos/${this.config.videoId}/finish`, {
@@ -727,7 +724,6 @@ function viewerApp() {
         this.config.videoId = '';
       }
 
-      // Detener MediaRecorder sin guardar el segmento parcial al hacer stop manual
       if (this._recorder && this._recorder.state !== 'inactive') {
         this._recorder.stop();
         this._recorder = null;
@@ -743,23 +739,32 @@ function viewerApp() {
       const limit  = parseInt(this.config.maxSegments) || 0;
       const segNum = this.segments.length + 1;
       const segIdx = segNum - 1;
-      const hash   = this._fakeHash();
-      const isTampered = this.config.tamper && Math.random() < 0.35;
 
-      this.log(`Seg #${segNum} · Computing SHA-256...`, 'info');
-      this.log(`SHA-256: ${hash.substring(0,16)}...`, 'hash');
-
-      // 1. Detener grabación del segmento actual y empezar el siguiente
+      // 1. Detener recorder y arrancar el siguiente inmediatamente
       const blob = await this._stopRecorder();
-      this._startRecorder(); // inicia inmediatamente el siguiente segmento
+      this._startRecorder();
 
-      // 2. Guardar WebM localmente
+      // 2. Guardar WebM en disco
       const localFile = await this._saveSegmentLocally(blob, segIdx);
 
+      // 3. SHA-256 real del blob WebM (Web Crypto API)
+      this.log(`Seg #${segNum} · Computing SHA-256 from WebM blob...`, 'info');
+      let hash;
+      if (blob && blob.size > 0) {
+        hash = await this._hashBlob(blob);
+      } else {
+        // fallback si el blob está vacío (segmento muy corto)
+        const a = new Uint8Array(32); crypto.getRandomValues(a);
+        hash = Array.from(a).map(b => b.toString(16).padStart(2,'0')).join('');
+        this.log(`Seg #${segNum} · Warning: empty blob, using random hash`, 'err');
+      }
+      this.log(`SHA-256: ${hash.substring(0,16)}...${hash.substring(48)}`, 'hash');
+
+      // 4. Simular tampering: enviar hash distinto al backend si está activado
+      const isTampered = this.config.tamper && Math.random() < 0.35;
       let signature = null;
       let valid = !isTampered;
 
-      // 3. Enviar hash al backend
       try {
         if (!this.config.videoId) throw new Error('no videoId — backend skipped');
         const payload = {
@@ -767,7 +772,8 @@ function viewerApp() {
           segment_index:   segIdx,
           start_time_secs: segIdx * parseInt(this.config.segmentSec),
           end_time_secs:   segNum * parseInt(this.config.segmentSec),
-          sha256_hash:     isTampered ? this._fakeHash() : hash,
+          // Si tamper: enviamos un hash diferente al real (simula modificación del fichero)
+          sha256_hash: isTampered ? (() => { const a = new Uint8Array(32); crypto.getRandomValues(a); return Array.from(a).map(b=>b.toString(16).padStart(2,'0')).join(''); })() : hash,
         };
         const resp = await fetch(
           `${this.config.backendUrl}/api/v1/cameras/segments`,
