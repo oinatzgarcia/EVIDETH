@@ -1,21 +1,27 @@
 # ─────────────────────────────────────────────────────────────
 # EVIDETH — docker-compose.client.yml
-# Despliega SOLO el cliente web (Live Camera Viewer).
+# Despliega el cliente web (Live Camera Viewer) con grabación de vídeo.
 #
 # Uso:
 #   1. Edita frontend/client.config.js con tu CAMERA_ID, API_KEY y BACKEND_URL
-#   2. docker compose -f docker-compose.client.yml up
-#   3. Abre http://localhost:8080
+#   2. docker compose -f docker-compose.client.yml up --build
+#   3. Abre http://localhost:8080/pages/viewer/viewer.html
+#
+# Los segmentos WebM grabados se guardan en ./VIDEOS/<CAMERA_ID>/<VIDEO_ID>/
 # ─────────────────────────────────────────────────────────────
 name: evideth-client
 
 services:
   client:
-    image: nginx:alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.client
     container_name: evideth-client
     ports:
       - "8080:80"
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
-      - ./nginx-client.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./VIDEOS:/videos
     restart: unless-stopped
+    environment:
+      - VIDEOS_ROOT=/videos

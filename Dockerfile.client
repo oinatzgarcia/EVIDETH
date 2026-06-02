@@ -1,0 +1,31 @@
+# EVIDETH — Dockerfile.client
+# Imagen del cliente: Nginx (frontend) + Python/uvicorn (video saver)
+# Los segmentos WebM se escriben en /videos (montado como volumen desde ./VIDEOS)
+
+FROM python:3.11-alpine
+
+# Instalar Nginx y supervisord
+RUN apk add --no-cache nginx supervisor
+
+# Instalar dependencias Python
+COPY client-server/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+# Copiar el servidor Python
+COPY client-server/save_video.py /app/save_video.py
+
+# Copiar el frontend estático
+COPY frontend /usr/share/nginx/html
+
+# Copiar config Nginx
+COPY nginx-client.conf /etc/nginx/http.d/default.conf
+
+# Copiar config supervisord
+COPY client-server/supervisord.conf /etc/supervisord.conf
+
+# Directorio de vídeos (se sobreescribirá con el volumen)
+RUN mkdir -p /videos
+
+EXPOSE 80
+
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
