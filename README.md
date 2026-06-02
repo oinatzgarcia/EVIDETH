@@ -165,8 +165,6 @@ git pull
 docker compose -f docker-compose.client.yml up
 ```
 
-El cliente arranca en **http://localhost:8080** y te redirige automáticamente al Live Viewer.
-
 > Si ya existe un contenedor previo con el mismo nombre:
 > ```bash
 > docker rm -f evideth-client
@@ -175,9 +173,19 @@ El cliente arranca en **http://localhost:8080** y te redirige automáticamente a
 
 ---
 
-### 🎬 Paso 3 — Usar el Live Viewer
+### 🎬 Paso 3 — Abrir el Live Viewer
 
-Abre el navegador en `http://localhost:8080` y verás el panel de control:
+Una vez el contenedor esté en marcha, abre el navegador y accede directamente a:
+
+```
+http://localhost:8080/pages/viewer/viewer.html
+```
+
+> ⚠️ La raíz `http://localhost:8080` no redirige automáticamente. Usa siempre la ruta completa indicada arriba.
+
+---
+
+### 🛠️ Paso 4 — Usar el Live Viewer
 
 1. **Verifica la configuración** — la barra superior mostrará ✅ `Config loaded from client.config.js` si las credenciales están correctamente cargadas.
 2. **Ajusta los parámetros** si necesitas cambiarlos en tiempo real (sin reiniciar Docker):
@@ -238,6 +246,7 @@ BACKEND_URL: 'http://host.docker.internal:8000',
 
 | Síntoma | Causa | Solución |
 |---|---|---|
+| Pantalla en blanco en `http://localhost:8080` | No hay redirección automática | Acceder directamente a `http://localhost:8080/pages/viewer/viewer.html` |
 | `Config loaded but CAMERA_ID is empty` | `client.config.js` sin rellenar | Editar el fichero y refrescar el navegador |
 | `Video creation failed: HTTP 401` | API Key incorrecta o caducada | Verificar la API Key en el panel de administración |
 | `Video creation failed: HTTP 403` | Cámara inactiva | Activar la cámara desde el panel Admin |
