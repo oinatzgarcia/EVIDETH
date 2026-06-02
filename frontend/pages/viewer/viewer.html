@@ -458,6 +458,7 @@ function viewerApp() {
       backendUrl:  _cfg.BACKEND_URL    || AZURE_BACKEND,
       tamper:      false,
       source:      'simulated',
+      videoId:     '',   // UUID del video activo en el backend
     },
     streaming:      false,
     verifying:      false,
@@ -573,11 +574,29 @@ function viewerApp() {
       this.sessionStart = Date.now();
       this.segElapsed   = 0;
       this.selectedSeg  = null;
+      this.config.videoId = '';
       const limit = parseInt(this.config.maxSegments) || 0;
       this.log(`Session started · Camera ${this.config.cameraId}`, 'ok');
       this.log(`Backend: ${this.config.backendUrl}`, 'info');
       this.log(`Segment duration: ${this.config.segmentSec}s · Limit: ${limit > 0 ? limit + ' segments' : '∞ (no limit)'}`, 'info');
       if (this.config.tamper) this.log('⚠ Tamper simulation ENABLED', 'err');
+
+      // 1. Crear video en el backend
+      try {
+        const filename = `camera_${this.config.cameraId}_${new Date().toISOString().replace(/[:.]/g, '-')}.mp4`;
+        const resp = await fetch(`${this.config.backendUrl}/api/v1/cameras/videos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': this.config.apiKey },
+          body: JSON.stringify({ filename }),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        this.config.videoId = data.id;
+        this.log(`Video created · ID ${this.config.videoId}`, 'ok');
+      } catch (e) {
+        this.config.videoId = '';
+        this.log(`Video creation failed (${e.message}) — continuing in local mode`, 'err');
+      }
 
       if (this.config.source === 'webcam') {
         try {
@@ -602,11 +621,26 @@ function viewerApp() {
       }, 1000);
     },
 
-    stopStreaming() {
+    async stopStreaming() {
       this.streaming = false;
       clearInterval(this._canvasTimer);
       clearInterval(this._segTimer);
       if (this.mediaStream) { this.mediaStream.getTracks().forEach(t => t.stop()); this.mediaStream = null; }
+
+      // Finalizar video en el backend
+      if (this.config.videoId) {
+        try {
+          await fetch(`${this.config.backendUrl}/api/v1/cameras/videos/${this.config.videoId}/finish`, {
+            method: 'PATCH',
+            headers: { 'X-API-Key': this.config.apiKey },
+          });
+          this.log(`Video finished · ID ${this.config.videoId}`, 'ok');
+        } catch (e) {
+          this.log(`Video finish failed (${e.message})`, 'err');
+        }
+        this.config.videoId = '';
+      }
+
       this.log('Stream stopped by operator', 'info');
       this.log(`Session ended · ${this.segments.length} segments · Integrity ${this.integrityPct}%`, this.integrityPct === 100 ? 'success' : 'err');
       this._drawIdle();
@@ -623,27 +657,31 @@ function viewerApp() {
 
       let signature = null;
       let valid = !isTampered;
+
       try {
+        if (!this.config.videoId) throw new Error('no videoId — backend skipped');
         const payload = {
-          segment_index: segNum,
-          hash_sha256:   isTampered ? this._fakeHash() : hash,
-          timestamp:     new Date().toISOString(),
+          video_id:        this.config.videoId,
+          segment_index:   segNum - 1,
+          start_time_secs: (segNum - 1) * parseInt(this.config.segmentSec),
+          end_time_secs:   segNum * parseInt(this.config.segmentSec),
+          sha256_hash:     isTampered ? this._fakeHash() : hash,
         };
         const resp = await fetch(
-          `${this.config.backendUrl}/api/v1/cameras/${this.config.cameraId}/segments`,
+          `${this.config.backendUrl}/api/v1/cameras/segments`,
           { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': this.config.apiKey }, body: JSON.stringify(payload) }
         );
         if (resp.ok) {
           const data = await resp.json();
-          signature = data.signature || this._fakeSignature();
-          valid     = data.valid !== undefined ? data.valid : valid;
-          this.log(`Seg #${segNum} · Backend: ${resp.status} · Signed ✓`, 'sign');
+          signature = data.ecdsa_signature || this._fakeSignature();
+          this.log(`Seg #${segNum} · Backend: ${resp.status} · Stored ✓`, 'sign');
         } else {
-          this.log(`Seg #${segNum} · Backend: ${resp.status} (using local sim)`, 'err');
+          const errText = await resp.text().catch(() => '');
+          this.log(`Seg #${segNum} · Backend: ${resp.status} (local sim) ${errText.slice(0,60)}`, 'err');
           signature = this._fakeSignature();
         }
       } catch (e) {
-        this.log(`Seg #${segNum} · Backend unreachable (local sim)`, 'err');
+        this.log(`Seg #${segNum} · ${e.message} (local sim)`, 'err');
         signature = this._fakeSignature();
       }
 
@@ -654,7 +692,7 @@ function viewerApp() {
       // Auto-stop cuando se alcanza el límite
       if (limit > 0 && this.segments.length >= limit) {
         this.log(`✓ Reached limit of ${limit} segment(s) — stopping automatically`, 'success');
-        this.stopStreaming();
+        await this.stopStreaming();
       }
     },
 
@@ -694,6 +732,7 @@ function viewerApp() {
     resetSession() {
       this.segments = []; this.selectedSeg = null; this.logs = [];
       this.sessionStart = null; this.sessionTime = '00:00'; this.segElapsed = 0;
+      this.config.videoId = '';
       this._drawIdle();
     },
   };
