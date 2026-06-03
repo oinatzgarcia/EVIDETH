@@ -108,6 +108,101 @@ def _extract_tampered_frames(
 
 
 # ---------------------------------------------------------------------------
+# Decision helpers
+# ---------------------------------------------------------------------------
+
+def _decide_result(
+    hash_match: bool,
+    merkle_match: Optional[bool],
+    signature_valid: Optional[bool],
+    has_merkle_data: bool,
+    has_ecdsa_data: bool,
+    tampered_secs: List[int],
+    sig_detail: str,
+    stored_hash_prefix: str,
+    computed_hash_prefix: str,
+) -> tuple[str, str, bool]:
+    """
+    Determina (result, detail, segment_valid) para un segmento.
+
+    Jerarquía de decisión (de mayor a menor certeza forense):
+      L3 ECDSA  — si hay firma y clave pública registrada
+      L2 Merkle — hashes de frames RGB decodificados (independiente del contenedor)
+      L1 SHA-256 — hash del fichero MP4 (solo fallback para segmentos legacy sin L2/L3)
+
+    L1 SIGUE SIENDO INFORMATIVO: un mismatch de hash de contenedor en un
+    segmento que pasa L2+L3 se reporta como advertencia, no como fallo.
+    Esto es correcto porque ffmpeg re-segmenta con distinta metadata MP4.
+    """
+
+    # ── Caso 1: firma ECDSA inválida → SIEMPRE falla (máxima certeza) ──────
+    if signature_valid is False:
+        detail = (
+            f"⚠ FIRMA ECDSA INVÁLIDA — el segmento fue alterado o "
+            f"re-firmado con una clave distinta. "
+            f"Hash L1: {'✓' if hash_match else '✗'}. "
+            f"Merkle: {'✓' if merkle_match else ('✗' if merkle_match is False else '—')}."
+        )
+        return "fail", detail, False
+
+    # ── Caso 2: Merkle disponible → L2 es el árbitro principal ─────────────
+    if has_merkle_data:
+        if merkle_match is False:
+            # Contenido de frames alterado
+            if tampered_secs:
+                detail = (
+                    f"⚠ MANIPULACIÓN DETECTADA en segundo(s): {tampered_secs}. "
+                    f"Merkle root no coincide. {sig_detail}"
+                )
+            else:
+                detail = (
+                    f"⚠ Merkle root no coincide — contenido de frames alterado. "
+                    f"{sig_detail}"
+                )
+            return "fail", detail, False
+
+        # merkle_match is True → contenido íntegro
+        parts = ["✓ Íntegro (L2 Merkle OK)"]
+        if not hash_match:
+            # Advertencia informativa: el contenedor MP4 difiere (normal al
+            # re-segmentar con ffmpeg), pero el contenido de vídeo es íntegro.
+            parts.append(
+                "⚠ SHA-256 contenedor difiere (re-segmentación ffmpeg — no implica manipulación)"
+            )
+        if signature_valid is True:
+            parts.append("✓ ECDSA OK")
+        elif signature_valid is None and has_ecdsa_data:
+            parts.append(sig_detail)
+        elif not has_ecdsa_data:
+            parts.append(sig_detail)  # "Sin firma ECDSA" informativo
+        detail = " — ".join(parts)
+        return "pass", detail, True
+
+    # ── Caso 3: sin datos Merkle → fallback a L1 (segmentos legacy) ─────────
+    if has_ecdsa_data and signature_valid is True:
+        # L3 pasa aunque no tengamos L2
+        parts = ["✓ Íntegro (L3 ECDSA OK)"]
+        if not hash_match:
+            parts.append(
+                "⚠ SHA-256 contenedor difiere (re-segmentación ffmpeg — no implica manipulación)"
+            )
+        detail = " — ".join(parts)
+        return "pass", detail, True
+
+    # Sin L2 ni L3: confiamos solo en L1
+    if hash_match:
+        detail = f"✓ Íntegro (L1 SHA-256 OK) — {sig_detail}"
+        return "pass", detail, True
+    else:
+        detail = (
+            f"⚠ HASH SHA-256 NO COINCIDE (sin datos Merkle ni ECDSA para confirmar). "
+            f"Esperado: {stored_hash_prefix}... "
+            f"Calculado: {computed_hash_prefix}... {sig_detail}"
+        )
+        return "fail", detail, False
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -125,10 +220,13 @@ def verify_video(
     """
     Verificación de integridad con 4 niveles criptográficos.
 
-    Nivel 0 — Hash del fichero completo (si disponible)
-    Nivel 1 — SHA-256 del segmento
-    Nivel 2 — Árbol Merkle por segundo + comparación visual de frames
+    Nivel 0 — Hash del fichero completo (si disponible en Video.file_hash)
+    Nivel 1 — SHA-256 del segmento MP4 (informativo; puede diferir por re-segmentación)
+    Nivel 2 — Árbol Merkle por segundo (hashes de frames RGB — reproducible)
     Nivel 3 — Firma ECDSA P-256 del Merkle root
+
+    La decisión de pass/fail se basa en la jerarquía L3 > L2 > L1 (fallback).
+    L1 siempre se reporta como campo informativo en el resultado.
 
     Args:
         progress_cb: Optional callback(pct: int, message: str) called after
@@ -226,17 +324,18 @@ def verify_video(
                 results.append(entry)
                 continue
 
-            # ── Nivel 1 ──────────────────────────────────────────────────
+            # ── Nivel 1 — informativo ────────────────────────────────────────
             hash_match = computed["sha256_hash"] == stored.sha256_hash
 
-            # ── Nivel 2 ──────────────────────────────────────────────────
+            # ── Nivel 2 — Merkle sobre frames RGB ───────────────────────────
             computed_merkle = computed.get("merkle_root")
             stored_merkle = stored.merkle_root
-            merkle_match = None
+            has_merkle_data = bool(computed_merkle and stored_merkle)
+            merkle_match: Optional[bool] = None
             second_results = None
             tampered_frames: Dict[str, Dict] = {}
 
-            if computed_merkle and stored_merkle:
+            if has_merkle_data:
                 merkle_match = computed_merkle == stored_merkle
                 if not merkle_match:
                     second_results = _compare_second_hashes(
@@ -252,16 +351,19 @@ def verify_video(
                                 stored_thumbnails=stored.frame_thumbnails,
                             )
 
-            # ── Nivel 3 ──────────────────────────────────────────────────
-            signature_valid = None
+            # ── Nivel 3 — firma ECDSA ────────────────────────────────────────
+            signature_valid: Optional[bool] = None
             sig_detail = ""
+            has_ecdsa_data = bool(stored.ecdsa_signature)
 
             if not stored.ecdsa_signature:
                 sig_detail = "Sin firma ECDSA (segmento sin firmar)."
             elif not stored.merkle_root:
                 sig_detail = "Sin Merkle root almacenado."
+                has_ecdsa_data = False
             elif not camera_public_key_pem:
                 sig_detail = f"Clave pública de '{camera_id}' no registrada."
+                has_ecdsa_data = False
             else:
                 signature_valid = verify_ecdsa_signature(
                     merkle_root=stored.merkle_root,
@@ -274,59 +376,29 @@ def verify_video(
                     else "⚠ Firma ECDSA INVÁLIDA"
                 )
 
-            # ── Resultado final ─────────────────────────────────────────────────
+            # ── Decisión final (L3 > L2 > L1) ───────────────────────────────
             tampered_secs = [
                 s["second_index"] for s in (second_results or []) if s["tampered"]
             ]
 
-            if (
-                hash_match
-                and merkle_match is not False
-                and signature_valid is not False
-            ):
+            result, detail, segment_valid = _decide_result(
+                hash_match=hash_match,
+                merkle_match=merkle_match,
+                signature_valid=signature_valid,
+                has_merkle_data=has_merkle_data,
+                has_ecdsa_data=has_ecdsa_data,
+                tampered_secs=tampered_secs,
+                sig_detail=sig_detail,
+                stored_hash_prefix=stored.sha256_hash[:16] if stored.sha256_hash else "",
+                computed_hash_prefix=computed["sha256_hash"][:16],
+            )
+
+            if segment_valid:
                 passed += 1
-                result = "pass"
                 stored.status = SegmentStatus.VALID
-                parts = ["✓ Íntegro"]
-                if merkle_match is True:
-                    parts.append("Merkle OK")
-                if signature_valid is True:
-                    parts.append("ECDSA OK")
-                elif signature_valid is None:
-                    parts.append(sig_detail)
-                detail = " — ".join(parts)
-
-            elif hash_match and merkle_match is False:
-                failed += 1
-                result = "fail"
-                stored.status = SegmentStatus.INVALID
-                detail = (
-                    f"⚠ SHA-256 correcto pero Merkle root no coincide. "
-                    f"Segundos sospechosos: {tampered_secs}. {sig_detail}"
-                )
-
-            elif signature_valid is False:
-                failed += 1
-                result = "fail"
-                stored.status = SegmentStatus.INVALID
-                detail = f"⚠ FIRMA ECDSA INVÁLIDA. Hash: {hash_match}. Merkle: {merkle_match}."
-
             else:
                 failed += 1
-                result = "fail"
                 stored.status = SegmentStatus.INVALID
-                if tampered_secs:
-                    detail = (
-                        f"MANIPULACIÓN DETECTADA en segundo(s): {tampered_secs}. "
-                        f"Hash esperado: {stored.sha256_hash[:16]}... "
-                        f"Calculado: {computed['sha256_hash'][:16]}... {sig_detail}"
-                    )
-                else:
-                    detail = (
-                        f"MANIPULACIÓN DETECTADA. "
-                        f"Hash esperado: {stored.sha256_hash[:16]}... "
-                        f"Calculado: {computed['sha256_hash'][:16]}... {sig_detail}"
-                    )
 
             entry = _make_entry(
                 idx=idx,
