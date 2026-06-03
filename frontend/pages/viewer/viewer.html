@@ -490,6 +490,7 @@ function viewerApp() {
     _recorder:      null,
     _recChunks:     [],
     _canvasStream:  null,
+    _closing:       false,   // ✅ FIX: guard para evitar re-entrada en _closeSegment
 
     init() {
       this._clockTimer = setInterval(() => {
@@ -661,6 +662,7 @@ function viewerApp() {
       this.selectedSeg  = null;
       this.config.videoId = '';
       this._canvasStream  = null;
+      this._closing       = false;
       const limit = parseInt(this.config.maxSegments) || 0;
       this.log(`Session started · Camera ${this.config.cameraId}`, 'ok');
       this.log(`Backend: ${this.config.backendUrl}`, 'info');
@@ -711,9 +713,15 @@ function viewerApp() {
     },
 
     async stopStreaming() {
+      // ✅ FIX: guard contra doble ejecución (race condition con _closeSegment)
+      if (!this.streaming) return;
       this.streaming = false;
+
       clearInterval(this._canvasTimer);
       clearInterval(this._segTimer);
+      this._canvasTimer = null;
+      this._segTimer    = null;
+
       if (this.mediaStream) { this.mediaStream.getTracks().forEach(t => t.stop()); this.mediaStream = null; }
 
       if (this.config.videoId) {
@@ -729,10 +737,10 @@ function viewerApp() {
         this.config.videoId = '';
       }
 
-      if (this._recorder && this._recorder.state !== 'inactive') {
-        this._recorder.stop();
-        this._recorder = null;
-      }
+      // ✅ FIX: await _stopRecorder() antes de nullificar _canvasStream
+      // Evita que el recorder siga activo y genere chunks sobre un stream ya destruido
+      await this._stopRecorder();
+      this._recorder    = null;
       this._canvasStream = null;
 
       this.log('Stream stopped by operator', 'info');
@@ -741,81 +749,90 @@ function viewerApp() {
     },
 
     async _closeSegment() {
-      const limit  = parseInt(this.config.maxSegments) || 0;
-      const segNum = this.segments.length + 1;
-      const segIdx = segNum - 1;
-
-      // 1. Detener recorder y arrancar el siguiente inmediatamente
-      const blob = await this._stopRecorder();
-      this._startRecorder();
-
-      // 2. Guardar en disco y obtener el SHA-256 del MP4 archivado
-      //    CLAVE: mp4Hash es el hash del fichero real que queda en /videos/
-      //    Ese mismo fichero será el que suba el analista para verificar.
-      const saveResult = await this._saveSegmentLocally(blob, segIdx);
-      const localFile  = saveResult?.localFile || null;
-
-      // 3. Determinar el hash que se registra en el backend:
-      //    - Si /save-segment devolvió sha256 (MP4 o WebM archivado) → usarlo  ✅
-      //    - Si no hay servidor Docker disponible → hash del blob WebM (fallback)
-      let hash;
-      if (saveResult?.mp4Hash) {
-        hash = saveResult.mp4Hash;
-        this.log(`Seg #${segNum} · SHA-256 MP4: ${hash.substring(0,16)}...${hash.substring(48)}`, 'hash');
-      } else {
-        this.log(`Seg #${segNum} · /save-segment unavailable, computing WebM hash (fallback)...`, 'info');
-        if (blob && blob.size > 0) {
-          hash = await this._hashBlob(blob);
-        } else {
-          const a = new Uint8Array(32); crypto.getRandomValues(a);
-          hash = Array.from(a).map(b => b.toString(16).padStart(2,'0')).join('');
-          this.log(`Seg #${segNum} · Warning: empty blob, using random hash`, 'err');
-        }
-        this.log(`SHA-256 (WebM fallback): ${hash.substring(0,16)}...${hash.substring(48)}`, 'hash');
-      }
-
-      // 4. Simular tampering: enviar hash distinto al backend si está activado
-      const isTampered = this.config.tamper && Math.random() < 0.35;
-      let signature = null;
-      let valid = !isTampered;
+      // ✅ FIX: evitar re-entrada concurrente (segmento fantasma)
+      if (this._closing || !this.streaming) return;
+      this._closing = true;
 
       try {
-        if (!this.config.videoId) throw new Error('no videoId — backend skipped');
-        const payload = {
-          video_id:        this.config.videoId,
-          segment_index:   segIdx,
-          start_time_secs: segIdx * parseInt(this.config.segmentSec),
-          end_time_secs:   segNum * parseInt(this.config.segmentSec),
-          // Si tamper: enviamos un hash diferente al real (simula modificación del fichero)
-          sha256_hash: isTampered
-            ? (() => { const a = new Uint8Array(32); crypto.getRandomValues(a); return Array.from(a).map(b=>b.toString(16).padStart(2,'0')).join(''); })()
-            : hash,
-        };
-        const resp = await fetch(
-          `${this.config.backendUrl}/api/v1/cameras/segments`,
-          { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': this.config.apiKey }, body: JSON.stringify(payload) }
-        );
-        if (resp.ok) {
-          const data = await resp.json();
-          signature = data.ecdsa_signature || this._fakeSignature();
-          this.log(`Seg #${segNum} · Backend: ${resp.status} · Stored ✓`, 'sign');
+        const limit  = parseInt(this.config.maxSegments) || 0;
+        const segNum = this.segments.length + 1;
+        const segIdx = segNum - 1;
+
+        // 1. Detener recorder y arrancar el siguiente inmediatamente
+        const blob = await this._stopRecorder();
+        this._startRecorder();
+
+        // 2. Guardar en disco y obtener el SHA-256 del MP4 archivado
+        //    CLAVE: mp4Hash es el hash del fichero real que queda en /videos/
+        //    Ese mismo fichero será el que suba el analista para verificar.
+        const saveResult = await this._saveSegmentLocally(blob, segIdx);
+        const localFile  = saveResult?.localFile || null;
+
+        // 3. Determinar el hash que se registra en el backend:
+        //    - Si /save-segment devolvió sha256 (MP4 o WebM archivado) → usarlo  ✅
+        //    - Si no hay servidor Docker disponible → hash del blob WebM (fallback)
+        let hash;
+        if (saveResult?.mp4Hash) {
+          hash = saveResult.mp4Hash;
+          this.log(`Seg #${segNum} · SHA-256 MP4: ${hash.substring(0,16)}...${hash.substring(48)}`, 'hash');
         } else {
-          const errText = await resp.text().catch(() => '');
-          this.log(`Seg #${segNum} · Backend: ${resp.status} (local sim) ${errText.slice(0,60)}`, 'err');
+          this.log(`Seg #${segNum} · /save-segment unavailable, computing WebM hash (fallback)...`, 'info');
+          if (blob && blob.size > 0) {
+            hash = await this._hashBlob(blob);
+          } else {
+            const a = new Uint8Array(32); crypto.getRandomValues(a);
+            hash = Array.from(a).map(b => b.toString(16).padStart(2,'0')).join('');
+            this.log(`Seg #${segNum} · Warning: empty blob, using random hash`, 'err');
+          }
+          this.log(`SHA-256 (WebM fallback): ${hash.substring(0,16)}...${hash.substring(48)}`, 'hash');
+        }
+
+        // 4. Simular tampering: enviar hash distinto al backend si está activado
+        const isTampered = this.config.tamper && Math.random() < 0.35;
+        let signature = null;
+        let valid = !isTampered;
+
+        try {
+          if (!this.config.videoId) throw new Error('no videoId — backend skipped');
+          const payload = {
+            video_id:        this.config.videoId,
+            segment_index:   segIdx,
+            start_time_secs: segIdx * parseInt(this.config.segmentSec),
+            end_time_secs:   segNum * parseInt(this.config.segmentSec),
+            // Si tamper: enviamos un hash diferente al real (simula modificación del fichero)
+            sha256_hash: isTampered
+              ? (() => { const a = new Uint8Array(32); crypto.getRandomValues(a); return Array.from(a).map(b=>b.toString(16).padStart(2,'0')).join(''); })()
+              : hash,
+          };
+          const resp = await fetch(
+            `${this.config.backendUrl}/api/v1/cameras/segments`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': this.config.apiKey }, body: JSON.stringify(payload) }
+          );
+          if (resp.ok) {
+            const data = await resp.json();
+            signature = data.ecdsa_signature || this._fakeSignature();
+            this.log(`Seg #${segNum} · Backend: ${resp.status} · Stored ✓`, 'sign');
+          } else {
+            const errText = await resp.text().catch(() => '');
+            this.log(`Seg #${segNum} · Backend: ${resp.status} (local sim) ${errText.slice(0,60)}`, 'err');
+            signature = this._fakeSignature();
+          }
+        } catch (e) {
+          this.log(`Seg #${segNum} · ${e.message} (local sim)`, 'err');
           signature = this._fakeSignature();
         }
-      } catch (e) {
-        this.log(`Seg #${segNum} · ${e.message} (local sim)`, 'err');
-        signature = this._fakeSignature();
-      }
 
-      this.segments.push({ index: segNum, hash, signature, timestamp: new Date().toLocaleString('es-ES'), valid, tampered: isTampered, localFile });
-      if (!valid) this.log(`⚠ Seg #${segNum} INTEGRITY VIOLATION DETECTED`, 'err');
-      else        this.log(`Seg #${segNum} · VALID ✓`, 'success');
+        this.segments.push({ index: segNum, hash, signature, timestamp: new Date().toLocaleString('es-ES'), valid, tampered: isTampered, localFile });
+        if (!valid) this.log(`⚠ Seg #${segNum} INTEGRITY VIOLATION DETECTED`, 'err');
+        else        this.log(`Seg #${segNum} · VALID ✓`, 'success');
 
-      if (limit > 0 && this.segments.length >= limit) {
-        this.log(`✓ Reached limit of ${limit} segment(s) — stopping automatically`, 'success');
-        await this.stopStreaming();
+        if (limit > 0 && this.segments.length >= limit) {
+          this.log(`✓ Reached limit of ${limit} segment(s) — stopping automatically`, 'success');
+          await this.stopStreaming();
+        }
+      } finally {
+        // ✅ FIX: siempre liberar el lock, incluso si hay error
+        this._closing = false;
       }
     },
 
@@ -857,6 +874,7 @@ function viewerApp() {
       this.sessionStart = null; this.sessionTime = '00:00'; this.segElapsed = 0;
       this.config.videoId = '';
       this._canvasStream = null;
+      this._closing = false;
       this._drawIdle();
     },
   };
