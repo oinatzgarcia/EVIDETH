@@ -7,16 +7,22 @@ Flujo:
   2. Guarda .webm temporal
   3. ffmpeg: webm → mp4 (H.264 / AAC, faststart)
   4. Borra el .webm temporal
-  5. Devuelve ruta y tamaño del .mp4
+  5. Calcula SHA-256 del fichero archivado final (MP4 o WebM fallback)
+  6. Devuelve ruta, tamaño y sha256 del fichero real archivado
 
 Nota sobre integridad forense:
-  El SHA-256 lo calcula el navegador sobre el blob WebM ANTES de enviarlo.
-  El .mp4 resultante es la copia de archivo; el hash que va al backend
-  corresponde al WebM original (bytes que el navegador firmó).
+  El hash que se devuelve al viewer es SIEMPRE el SHA-256 del fichero
+  que queda guardado en disco (MP4 tras transcodificación, o WebM si
+  ffmpeg falla). El viewer DEBE usar este hash —no el del blob WebM
+  original— al registrar el segmento en el backend, de forma que el
+  hash en BD coincida con el fichero que el analista subirá para verificar.
 """
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import os, shutil, subprocess, tempfile
+import hashlib
+import os
+import shutil
+import subprocess
 
 app = FastAPI(title="EVIDETH Video Saver", docs_url=None, redoc_url=None)
 
@@ -58,6 +64,15 @@ def _transcode_to_mp4(webm_path: str, mp4_path: str) -> bool:
         return False
 
 
+def _sha256_file(path: str) -> str:
+    """Calcula el SHA-256 del fichero en path de forma eficiente (chunks de 64 KB)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 @app.post("/save-segment")
 async def save_segment(
     camera_id: str = Form(...),
@@ -67,6 +82,9 @@ async def save_segment(
 ):
     """Recibe un blob WebM, lo convierte a MP4 y lo guarda en
     /videos/<camera_id>/<video_id>/seg_NNN.mp4
+
+    Retorna el SHA-256 del fichero archivado final para que el viewer
+    lo registre en el backend en lugar del hash del blob WebM original.
     """
     # Validar path traversal
     for val in (camera_id, video_id):
@@ -97,12 +115,17 @@ async def save_segment(
         final_path = webm_path
         final_name = f"{seg_name}.webm"
 
+    # 3. SHA-256 del fichero archivado real (MP4 o WebM fallback)
+    #    Este es el hash que debe ir a la BD para que la verificación funcione.
+    sha256 = _sha256_file(final_path)
+
     size_kb = round(os.path.getsize(final_path) / 1024, 1)
     return {
         "saved": True,
         "path": f"{camera_id}/{video_id}/{final_name}",
         "size_kb": size_kb,
         "format": "mp4" if final_name.endswith(".mp4") else "webm",
+        "sha256": sha256,
     }
 
 
