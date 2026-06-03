@@ -350,6 +350,10 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
                 <p class="font-mono text-xs break-all" style="color:#d2a8ff" x-text="selectedSeg.signature || '—'"></p>
               </div>
               <div>
+                <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280">Merkle Root (L2)</p>
+                <p class="font-mono text-xs break-all" style="color:#3fb950" x-text="selectedSeg.merkleRoot || '—'"></p>
+              </div>
+              <div>
                 <p class="font-mono text-[10px] tracking-widest uppercase mb-1" style="color:#6b7280">Timestamp</p>
                 <p class="font-mono text-xs" style="color:#9ca3af" x-text="selectedSeg.timestamp"></p>
               </div>
@@ -406,6 +410,8 @@ body{font-family:'Rajdhani',sans-serif;background:#000;color:#fff;overflow-x:hid
         <div class="space-y-1">
           <p class="font-mono text-[10px]" style="color:#6b7280">SHA-256 (MP4)</p>
           <p class="font-mono text-[10px] break-all" style="color:#5ba3f5" x-text="segments.length > 0 ? segments[segments.length-1].hash : '—'"></p>
+          <p class="font-mono text-[10px] mt-2" style="color:#6b7280">Merkle Root (L2)</p>
+          <p class="font-mono text-[10px] break-all" style="color:#3fb950" x-text="segments.length > 0 ? (segments[segments.length-1].merkleRoot || 'not available') : '—'"></p>
           <p class="font-mono text-[10px] mt-2" style="color:#6b7280">ECDSA Sig</p>
           <p class="font-mono text-[10px] break-all" style="color:#d2a8ff" x-text="segments.length > 0 ? (segments[segments.length-1].signature || 'pending...') : '—'"></p>
           <p class="font-mono text-[10px] mt-2" style="color:#6b7280">Local File</p>
@@ -490,7 +496,7 @@ function viewerApp() {
     _recorder:      null,
     _recChunks:     [],
     _canvasStream:  null,
-    _closing:       false,   // ✅ FIX: guard para evitar re-entrada en _closeSegment
+    _closing:       false,
 
     init() {
       this._clockTimer = setInterval(() => {
@@ -527,8 +533,6 @@ function viewerApp() {
       });
     },
 
-    // ── SHA-256 real del blob (Web Crypto API — NIST FIPS 180-4) ─────────────
-    // Solo se usa como fallback cuando /save-segment no devuelve sha256
     async _hashBlob(blob) {
       const buffer = await blob.arrayBuffer();
       const digest = await crypto.subtle.digest('SHA-256', buffer);
@@ -626,9 +630,13 @@ function viewerApp() {
       });
     },
 
-    // ── Guarda el segmento en el servidor Docker y retorna { localFile, mp4Hash }
-    // mp4Hash es el SHA-256 del fichero MP4 archivado, calculado en el servidor.
-    // Si /save-segment no está disponible (fuera de Docker), retorna null.
+    // ── Guarda el blob WebM en el servidor Docker.
+    // Retorna { localFile, mp4Hash, merkleRoot, secondHashes } o null si falla.
+    // merkleRoot y secondHashes se calculan en save_video.py sobre el MP4 archivado
+    // usando el mismo algoritmo que app/services/video_processor.py:
+    //   SHA-256(frames RGB24 por segundo) → árbol Merkle binario.
+    // Estos datos se reenvían al backend para que verifier.py pueda usar L2 (Merkle)
+    // en lugar de caer al fallback L1 (hash de contenedor MP4), que siempre falla.
     async _saveSegmentLocally(blob, segIndex) {
       if (!blob || blob.size === 0) return null;
       const videoId = this.config.videoId || 'local';
@@ -641,9 +649,16 @@ function viewerApp() {
         const resp = await fetch('/save-segment', { method: 'POST', body: fd });
         if (resp.ok) {
           const data = await resp.json();
+          const mr = data.merkle_root || null;
           this.log(`💾 Seg #${segIndex + 1} saved → VIDEOS/${data.path} (${data.size_kb} KB, ${data.format})`, 'save');
-          // data.sha256 es el hash del MP4 archivado (o WebM si ffmpeg falló)
-          return { localFile: `VIDEOS/${data.path}`, mp4Hash: data.sha256 || null };
+          if (mr) this.log(`🌲 Merkle root L2: ${mr.substring(0,16)}...`, 'success');
+          else     this.log(`⚠ No merkle_root returned by /save-segment`, 'err');
+          return {
+            localFile:    `VIDEOS/${data.path}`,
+            mp4Hash:      data.sha256        || null,
+            merkleRoot:   data.merkle_root   || null,
+            secondHashes: data.second_hashes || [],
+          };
         } else {
           this.log(`💾 Save failed HTTP ${resp.status} — video saver running?`, 'err');
           return null;
@@ -713,7 +728,6 @@ function viewerApp() {
     },
 
     async stopStreaming() {
-      // ✅ FIX: guard contra doble ejecución (race condition con _closeSegment)
       if (!this.streaming) return;
       this.streaming = false;
 
@@ -737,8 +751,6 @@ function viewerApp() {
         this.config.videoId = '';
       }
 
-      // ✅ FIX: await _stopRecorder() antes de nullificar _canvasStream
-      // Evita que el recorder siga activo y genere chunks sobre un stream ya destruido
       await this._stopRecorder();
       this._recorder    = null;
       this._canvasStream = null;
@@ -749,7 +761,6 @@ function viewerApp() {
     },
 
     async _closeSegment() {
-      // ✅ FIX: evitar re-entrada concurrente (segmento fantasma)
       if (this._closing || !this.streaming) return;
       this._closing = true;
 
@@ -762,15 +773,12 @@ function viewerApp() {
         const blob = await this._stopRecorder();
         this._startRecorder();
 
-        // 2. Guardar en disco y obtener el SHA-256 del MP4 archivado
-        //    CLAVE: mp4Hash es el hash del fichero real que queda en /videos/
-        //    Ese mismo fichero será el que suba el analista para verificar.
+        // 2. Guardar en disco (Docker) → obtiene sha256, merkle_root, second_hashes
+        //    Todos calculados sobre el fichero MP4 final que quedará archivado.
         const saveResult = await this._saveSegmentLocally(blob, segIdx);
         const localFile  = saveResult?.localFile || null;
 
-        // 3. Determinar el hash que se registra en el backend:
-        //    - Si /save-segment devolvió sha256 (MP4 o WebM archivado) → usarlo  ✅
-        //    - Si no hay servidor Docker disponible → hash del blob WebM (fallback)
+        // 3. Hash definitivo: preferimos el MP4 archivado (coherente con verificación)
         let hash;
         if (saveResult?.mp4Hash) {
           hash = saveResult.mp4Hash;
@@ -787,23 +795,37 @@ function viewerApp() {
           this.log(`SHA-256 (WebM fallback): ${hash.substring(0,16)}...${hash.substring(48)}`, 'hash');
         }
 
-        // 4. Simular tampering: enviar hash distinto al backend si está activado
+        // 4. Simular tampering
         const isTampered = this.config.tamper && Math.random() < 0.35;
         let signature = null;
         let valid = !isTampered;
 
+        // 5. Registrar segmento en el backend.
+        //    CLAVE: merkle_root y second_hashes se incluyen siempre que estén disponibles.
+        //    Sin ellos, verifier.py cae al fallback L1 (hash de contenedor), que SIEMPRE falla
+        //    porque ffmpeg regenera bytes de contenedor distintos al re-segmentar el vídeo.
+        //    Con merkle_root en BD, la verificación usa L2 (frames RGB) → siempre coincide.
         try {
           if (!this.config.videoId) throw new Error('no videoId — backend skipped');
+
+          // Si tamper: enviamos sha256 corrupto y omitimos merkle_root/second_hashes
+          // (coherente: si el fichero cambió, los hashes de frame también cambiarían)
+          const tamperedHash = (() => {
+            const a = new Uint8Array(32); crypto.getRandomValues(a);
+            return Array.from(a).map(b=>b.toString(16).padStart(2,'0')).join('');
+          });
+
           const payload = {
             video_id:        this.config.videoId,
             segment_index:   segIdx,
             start_time_secs: segIdx * parseInt(this.config.segmentSec),
             end_time_secs:   segNum * parseInt(this.config.segmentSec),
-            // Si tamper: enviamos un hash diferente al real (simula modificación del fichero)
-            sha256_hash: isTampered
-              ? (() => { const a = new Uint8Array(32); crypto.getRandomValues(a); return Array.from(a).map(b=>b.toString(16).padStart(2,'0')).join(''); })()
-              : hash,
+            sha256_hash:     isTampered ? tamperedHash() : hash,
+            // ── FIX: incluir datos L2 para que verifier.py use Merkle en lugar de L1 ──
+            merkle_root:     isTampered ? null : (saveResult?.merkleRoot   || null),
+            second_hashes:   isTampered ? []   : (saveResult?.secondHashes || []),
           };
+
           const resp = await fetch(
             `${this.config.backendUrl}/api/v1/cameras/segments`,
             { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': this.config.apiKey }, body: JSON.stringify(payload) }
@@ -811,7 +833,8 @@ function viewerApp() {
           if (resp.ok) {
             const data = await resp.json();
             signature = data.ecdsa_signature || this._fakeSignature();
-            this.log(`Seg #${segNum} · Backend: ${resp.status} · Stored ✓`, 'sign');
+            const l2ok = payload.merkle_root ? ' [L2 Merkle ✓]' : ' [L1 only]';
+            this.log(`Seg #${segNum} · Backend: ${resp.status} · Stored ✓${l2ok}`, 'sign');
           } else {
             const errText = await resp.text().catch(() => '');
             this.log(`Seg #${segNum} · Backend: ${resp.status} (local sim) ${errText.slice(0,60)}`, 'err');
@@ -822,7 +845,17 @@ function viewerApp() {
           signature = this._fakeSignature();
         }
 
-        this.segments.push({ index: segNum, hash, signature, timestamp: new Date().toLocaleString('es-ES'), valid, tampered: isTampered, localFile });
+        // 6. Guardar en el estado local del viewer (incluye merkleRoot para la UI)
+        this.segments.push({
+          index: segNum,
+          hash,
+          signature,
+          merkleRoot: saveResult?.merkleRoot || null,
+          timestamp: new Date().toLocaleString('es-ES'),
+          valid,
+          tampered: isTampered,
+          localFile,
+        });
         if (!valid) this.log(`⚠ Seg #${segNum} INTEGRITY VIOLATION DETECTED`, 'err');
         else        this.log(`Seg #${segNum} · VALID ✓`, 'success');
 
@@ -831,7 +864,6 @@ function viewerApp() {
           await this.stopStreaming();
         }
       } finally {
-        // ✅ FIX: siempre liberar el lock, incluso si hay error
         this._closing = false;
       }
     },
