@@ -122,8 +122,13 @@ def segment_video(video_path: str, output_dir: str) -> List[Dict]:
     """
     Divide el video en segmentos lógicos de SEGMENT_DURATION segundos.
 
-    Para videos de un único segmento (duración <= SEGMENT_DURATION),
-    se hashea el fichero original directamente sin re-extraerlo con ffmpeg.
+    Cambios respecto a la versión anterior:
+    - Se omiten segmentos con duración == 0 (evita segmentos fantasma al
+      final cuando la duración es exactamente múltiplo de SEGMENT_DURATION).
+    - Para vídeos de un único segmento lógico, se extrae igualmente con
+      ffmpeg -c copy para que el fichero hasheado sea el mismo slice que
+      guardó save_video.py, garantizando consistencia forense entre
+      grabación y verificación.
     """
     duration = get_video_duration(video_path)
     total_logical_segments = math.ceil(duration / SEGMENT_DURATION)
@@ -134,36 +139,41 @@ def segment_video(video_path: str, output_dir: str) -> List[Dict]:
     while start < duration:
         end = min(start + SEGMENT_DURATION, duration)
         seg_duration = end - start
+
+        # Omitir segmentos de duración cero (ocurre cuando duration es
+        # exactamente múltiplo de SEGMENT_DURATION y el bucle da un paso extra).
+        if seg_duration <= 0:
+            start = end
+            continue
+
         is_complete = seg_duration >= SEGMENT_DURATION
 
-        if total_logical_segments == 1:
-            work_path = video_path
-            sha256_hash = calculate_sha256(work_path)
-            file_size = os.path.getsize(work_path)
-        else:
-            work_path = os.path.join(output_dir, f"segment_{segment_index:04d}.mp4")
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-i",
-                video_path,
-                "-ss",
-                str(start),
-                "-t",
-                str(seg_duration),
-                "-c",
-                "copy",
-                "-avoid_negative_ts",
-                "1",
-                work_path,
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise RuntimeError(
-                    f"ffmpeg error en segmento {segment_index}: {result.stderr}"
-                )
-            sha256_hash = calculate_sha256(work_path)
-            file_size = os.path.getsize(work_path)
+        # Extraer siempre el slice con ffmpeg -c copy para que el fichero
+        # hasheado sea equivalente al que guarda save_video.py.
+        # Esto garantiza que hash(segmento extraído aquí) == hash(MP4 en /videos/).
+        work_path = os.path.join(output_dir, f"segment_{segment_index:04d}.mp4")
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            video_path,
+            "-ss",
+            str(start),
+            "-t",
+            str(seg_duration),
+            "-c",
+            "copy",
+            "-avoid_negative_ts",
+            "1",
+            work_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg error en segmento {segment_index}: {result.stderr}"
+            )
+        sha256_hash = calculate_sha256(work_path)
+        file_size = os.path.getsize(work_path)
 
         # max(1) garantiza al menos 1 hash aunque ffprobe reporte < 1 s
         second_hashes = extract_second_hashes(work_path, max(int(seg_duration), 1))
