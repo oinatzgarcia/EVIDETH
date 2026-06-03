@@ -34,17 +34,20 @@ def build_merkle_root(leaf_hashes: List[str]) -> str:
 
     Args:
         leaf_hashes: Lista de hashes SHA-256 en hex (uno por segundo del segmento).
-                     Si la lista está vacía, devuelve el hash de bytes vacíos
-                     como sentinel (no lanza excepción).
+                     La lista no puede estar vacía; el llamador debe garantizar
+                     al menos una hoja (extract_second_hashes usa max(duration, 1)).
 
     Returns:
         Merkle root como string hex de 64 caracteres.
+
+    Raises:
+        ValueError: Si leaf_hashes está vacío.
     """
     if not leaf_hashes:
-        # Segmento de duración < 1 s o sin frames decodificables.
-        # Devolvemos el hash de bytes vacíos como sentinel en lugar de
-        # lanzar una excepción que bloquearía la verificación completa.
-        return _EMPTY_HASH
+        raise ValueError(
+            "build_merkle_root requiere al menos una hoja. "
+            "Comprueba que extract_second_hashes devuelva min 1 hash."
+        )
 
     if len(leaf_hashes) == 1:
         return leaf_hashes[0]
