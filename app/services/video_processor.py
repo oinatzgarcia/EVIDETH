@@ -122,16 +122,13 @@ def segment_video(video_path: str, output_dir: str) -> List[Dict]:
     """
     Divide el video en segmentos lógicos de SEGMENT_DURATION segundos.
 
-    Cambios respecto a la versión anterior:
     - Se omiten segmentos con duración == 0 (evita segmentos fantasma al
       final cuando la duración es exactamente múltiplo de SEGMENT_DURATION).
-    - Para vídeos de un único segmento lógico, se extrae igualmente con
-      ffmpeg -c copy para que el fichero hasheado sea el mismo slice que
-      guardó save_video.py, garantizando consistencia forense entre
-      grabación y verificación.
+    - Se extrae siempre con ffmpeg -c copy para que el fichero hasheado
+      sea equivalente al que guarda save_video.py, garantizando consistencia
+      forense entre grabación y verificación.
     """
     duration = get_video_duration(video_path)
-    total_logical_segments = math.ceil(duration / SEGMENT_DURATION)
     segments = []
     segment_index = 0
     start = 0.0
@@ -150,7 +147,6 @@ def segment_video(video_path: str, output_dir: str) -> List[Dict]:
 
         # Extraer siempre el slice con ffmpeg -c copy para que el fichero
         # hasheado sea equivalente al que guarda save_video.py.
-        # Esto garantiza que hash(segmento extraído aquí) == hash(MP4 en /videos/).
         work_path = os.path.join(output_dir, f"segment_{segment_index:04d}.mp4")
         cmd = [
             "ffmpeg",
