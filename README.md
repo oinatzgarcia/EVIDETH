@@ -30,7 +30,7 @@
 
 ### 🌐 URL del servidor
 
-**[https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io](https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io)**
+**[https://evideth-dev-backend.icymushroom-b7fd3b26.spaincentral.azurecontainerapps.io](https://evideth-dev-backend.icymushroom-b7fd3b26.spaincentral.azurecontainerapps.io)**
 
 > La raíz (`/`) redirige automáticamente a la página de login.
 
@@ -46,7 +46,7 @@ El sistema crea automáticamente un usuario administrador al arrancar por primer
 | **Contraseña** | `Evideth@2026!` |
 | **Rol** | Administrador |
 
-> ⚠️ El sistema solicitará **cambiar la contraseña en el primer acceso** (`must_change_password = true`). Una vez cambiada, el acceso es completo.
+> ⚠️ El cambio de contraseña **no es automático**. Tras el primer login, el administrador debe ir a **Settings** y cambiarla manualmente desde ahí.
 
 ---
 
@@ -54,7 +54,7 @@ El sistema crea automáticamente un usuario administrador al arrancar por primer
 
 La documentación completa de todos los endpoints REST está disponible en:
 
-**[https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io/docs](https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io/docs)**
+**[https://evideth-dev-backend.icymushroom-b7fd3b26.spaincentral.azurecontainerapps.io/docs](https://evideth-dev-backend.icymushroom-b7fd3b26.spaincentral.azurecontainerapps.io/docs)**
 
 ---
 
@@ -264,7 +264,7 @@ Edita el fichero `frontend/client.config.js` con los datos de tu cámara:
 window.EVIDETH_CONFIG = {
   CAMERA_ID:      'CAM1',                          // ID de la cámara registrada
   CAMERA_API_KEY: 'evideth_cam_XXXXXXXXXXXX',       // API Key obtenida al registrar la cámara
-  BACKEND_URL:    'https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io',
+  BACKEND_URL:    'https://evideth-dev-backend.icymushroom-b7fd3b26.spaincentral.azurecontainerapps.io',
   MAX_SEGMENTS:   0,                               // 0 = sin límite · N = para automáticamente al llegar a N
 };
 ```
