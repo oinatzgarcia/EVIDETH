@@ -24,6 +24,40 @@
 
 ---
 
+## 🚀 Acceso Rápido al Sistema
+
+> El sistema está desplegado y operativo en **Microsoft Azure (Spain Central)**. Se puede acceder directamente desde el navegador sin necesidad de instalar nada.
+
+### 🌐 URL del servidor
+
+**[https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io](https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io)**
+
+> La raíz (`/`) redirige automáticamente a la página de login.
+
+---
+
+### 🔑 Credenciales de administrador por defecto
+
+El sistema crea automáticamente un usuario administrador al arrancar por primera vez:
+
+| Campo | Valor |
+|---|---|
+| **Email** | `admin@evideth.com` |
+| **Contraseña** | `Evideth@2026!` |
+| **Rol** | Administrador |
+
+> ⚠️ El sistema solicitará **cambiar la contraseña en el primer acceso** (`must_change_password = true`). Una vez cambiada, el acceso es completo.
+
+---
+
+### 📚 Documentación interactiva de la API (Swagger)
+
+La documentación completa de todos los endpoints REST está disponible en:
+
+**[https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io/docs](https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io/docs)**
+
+---
+
 ## 🎯 Descripción General
 
 EVIDETH es un sistema de verificación de integridad de vídeo de grado forense que garantiza la autenticidad e inalterabilidad de grabaciones de vigilancia mediante firmas criptográficas.
@@ -230,7 +264,7 @@ Edita el fichero `frontend/client.config.js` con los datos de tu cámara:
 window.EVIDETH_CONFIG = {
   CAMERA_ID:      'CAM1',                          // ID de la cámara registrada
   CAMERA_API_KEY: 'evideth_cam_XXXXXXXXXXXX',       // API Key obtenida al registrar la cámara
-  BACKEND_URL:    'https://evideth-dev-backend.icymushroom-b7fd3b26.spaincentral.azurecontainerapps.io',
+  BACKEND_URL:    'https://evideth-dev-backend.icywave-c2a647eb.spaincentral.azurecontainerapps.io',
   MAX_SEGMENTS:   0,                               // 0 = sin límite · N = para automáticamente al llegar a N
 };
 ```
